@@ -81,10 +81,59 @@ namespace bf::ui
         sample->knob(ids::smpLoopStart, "Loop Start");
         sample->knob(ids::smpLoopEnd, "Loop End");
         sample->knob(ids::smpDecay, "Decay");
+
+        for (auto* n : { "OSC 1", "OSC 2", "OSC 3", "SUB / NOISE", "SAMPLE" }) addSection(n);
+    }
+
+    void OscillatorPage::applySection()
+    {
+        for (int i = 0; i < kNumOsc; ++i) osc[(size_t) i]->panel.setVisible(! compact || section == i);
+        sub->panel.setVisible(! compact || section == 3);
+        noise->panel.setVisible(! compact || section == 3);
+        sample->panel.setVisible(! compact || section == 4);
+    }
+
+    /** Divide l'area in due: affiancate se c'e' spazio in larghezza, altrimenti una sopra l'altra. */
+    static std::pair<juce::Rectangle<int>, juce::Rectangle<int>> splitArea(juce::Rectangle<int> b, float firstShare, int gap = 6)
+    {
+        if (b.getWidth() >= b.getHeight())
+        {
+            auto a = b.removeFromLeft((int) ((float) b.getWidth() * firstShare));
+            b.removeFromLeft(gap);
+            return { a, b };
+        }
+        auto a = b.removeFromTop((int) ((float) b.getHeight() * firstShare));
+        b.removeFromTop(gap);
+        return { a, b };
+    }
+
+    /** Pannello con una vista grafica (wavetable / inviluppo) e la griglia dei controlli. */
+    static void layoutWithView(Group& g, juce::Component& view, juce::Rectangle<int> area, float viewShare)
+    {
+        g.panel.setBounds(area);
+        auto c = g.panel.content();
+        auto [v, rest] = splitArea(c, viewShare);
+        view.setBounds(v.reduced(0, 2));
+        layoutGrid(rest, g.items, PageBase::autoColsFor((int) g.items.size(), rest));
     }
 
     void OscillatorPage::resized()
     {
+        if (compact)
+        {
+            sectionButtons[3]->setButtonText(getWidth() < 600 ? "SUB" : "SUB / NOISE");
+            auto b = layoutSectionBar(getLocalBounds().reduced(4));
+            if (section < kNumOsc)
+                layoutWithView(*osc[(size_t) section], *views[(size_t) section], b, 0.36f);
+            else if (section == 3)
+            {
+                auto [a, c] = splitArea(b, 0.62f);
+                layoutAuto(*sub, a);
+                layoutAuto(*noise, c);
+            }
+            else layoutAuto(*sample, b);
+            return;
+        }
         auto b = getLocalBounds().reduced(6);
         auto top = b.removeFromTop((int) ((float) b.getHeight() * 0.64f));
         const int cw = top.getWidth() / kNumOsc;
@@ -134,10 +183,31 @@ namespace bf::ui
         noiseFlt->knob(ids::nfltCutoff, "Cutoff");
         noiseFlt->knob(ids::nfltRes, "Resonance");
         noiseFlt->knob(ids::nfltTrack, "Keytrack");
+
+        for (auto* n : { "FILTER 1", "FILTER 2", "ROUTING" }) addSection(n);
+    }
+
+    void FilterPage::applySection()
+    {
+        for (int i = 0; i < kNumFilter; ++i) flt[(size_t) i]->panel.setVisible(! compact || section == i);
+        routing->panel.setVisible(! compact || section == kNumFilter);
+        noiseFlt->panel.setVisible(! compact || section == kNumFilter);
     }
 
     void FilterPage::resized()
     {
+        if (compact)
+        {
+            auto b = layoutSectionBar(getLocalBounds().reduced(4));
+            if (section < kNumFilter) layoutAuto(*flt[(size_t) section], b);
+            else
+            {
+                auto [a, c] = splitArea(b, 0.4f);
+                layoutAuto(*routing, a);
+                layoutAuto(*noiseFlt, c);
+            }
+            return;
+        }
         auto b = getLocalBounds().reduced(6);
         auto left = b.removeFromLeft((int) ((float) b.getWidth() * 0.70f));
         const int h = left.getHeight() / kNumFilter;
@@ -232,22 +302,82 @@ namespace bf::ui
             addAndMakeVisible(bt);
         }
         viewButtons[0].setToggleState(true, juce::dontSendNotification);
+        for (auto* n : { "1", "2", "3", "4" }) addSection(n);
         showView(0);
+    }
+
+    void ModulatorPage::applySection()
+    {
+        const char* full[4]  = { "Envelopes", "LFO Settings", "Macros & Matrix", "Performer" };
+        const char* brief[4] = { "ENV", "LFO", "MACRO", "PERF" };
+        for (int i = 0; i < 4; ++i) viewButtons[(size_t) i].setButtonText(compact ? brief[i] : full[i]);
+
+        if (view == 2 && section > 1) { section = 0; for (int k = 0; k < 4; ++k) sectionButtons[(size_t) k]->setToggleState(k == 0, juce::dontSendNotification); }
+        for (int k = 0; k < 4; ++k)
+        {
+            auto& bt = *sectionButtons[(size_t) k];
+            bt.setButtonText(view == 2 ? (k == 0 ? "Macro" : "Matrix") : juce::String(k + 1));
+            bt.setVisible(compact && view != 3 && (view != 2 || k < 2));
+        }
+
+        for (int i = 0; i < kNumEnv; ++i) env[(size_t) i]->panel.setVisible(view == 0 && (! compact || section == i));
+        for (int i = 0; i < kNumLfo; ++i) lfo[(size_t) i]->panel.setVisible(view == 1 && (! compact || section == i));
+        macros->panel.setVisible(view == 2 && (! compact || section == 0));
+        matrixPanel.setVisible(view == 2 && (! compact || section == 1));
+        performerPanel.setVisible(view == 3);
     }
 
     void ModulatorPage::showView(int v)
     {
         view = v;
-        for (int i = 0; i < kNumEnv; ++i) env[(size_t) i]->panel.setVisible(v == 0);
-        for (int i = 0; i < kNumLfo; ++i) lfo[(size_t) i]->panel.setVisible(v == 1);
-        macros->panel.setVisible(v == 2);
-        matrixPanel.setVisible(v == 2);
-        performerPanel.setVisible(v == 3);
+        applySection();
         resized();
     }
 
     void ModulatorPage::resized()
     {
+        if (compact)
+        {
+            auto b = getLocalBounds().reduced(4);
+            auto bar = b.removeFromTop(32);
+            const int vw = juce::jmin(110, (int) ((float) bar.getWidth() * 0.6f) / 4);
+            for (auto& bt : viewButtons) bt.setBounds(bar.removeFromLeft(vw).reduced(2));
+            bar.removeFromLeft(10);
+            const int sw = juce::jmin(view == 2 ? 90 : 60, bar.getWidth() / (view == 2 ? 2 : 4));
+            for (auto& bt : sectionButtons) bt->setBounds(bar.removeFromLeft(sw).reduced(2));
+            b.removeFromTop(4);
+
+            if (view == 0) layoutWithView(*env[(size_t) section], *envViews[(size_t) section], b, 0.42f);
+            else if (view == 1) layoutAuto(*lfo[(size_t) section], b);
+            else if (view == 2 && section == 0) layoutAuto(*macros, b);
+            else if (view == 2)
+            {
+                matrixPanel.setBounds(b);
+                auto c = matrixPanel.content();
+                const int cols = c.getWidth() >= 640 ? 2 : 1, perCol = kNumSlots / cols;
+                const int colW = c.getWidth() / cols, rowH = c.getHeight() / perCol;
+                for (int i = 0; i < kNumSlots; ++i)
+                {
+                    auto cell = juce::Rectangle<int>(c.getX() + (i / perCol) * colW, c.getY() + (i % perCol) * rowH, colW, rowH).reduced(4, 2);
+                    auto& r = rows[(size_t) i];
+                    r.idx->setBounds(cell.removeFromLeft(22));
+                    const int cw = (int) ((float) cell.getWidth() * 0.32f);
+                    r.src->setBounds(cell.removeFromLeft(cw));
+                    r.dst->setBounds(cell.removeFromLeft(cw));
+                    r.amt->setBounds(cell.reduced(4, 0));
+                }
+            }
+            else
+            {
+                performerPanel.setBounds(b);
+                auto c = performerPanel.content();
+                auto tb = c.removeFromTop(30);
+                for (auto& t : perfTargets) t.setBounds(tb.removeFromLeft(80).reduced(2));
+                performer->setBounds(c);
+            }
+            return;
+        }
+
         auto b = getLocalBounds().reduced(6);
         auto bar = b.removeFromTop(34);
         for (int i = 0; i < 4; ++i) viewButtons[(size_t) i].setBounds(bar.removeFromLeft(150));
@@ -365,10 +495,29 @@ namespace bf::ui
         };
         orderCombo->combo.onChange = update;
         update();
+
+        for (auto* n : { "OTT", "DRIVE", "DIM", "DELAY", "REVERB", "CHAIN" }) addSection(n);
+    }
+
+    void FxPage::applySection()
+    {
+        Group* all[] = { ott, drive, dim, delay, reverb, chain };
+        for (int i = 0; i < 6; ++i) all[i]->panel.setVisible(! compact || section == i);
     }
 
     void FxPage::resized()
     {
+        if (compact)
+        {
+            auto b = layoutSectionBar(getLocalBounds().reduced(4));
+            Group* all[] = { ott, drive, dim, delay, reverb, chain };
+            if (section < 5) { layoutAuto(*all[section], b); return; }
+            chain->panel.setBounds(b);
+            auto c = chain->panel.content().withSizeKeepingCentre(juce::jmin(420, chain->panel.content().getWidth()), 100);
+            orderCombo->setBounds(c.removeFromTop(52).reduced(4, 0));
+            chainLabel.setBounds(c.removeFromTop(40));
+            return;
+        }
         auto b = getLocalBounds().reduced(6);
         auto row1 = b.removeFromTop(b.getHeight() / 2), row2 = b;
         const int w1 = row1.getWidth();

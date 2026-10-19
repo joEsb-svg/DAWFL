@@ -885,25 +885,17 @@ void MainComponent::handleCommandLine (const juce::String& commandLine)
     if (args.contains ("--synth"))
         openSynthPanel();
 
-    if (const int i = args.indexOf ("--synth-tab"); i >= 0)   // test: apre una scheda dell'interfaccia mobile
+    if (const int i = args.indexOf ("--synth-tab"); i >= 0)   // test: pagina, sezione (e vista per i modulatori)
     {
         openSynthPanel();
-        synthPanel->showTab (args[i + 1].getIntValue(), args[i + 2].getIntValue());
-    }
-
-    if (args.contains ("--synth-advanced"))
-    {
-        openSynthPanel();
-        synthPanel->setAdvanced (true);
+        synthPanel->showTab (args[i + 1].getIntValue(), args[i + 2].getIntValue(), args[i + 3].getIntValue());
     }
 
     if (args.contains ("--synth-reopen"))   // test: apri, chiudi, riapri
     {
         openSynthPanel();
-        synthPanel->setAdvanced (true);
         synthPanel->onClose();
         openSynthPanel();
-        synthPanel->setAdvanced (true);
         synthPanel->onClose();
         openSynthPanel();
     }

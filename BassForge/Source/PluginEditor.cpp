@@ -67,8 +67,64 @@ void BassForgeAudioProcessorEditor::showPage(int index)
     for (int i = 0; i < 4; ++i) pages[i]->setVisible(i == current);
 }
 
+void BassForgeAudioProcessorEditor::setCompactLayout(bool c)
+{
+    if (compact == c) return;
+    compact = c;
+    const char* full[4]  = { "OSCILLATORS", "FILTERS", "MODULATORS", "FX" };
+    const char* brief[4] = { "OSC", "FILTER", "MOD", "FX" };
+    for (int i = 0; i < 4; ++i) tabs[i].setButtonText(c ? brief[i] : full[i]);
+
+    if (c)
+    {
+        setResizable(false, false);
+        setConstrainer(nullptr);          // dimensione decisa dall'host (schermo del telefono)
+    }
+    else
+    {
+        setConstrainer(&constrainer);
+        setResizable(true, true);
+    }
+    oscPage.setCompact(c); filterPage.setCompact(c); modPage.setCompact(c); fxPage.setCompact(c);
+    resized();
+    repaint();
+}
+
+void BassForgeAudioProcessorEditor::showPageSection(int page, int section, int view)
+{
+    page = juce::jlimit(0, 3, page);
+    tabs[page].setToggleState(true, juce::dontSendNotification);
+    showPage(page);
+    if (page == 2 && view >= 0) modPage.selectView(view);
+    static_cast<bf::ui::PageBase*>(pages[page])->showSection(section);
+}
+
+int BassForgeAudioProcessorEditor::compactHeaderHeight() const
+{
+    return getWidth() < 600 ? 76 : 40;    // verticale: due righe (logo + master, poi schede)
+}
+
 void BassForgeAudioProcessorEditor::paint(juce::Graphics& g)
 {
+    if (compact)
+    {
+        g.fillAll(ui::col::bg);
+        auto head = getLocalBounds().removeFromTop(compactHeaderHeight());
+        g.setGradientFill(juce::ColourGradient(ui::col::panelHi, 0.0f, 0.0f, ui::col::bg, 0.0f, (float) head.getHeight(), false));
+        g.fillRect(head);
+        g.setColour(ui::col::edge);
+        g.drawHorizontalLine(head.getBottom() - 1, 0.0f, (float) getWidth());
+        auto logo = head.removeFromTop(38).withWidth(118).translated(10, 0);
+        g.setFont(juce::Font(juce::FontOptions(18.0f, juce::Font::bold)));
+        g.setColour(ui::col::text);
+        g.drawText("BASS", logo, juce::Justification::centredLeft);
+        g.setColour(ui::col::cyan);
+        g.drawText("FORGE", logo.withTrimmedLeft(50), juce::Justification::centredLeft);
+        g.setColour(ui::col::orange);
+        g.fillRoundedRectangle((float) logo.getX(), (float) logo.getBottom() - 8.0f, 106.0f, 2.0f, 1.0f);
+        return;
+    }
+
     g.fillAll(ui::col::bg);
     auto head = getLocalBounds().removeFromTop(getHeight() / 11);
     g.setGradientFill(juce::ColourGradient(ui::col::panelHi, 0.0f, 0.0f, ui::col::bg, 0.0f, (float) head.getHeight(), false));
@@ -88,6 +144,36 @@ void BassForgeAudioProcessorEditor::paint(juce::Graphics& g)
 
 void BassForgeAudioProcessorEditor::resized()
 {
+    if (compact)
+    {
+        auto b = getLocalBounds();
+        auto head = b.removeFromTop(compactHeaderHeight());
+        const bool twoRows = head.getHeight() > 50;
+        auto row1 = head.removeFromTop(38).reduced(8, 6);
+        row1.removeFromLeft(124);                                      // logo
+        masterBar.setBounds(row1.removeFromRight(twoRows ? 96 : 120).withSizeKeepingCentre(twoRows ? 96 : 120, 22));
+        masterLabel.setVisible(! twoRows);
+        if (! twoRows) masterLabel.setBounds(row1.removeFromRight(56));
+        limiterBtn.setBounds(row1.removeFromRight(56).withSizeKeepingCentre(52, 24));
+        row1.removeFromRight(6);
+        auto tabRow = twoRows ? head.reduced(8, 3) : row1;
+        if (! twoRows)
+        {
+            scope.setBounds(row1.removeFromRight(juce::jmin(150, juce::jmax(0, row1.getWidth() - 4 * 70))).reduced(0, 1));
+            row1.removeFromRight(8);
+            tabRow = row1;
+        }
+        else scope.setBounds(row1.reduced(0, 1));
+        const int tw = juce::jmin(96, tabRow.getWidth() / 4);
+        for (auto& t : tabs) t.setBounds(tabRow.removeFromLeft(tw).reduced(1, 0));
+
+        if (presetBar.isVisible())
+            presetBar.setBounds(b.removeFromTop(32).reduced(8, 2).withWidth(juce::jmin(500, b.getWidth() - 16)));
+        for (auto* pg : pages) pg->setBounds(b);
+        return;
+    }
+    masterLabel.setVisible(true);
+
     auto b = getLocalBounds();
     auto head = b.removeFromTop(getHeight() / 11);
     const float s = (float) getHeight() / (float) kBaseH;

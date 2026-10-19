@@ -22,6 +22,18 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
 
+    /** Layout per telefono (usato da JLoop): dimensione libera, header compatto, una sezione alla volta.
+        Stesso aspetto e stessi controlli dell'editor normale. */
+    void setCompactLayout(bool shouldBeCompact);
+    bool isCompactLayout() const noexcept { return compact; }
+    int compactHeaderHeight() const;
+    /** Apre una pagina (0..3) e una sua sezione; per i modulatori `view` sceglie Env/LFO/Macro/Performer. */
+    void showPageSection(int page, int section, int view = -1);
+    int getCurrentPage() const noexcept { return current; }
+    int getCurrentSection() const { return static_cast<const bf::ui::PageBase*>(pages[current])->getSection(); }
+    int getModulatorView() const noexcept { return modPage.getView(); }
+    void setPresetBarVisible(bool v) { presetBar.setVisible(v); resized(); }
+
 private:
     void timerCallback() override;
     void showPage(int index);
@@ -46,6 +58,7 @@ private:
     bf::ui::FxPage         fxPage;
     juce::Component*       pages[4];
     int                    current = 0;
+    bool                   compact = false;
 
     juce::ComponentBoundsConstrainer constrainer;
 

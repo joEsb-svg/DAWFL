@@ -1,5 +1,6 @@
 #pragma once
 #include <deque>
+#include <cmath>
 #include "KnobKit.h"
 #include "WavetableView.h"
 #include "EnvelopeView.h"
@@ -36,7 +37,78 @@ namespace bf::ui
         ModRingModel& ring;
         void own(std::unique_ptr<juce::Component> c) { owned.push_back(std::move(c)); }
 
+        /** Layout per schermi piccoli (telefono): una sezione alla volta, scelta da una fila di pulsanti. */
+        void setCompact(bool c)
+        {
+            compact = c;
+            for (auto& b : sectionButtons) b->setVisible(c && sectionsVisible());
+            applySection();
+            resized();
+        }
+        bool isCompact() const noexcept { return compact; }
+        static int autoColsFor(int n, juce::Rectangle<int> area) { return autoCols(n, area); }
+        int getSection() const noexcept { return section; }
+        void showSection(int i)
+        {
+            section = juce::jlimit(0, juce::jmax(0, (int) sectionButtons.size() - 1), i);
+            for (int k = 0; k < (int) sectionButtons.size(); ++k)
+                sectionButtons[(size_t) k]->setToggleState(k == section, juce::dontSendNotification);
+            applySection();
+            resized();
+        }
+
     protected:
+        void addSection(const juce::String& name)
+        {
+            auto b = std::make_unique<juce::TextButton>(name);
+            const int i = (int) sectionButtons.size();
+            b->setClickingTogglesState(true);
+            b->setRadioGroupId(5100 + (int) (reinterpret_cast<std::uintptr_t>(this) & 0xfff));
+            b->setToggleState(i == 0, juce::dontSendNotification);
+            b->onClick = [this, i] { showSection(i); };
+            addChildComponent(*b);
+            sectionButtons.push_back(std::move(b));
+        }
+        /** Dispone la fila delle sezioni in alto e restituisce l'area rimanente. */
+        juce::Rectangle<int> layoutSectionBar(juce::Rectangle<int> b)
+        {
+            if (sectionButtons.empty() || ! sectionsVisible()) return b;
+            auto bar = b.removeFromTop(32);
+            const int n = (int) sectionButtons.size();
+            const int w = juce::jmin(110, bar.getWidth() / n);
+            for (auto& bt : sectionButtons) bt->setBounds(bar.removeFromLeft(w).reduced(2));
+            b.removeFromTop(4);
+            return b;
+        }
+        /** Colonne della griglia scelte in modo che le celle siano circa quadrate. */
+        static int autoCols(int n, juce::Rectangle<int> area)
+        {
+            if (n <= 1 || area.getHeight() <= 0) return 1;
+            // Celle il piu' possibile quadrate, evitando righe con molti buchi
+            int best = 1; double bestScore = 1e9;
+            for (int c = 1; c <= n; ++c)
+            {
+                const int rows = (n + c - 1) / c;
+                const double cell = ((double) area.getWidth() / c) / ((double) area.getHeight() / rows);
+                const double score = std::abs(std::log(cell / 0.9)) + 0.35 * (double) (c * rows - n) / (double) c;
+                if (score < bestScore) { bestScore = score; best = c; }
+            }
+            return best;
+        }
+        static void layoutAuto(Group& g, juce::Rectangle<int> area)
+        {
+            g.panel.setBounds(area);
+            auto c = g.panel.content();
+            layoutGrid(c, g.items, autoCols((int) g.items.size(), c));
+        }
+        static void layoutAuto(Group& g) { layoutAuto(g, g.panel.getBounds()); }
+        virtual void applySection() {}
+        virtual bool sectionsVisible() const { return true; }
+
+        bool compact = false;
+        int section = 0;
+        std::vector<std::unique_ptr<juce::TextButton>> sectionButtons;
+
         Group& addGroup(const juce::String& title, int cols) { groups.emplace_back(*this, title, cols); return groups.back(); }
         std::deque<Group> groups;
         std::vector<std::unique_ptr<juce::Component>> owned;
@@ -49,6 +121,7 @@ namespace bf::ui
         OscillatorPage(Apvts&, ModRingModel&, const WavetableBank&, const ModMonitor&);
         void resized() override;
     private:
+        void applySection() override;
         std::array<Group*, kNumOsc> osc{};
         std::array<std::unique_ptr<WavetableView>, kNumOsc> views;
         Group *sub = nullptr, *noise = nullptr, *sample = nullptr;
@@ -61,6 +134,7 @@ namespace bf::ui
         FilterPage(Apvts&, ModRingModel&);
         void resized() override;
     private:
+        void applySection() override;
         std::array<Group*, kNumFilter> flt{};
         Group *routing = nullptr, *noiseFlt = nullptr;
     };
@@ -71,8 +145,12 @@ namespace bf::ui
     public:
         ModulatorPage(Apvts&, ModRingModel&, PerformerBank&);
         void resized() override;
+        int getView() const noexcept { return view; }
+        void selectView(int v) { v = juce::jlimit(0, 3, v); viewButtons[(size_t) v].setToggleState(true, juce::dontSendNotification); showView(v); }
     private:
+        void applySection() override;
         void showView(int v);
+        bool sectionsVisible() const override { return view != 3; }
         std::array<Group*, kNumEnv> env{};
         std::array<Group*, kNumLfo> lfo{};
         Group* macros = nullptr;
@@ -94,6 +172,7 @@ namespace bf::ui
         FxPage(Apvts&, ModRingModel&);
         void resized() override;
     private:
+        void applySection() override;
         Group *ott = nullptr, *drive = nullptr, *dim = nullptr, *delay = nullptr, *reverb = nullptr, *chain = nullptr;
         juce::Label chainLabel;
         ParamCombo* orderCombo = nullptr;
