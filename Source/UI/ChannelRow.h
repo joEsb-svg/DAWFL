@@ -35,6 +35,7 @@ public:
 
     /** Chiamato dal timer della schermata: aggiorna playhead, lampeggio, cambi esterni. */
     void refresh (int currentStep);
+    void setPlayTick (int tick);
 
     /** Posizione della colonna visibile i (0..15), in coordinate locali della riga. */
     juce::Rectangle<float> getPadBounds (int column) const;
@@ -47,6 +48,7 @@ public:
     int getVisibleSteps() const     { return visibleSteps; }
 
     std::function<void (int channel)> onOpenEditor;
+    std::function<void (int channel)> onOpenPianoRoll;
 
     /** Menu dei suoni (libreria + campioni), fornito dalla schermata principale. ID da 100 a 999. */
     std::function<juce::PopupMenu (int channel)> buildSoundMenu;
@@ -79,6 +81,9 @@ private:
     int      lastColumn = -1;
     bool     pressOnName = false;
     int      shownKit = -1;
+    int      playTick = -1;
+    juce::uint64 shownNotesHash = 0;
+    void paintNotesPreview (juce::Graphics&, bool muted);
     const void* shownSample = nullptr;
     int      shownPattern = -1;
 

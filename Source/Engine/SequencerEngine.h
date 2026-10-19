@@ -37,6 +37,16 @@ public:
     static constexpr int openHatChannel   = 4;
     static constexpr int defaultVelocity  = 100;
     static constexpr int maxRatchet       = 4;
+    static constexpr int ticksPerStep     = 12;    // risoluzione del piano roll: 1/12 di sedicesimo
+    static constexpr int maxNotes         = 256;   // note per canale e per pattern
+    static constexpr int rootNote         = 60;    // la nota che suona lo strumento alla sua altezza originale (C5)
+
+    /** Una nota del piano roll (tempi in tick). */
+    struct NoteData
+    {
+        int start = 0, length = ticksPerStep, pitch = rootNote, velocity = defaultVelocity;
+        bool operator== (const NoteData& o) const { return start == o.start && length == o.length && pitch == o.pitch && velocity == o.velocity; }
+    };
 
     struct ChannelInfo
     {
@@ -84,6 +94,7 @@ public:
         std::atomic<const SampleData*> sample { nullptr };
         juce::String sampleName;                        // usato solo dal thread della UI (salvataggio)
         std::atomic<bool>  previewRequested { false };
+        std::atomic<float> previewPitch     { 0.0f };   // semitoni dell'anteprima (piano roll)
         std::atomic<float> activity         { 0.0f };   // per far "lampeggiare" la UI quando suona
         std::atomic<int>   triggerCount     { 0 };      // colpi suonati in totale (diagnostica e test)
 
@@ -98,7 +109,25 @@ public:
         std::array<Row, numChannels> probability;   // 0..100 %
         std::array<Row, numChannels> ratchet;       // 1..4 colpi nello step
         std::atomic<int> length { 16 };
+
+        // Note del piano roll, impacchettate in 32 bit (0 = slot vuoto):
+        // inizio 9 bit | durata 9 bit | altezza 7 bit | velocity 7 bit
+        std::array<std::array<std::atomic<uint32_t>, maxNotes>, numChannels> notes;
+        std::array<std::atomic<int>, numChannels> noteCount;   // se > 0 il canale usa il piano roll, non gli step
     };
+
+    static uint32_t packNote (const NoteData& n)
+    {
+        return (uint32_t) (juce::jlimit (0, 511, n.start)) << 23
+             | (uint32_t) (juce::jlimit (1, 511, n.length)) << 14
+             | (uint32_t) (juce::jlimit (0, 127, n.pitch)) << 7
+             | (uint32_t) (juce::jlimit (1, 127, n.velocity));
+    }
+
+    static NoteData unpackNote (uint32_t v)
+    {
+        return { (int) (v >> 23) & 511, (int) (v >> 14) & 511, (int) (v >> 7) & 127, (int) v & 127 };
+    }
 
     SequencerEngine()   { resetProject(); }
 
@@ -211,8 +240,14 @@ public:
     {
         auto& p = patterns[(size_t) index];
         for (int c = 0; c < numChannels; ++c)
+        {
             for (int s = 0; s < maxSteps; ++s)
                 clearStep (p, c, s);
+
+            for (auto& n : p.notes[(size_t) c])
+                n.store (0);
+            p.noteCount[(size_t) c].store (0);
+        }
         p.length.store (16);
     }
 
@@ -232,8 +267,14 @@ public:
         auto& dst = patterns[(size_t) to];
 
         for (int c = 0; c < numChannels; ++c)
+        {
             for (int s = 0; s < maxSteps; ++s)
                 copyStep (src, c, s, dst, c, s);
+
+            for (int i = 0; i < maxNotes; ++i)
+                dst.notes[(size_t) c][(size_t) i].store (src.notes[(size_t) c][(size_t) i].load());
+            dst.noteCount[(size_t) c].store (src.noteCount[(size_t) c].load());
+        }
 
         dst.length.store (src.length.load());
     }
@@ -244,8 +285,50 @@ public:
             for (auto& v : row)
                 if (v.load() > 0)
                     return false;
+
+        for (auto& count : patterns[(size_t) index].noteCount)
+            if (count.load() > 0)
+                return false;
+
         return true;
     }
+
+    //==============================================================================
+    // Piano roll (pattern corrente)
+
+    std::vector<NoteData> getNotes (int channel) const   { return getNotes (currentPattern.load(), channel); }
+
+    std::vector<NoteData> getNotes (int pattern, int channel) const
+    {
+        std::vector<NoteData> result;
+        for (auto& slot : patterns[(size_t) pattern].notes[(size_t) channel])
+            if (const auto v = slot.load(); v != 0)
+                result.push_back (unpackNote (v));
+        return result;
+    }
+
+    /** Sostituisce tutte le note di un canale nel pattern corrente (quelle in piu' oltre maxNotes vengono ignorate). */
+    void setNotes (int channel, const std::vector<NoteData>& newNotes)   { setNotes (currentPattern.load(), channel, newNotes); }
+
+    void setNotes (int pattern, int channel, const std::vector<NoteData>& newNotes)
+    {
+        auto& p = patterns[(size_t) pattern];
+        int count = 0;
+
+        for (auto& n : newNotes)
+            if (count < maxNotes && n.length > 0)
+                p.notes[(size_t) channel][(size_t) count++].store (packNote (n));
+
+        for (int i = count; i < maxNotes; ++i)
+            p.notes[(size_t) channel][(size_t) i].store (0);
+
+        p.noteCount[(size_t) channel].store (count);
+    }
+
+    bool hasNotes (int channel) const   { return current().noteCount[(size_t) channel].load() > 0; }
+
+    /** Posizione di riproduzione in tick dall'inizio del pattern (-1 se fermo). */
+    int getCurrentTick() const          { return playing.load() ? currentTick.load() : -1; }
 
     //==============================================================================
     // Strumenti per una riga del pattern corrente
@@ -319,7 +402,11 @@ public:
 
     Channel& getChannel (int index)             { return channels[(size_t) index]; }
 
-    void previewChannel (int channel)           { channels[(size_t) channel].previewRequested.store (true); }
+    void previewChannel (int channel, float semitones = 0.0f)
+    {
+        channels[(size_t) channel].previewPitch.store (semitones);
+        channels[(size_t) channel].previewRequested.store (true);
+    }
 
     void setChannelKit (int channel, int kit)   { channels[(size_t) channel].kit.store (juce::jlimit (0, SoundLibrary::numKits - 1, kit)); }
     int getChannelKit (int channel) const       { return channels[(size_t) channel].kit.load(); }
@@ -398,7 +485,8 @@ public:
         if (restartRequested.exchange (false))
         {
             stepIndex = -1;
-            samplesUntilNextStep = 0.0;   // il primo step parte subito
+            tickInStep = 0;
+            samplesUntilNextTick = 0.0;   // il primo step parte subito
         }
 
         updateVoiceParams (sr);
@@ -406,7 +494,7 @@ public:
         // Anteprime richieste dalla UI (tocco sul nome del canale).
         for (int c = 0; c < numChannels; ++c)
             if (channels[(size_t) c].previewRequested.exchange (false))
-                triggerChannel (c, 1.0f, 0.0f);
+                triggerChannel (c, 0.9f, 0.0f, channels[(size_t) c].previewPitch.load());
 
         // Parametri del mix letti una volta per blocco.
         for (int c = 0; c < numChannels; ++c)
@@ -492,10 +580,19 @@ private:
         {
             if (isOn)
             {
-                if (samplesUntilNextStep <= 0.0)
-                    advanceStep (samplesPerStep, swingAmount, metroOn);
+                // Clock a tick: 12 tick per step; all'inizio di ogni step suonano gli step,
+                // a ogni tick le note del piano roll
+                if (samplesUntilNextTick <= 0.0)
+                {
+                    if (tickInStep == 0)
+                        advanceStep (samplesPerStep, swingAmount, metroOn);
 
-                samplesUntilNextStep -= 1.0;
+                    processTick();
+                    samplesUntilNextTick += currentStepLength / ticksPerStep;
+                    tickInStep = (tickInStep + 1) % ticksPerStep;
+                }
+
+                samplesUntilNextTick -= 1.0;
 
                 // Ratchet: colpi aggiuntivi dentro lo step
                 for (int c = 0; c < numChannels; ++c)
@@ -637,6 +734,9 @@ private:
 
         for (int c = 0; c < numChannels; ++c)
         {
+            if (pattern.noteCount[(size_t) c].load() > 0)   // questo canale usa il piano roll
+                continue;
+
             const int vel = pattern.velocity[(size_t) c][(size_t) stepIndex].load();
             if (vel <= 0)
                 continue;
@@ -664,16 +764,40 @@ private:
             metroDecay = (float) std::exp (-1.0 / (0.012 * sampleRate.load()));
         }
 
-        samplesUntilNextStep += stepLength;
+        currentStepLength = stepLength;
     }
 
-    void triggerChannel (int c, float velocity, float humanize)
+    /** Ogni tick: fa suonare le note del piano roll che iniziano adesso. */
+    void processTick()
+    {
+        auto& pattern = patterns[(size_t) playingPattern.load()];
+        const int tick = stepIndex * ticksPerStep + tickInStep;
+        currentTick.store (tick);
+
+        for (int c = 0; c < numChannels; ++c)
+        {
+            if (pattern.noteCount[(size_t) c].load() <= 0)
+                continue;
+
+            for (auto& slot : pattern.notes[(size_t) c])
+            {
+                const auto v = slot.load();
+                if (v == 0 || (int) (v >> 23) != tick)
+                    continue;
+
+                const auto n = unpackNote (v);
+                triggerChannel (c, (float) n.velocity / 127.0f, humanizeAmt[(size_t) c], (float) (n.pitch - rootNote));
+            }
+        }
+    }
+
+    void triggerChannel (int c, float velocity, float humanize, float semitones = 0.0f)
     {
         // L'hi-hat chiuso "strozza" quello aperto, come su una vera drum machine.
         if (c == closedHatChannel)
             voices[openHatChannel].choke();
 
-        voices[(size_t) c].trigger (velocity, humanize);
+        voices[(size_t) c].trigger (velocity, humanize, semitones);
         channels[(size_t) c].activity.store (velocity);
         channels[(size_t) c].triggerCount.fetch_add (1);
     }
@@ -691,6 +815,7 @@ private:
     std::atomic<float>  swing            { 0.0f };
     std::atomic<float>  masterVolume     { 1.0f };
     std::atomic<int>    currentStep      { -1 };
+    std::atomic<int>    currentTick      { -1 };
     std::atomic<float>  outputPeak       { 0.0f };
     std::atomic<float>  limiterReduction { 0.0f };
     std::atomic<double> sampleRate       { 48000.0 };
@@ -706,7 +831,9 @@ private:
     std::array<float, numChannels> appliedFilter {}, gainL {}, gainR {}, sendRev {}, sendDel {}, humanizeAmt {};
     juce::Random rng;
     int    stepIndex            = -1;
-    double samplesUntilNextStep = 0.0;
+    int    tickInStep           = 0;
+    double samplesUntilNextTick = 0.0;
+    double currentStepLength    = 1.0;
 
     std::array<float, chunk> mixL {}, mixR {}, revL {}, revR {};
     juce::Reverb reverb;

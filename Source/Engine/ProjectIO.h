@@ -113,6 +113,20 @@ namespace ProjectIO
                 ratchets.add (encodeRow (pat.ratchet[(size_t) c]));
             }
 
+            // Note del piano roll: per canale una lista di [inizio, durata, altezza, velocity] in tick
+            juce::Array<juce::var> notes;
+            bool anyNotes = false;
+            for (int c = 0; c < SequencerEngine::numChannels; ++c)
+            {
+                juce::Array<juce::var> list;
+                for (auto& n : engine.getNotes (p, c))
+                    list.add (juce::Array<juce::var> { n.start, n.length, n.pitch, n.velocity });
+                anyNotes = anyNotes || ! list.isEmpty();
+                notes.add (list);
+            }
+            if (anyNotes)
+                o->setProperty ("notes", notes);
+
             o->setProperty ("steps", rows);
             o->setProperty ("probability", probs);
             o->setProperty ("ratchet", ratchets);
@@ -182,6 +196,19 @@ namespace ProjectIO
                 readRows ("steps",       pat.velocity,    0, 127);
                 readRows ("probability", pat.probability, 0, 100);   // assenti nei file vecchi: restano al 100%
                 readRows ("ratchet",     pat.ratchet,     1, SequencerEngine::maxRatchet);
+
+                if (auto* notes = o.getProperty ("notes", {}).getArray())
+                {
+                    for (int c = 0; c < juce::jmin (notes->size(), SequencerEngine::numChannels); ++c)
+                    {
+                        std::vector<SequencerEngine::NoteData> list;
+                        if (auto* arr = notes->getReference (c).getArray())
+                            for (auto& n : *arr)
+                                if (auto* f = n.getArray(); f != nullptr && f->size() >= 4)
+                                    list.push_back ({ (int) (*f)[0], (int) (*f)[1], (int) (*f)[2], (int) (*f)[3] });
+                        engine.setNotes (p, c, list);
+                    }
+                }
             }
         }
 

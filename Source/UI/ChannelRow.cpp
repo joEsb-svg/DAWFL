@@ -156,6 +156,13 @@ void ChannelRow::paint (juce::Graphics& g)
         g.fillPath (tri);
     }
 
+    // Canale con note nel piano roll: al posto degli step, un'anteprima delle note
+    if (engine.hasNotes (channel))
+    {
+        paintNotesPreview (g, muted);
+        return;
+    }
+
     // Step
     for (int col = 0; col < visibleSteps; ++col)
     {
@@ -258,6 +265,13 @@ void ChannelRow::mouseDown (const juce::MouseEvent& e)
     {
         engine.previewChannel (channel);
         pressOnName = true;   // se resta premuto a lungo, al rilascio apre l'editor
+        return;
+    }
+
+    if (engine.hasNotes (channel))
+    {
+        if (getPadsArea().contains (e.position) && onOpenPianoRoll)
+            onOpenPianoRoll (channel);
         return;
     }
 
@@ -420,6 +434,16 @@ void ChannelRow::refresh (int currentStep)
         needsRepaint = true;
     }
 
+    // Note cambiate (dal piano roll, undo, caricamento)
+    juce::uint64 hash = (juce::uint64) engine.getCurrentPattern() + 1;
+    for (auto& n : engine.getNotes (channel))
+        hash = hash * 1099511628211ull + (juce::uint64) SequencerEngine::packNote (n);
+    if (hash != shownNotesHash)
+    {
+        shownNotesHash = hash;
+        needsRepaint = true;
+    }
+
     if (needsRepaint)
         repaint();
 }
@@ -441,6 +465,7 @@ void ChannelRow::showRowMenu()
     juce::PopupMenu menu;
     menu.addSectionHeader (SequencerEngine::getChannelInfo (channel).name);
     menu.addItem (1, "Modifica suono...");
+    menu.addItem (8, "Piano roll...");
     menu.addSubMenu ("Suono", library);
     menu.addSeparator();
     menu.addItem (2, juce::String (juce::CharPointer_UTF8 ("Sposta a sinistra  \xe2\x97\x80")));
@@ -450,7 +475,7 @@ void ChannelRow::showRowMenu()
     menu.addSeparator();
     menu.addItem (5, "Copia riga");
     menu.addItem (6, "Incolla riga", clipboard.valid);
-    menu.addItem (7, "Svuota riga");
+    menu.addItem (7, engine.hasNotes (channel) ? "Svuota riga (step e note)" : "Svuota riga");
 
     juce::Component::SafePointer<ChannelRow> safeThis (this);
 
@@ -488,7 +513,8 @@ void ChannelRow::showRowMenu()
                                     e.setStepRatchet (c, s, clipboard.ratchet[s]);
                                 }
                             }
-                            else if (result == 7)   e.clearRow (c);
+                            else if (result == 7)   { e.clearRow (c); e.setNotes (c, {}); }
+                            else if (result == 8)   { if (self.onOpenPianoRoll) self.onOpenPianoRoll (c); }
                             else if (result == 210) e.fillRow (c, 4, 2);
                             else if (result > 200)  e.fillRow (c, result - 200);
                             else if (result >= 100 && result < 1000)
@@ -508,4 +534,73 @@ juce::String ChannelRow::getSoundLabel (SequencerEngine& engine, int channel)
         return juce::String (juce::CharPointer_UTF8 ("\xe2\x99\xaa ")) + SampleStore::displayName (ch.sampleName);
 
     return SoundLibrary::getKitName (engine.getChannelKit (channel));
+}
+
+void ChannelRow::setPlayTick (int tick)
+{
+    if (tick != playTick)
+    {
+        playTick = tick;
+        if (engine.hasNotes (channel))
+            repaint (getPadsArea().toNearestInt().expanded (2));
+    }
+}
+
+void ChannelRow::paintNotesPreview (juce::Graphics& g, bool muted)
+{
+    auto area = getPadsArea();
+    Theme::drawSunken (g, area, Theme::bg, 3.0f);
+
+    const auto notes = engine.getNotes (channel);
+    const int lengthTicks = engine.getPatternLength() * SequencerEngine::ticksPerStep;
+    const int firstTick = firstStep * SequencerEngine::ticksPerStep;
+    const int visibleTicks = visibleSteps * SequencerEngine::ticksPerStep;
+
+    // Linee dei quarti
+    for (int t = 0; t < visibleTicks; t += 4 * SequencerEngine::ticksPerStep)
+    {
+        g.setColour (Theme::raised);
+        g.drawVerticalLine ((int) (area.getX() + area.getWidth() * (float) t / (float) visibleTicks), area.getY() + 2.0f, area.getBottom() - 2.0f);
+    }
+
+    // Gamma di altezze da mostrare (almeno un'ottava)
+    int lo = 127, hi = 0;
+    for (auto& n : notes) { lo = juce::jmin (lo, n.pitch); hi = juce::jmax (hi, n.pitch); }
+    if (hi - lo < 12) { const int mid = (lo + hi) / 2; lo = mid - 6; hi = mid + 6; }
+
+    auto inner = area.reduced (2.0f, 4.0f);
+    const float rowH = inner.getHeight() / (float) (hi - lo + 1);
+    const auto noteColour = colour.interpolatedWith (Theme::stepOn, 0.35f).withMultipliedAlpha (muted ? 0.4f : 1.0f);
+
+    for (auto& n : notes)
+    {
+        if (n.start + n.length <= firstTick || n.start >= firstTick + visibleTicks)
+            continue;
+
+        const float x0 = inner.getX() + inner.getWidth() * (float) (n.start - firstTick) / (float) visibleTicks;
+        const float x1 = inner.getX() + inner.getWidth() * (float) (n.start + n.length - firstTick) / (float) visibleTicks;
+        const float y = inner.getBottom() - (float) (n.pitch - lo + 1) * rowH;
+        g.setColour (noteColour);
+        g.fillRoundedRectangle (juce::Rectangle<float> (x0, y, juce::jmax (2.0f, x1 - x0 - 1.0f), juce::jmax (2.0f, rowH - 1.0f))
+                                    .getIntersection (inner), 1.0f);
+    }
+
+    // Oltre la fine del pattern
+    if (firstTick + visibleTicks > lengthTicks)
+    {
+        const float x = inner.getX() + inner.getWidth() * (float) (lengthTicks - firstTick) / (float) visibleTicks;
+        g.setColour (Theme::panel);
+        g.fillRect (juce::Rectangle<float> (juce::jmax (x, area.getX()), area.getY(), area.getRight() - juce::jmax (x, area.getX()), area.getHeight()));
+    }
+
+    // Posizione di riproduzione
+    if (playTick >= firstTick && playTick < firstTick + visibleTicks && engine.getPlayingPattern() == engine.getCurrentPattern())
+    {
+        g.setColour (Theme::accent);
+        g.fillRect (inner.getX() + inner.getWidth() * (float) (playTick - firstTick) / (float) visibleTicks, area.getY(), 1.5f, area.getHeight());
+    }
+
+    g.setColour (Theme::textDim);
+    g.setFont (Theme::font (10.0f, true));
+    g.drawText ("PIANO ROLL", area.reduced (6.0f, 3.0f), juce::Justification::topRight, false);
 }

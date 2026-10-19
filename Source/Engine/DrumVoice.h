@@ -153,16 +153,16 @@ public:
         @param velocity   0..1
         @param humanize   0..1, quanta variazione casuale aggiungere
     */
-    void trigger (float velocity, float humanize = 0.0f)
+    void trigger (float velocity, float humanize = 0.0f, float semitones = 0.0f)
     {
         float vel = velocity;
-        float detune = 1.0f;
+        float detune = semitones != 0.0f ? std::pow (2.0f, semitones / 12.0f) : 1.0f;   // nota del piano roll
         int delay = 0;
 
         if (humanize > 0.0f)
         {
             vel    *= 1.0f - humanize * 0.22f * (0.5f + 0.5f * random.next());
-            detune  = std::pow (2.0f, humanize * 0.25f * random.next() / 12.0f);   // fino a +-1/4 di semitono
+            detune *= std::pow (2.0f, humanize * 0.25f * random.next() / 12.0f);   // fino a +-1/4 di semitono
             delay   = (int) (std::abs (random.next()) * humanize * 0.006 * sr);    // fino a 6 ms in ritardo
         }
 

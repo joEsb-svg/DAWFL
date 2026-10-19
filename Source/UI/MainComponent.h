@@ -6,6 +6,7 @@
 #include "Widgets.h"
 #include "ChannelRow.h"
 #include "ChannelEditor.h"
+#include "PianoRoll.h"
 #include "Haptics.h"
 
 //==============================================================================
@@ -44,6 +45,7 @@ private:
 
     void syncControlsFromEngine();
     void openEditor (int channel);
+    void openPianoRoll (int channel);
     int getVisibleSteps() const;
     int getFirstVisibleStep() const;
     void layoutLandscape (juce::Rectangle<int> area);
@@ -95,6 +97,7 @@ private:
     IconButton undoButton { IconButton::Icon::undo }, redoButton { IconButton::Icon::redo },
                metroButton { IconButton::Icon::metronome };
     ChannelEditor editor { engine };
+    PianoRoll pianoRoll { engine };
     SegmentedControl lengthSwitch { { "16", "32" } };
     SegmentedControl pageSwitch  { { "1-16", "17-32" } };
     juce::Slider swingKnob, masterKnob;

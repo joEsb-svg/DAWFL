@@ -97,12 +97,16 @@ MainComponent::MainComponent()
         auto* row = rows.add (new ChannelRow (engine, c));
         row->onOpenEditor = [this] (int ch) { Haptics::tick (this); openEditor (ch); };
         row->onTap = [this] { Haptics::tick (this); };
+        row->onOpenPianoRoll = [this] (int ch) { Haptics::tick (this); openPianoRoll (ch); };
         row->buildSoundMenu  = [this] (int ch) { return buildSoundMenu (ch); };
         row->handleSoundMenu = [this] (int ch, int result) { handleSoundMenu (ch, result); };
         addAndMakeVisible (row);
     }
 
     editor.onClose = [this] { editor.setVisible (false); };
+    pianoRoll.onClose = [this] { pianoRoll.setVisible (false); };
+    pianoRoll.getGrid().onEdit = [this] { Haptics::tick (this); };
+    addChildComponent (pianoRoll);
     editor.buildSoundMenu  = [this] (int ch) { return buildSoundMenu (ch); };
     editor.handleSoundMenu = [this] (int ch, int result) { handleSoundMenu (ch, result); };
     addChildComponent (editor);
@@ -342,6 +346,7 @@ void MainComponent::layoutRack (juce::Rectangle<int> full, bool portrait)
 
     ruler.setBounds (rows.getFirst()->getX(), rulerArea.getY(), rows.getFirst()->getWidth(), rulerArea.getHeight());
     editor.setBounds (rowsArea.withTop (rulerArea.getY()).expanded (2, 2));
+    pianoRoll.setBounds (full);   // il piano roll copre tutto il channel rack, barra compresa
 }
 
 int MainComponent::getVisibleSteps() const
@@ -412,8 +417,16 @@ void MainComponent::timerCallback()
     const int firstStep = getFirstVisibleStep();
     const int visible = getVisibleSteps();
 
+    const int tick = engine.getPlayingPattern() == engine.getCurrentPattern() ? engine.getCurrentTick() : -1;
+
     for (auto* row : rows)
+    {
         row->refresh (step);
+        row->setPlayTick (tick);
+    }
+
+    if (pianoRoll.isVisible())
+        pianoRoll.getGrid().setPlayTick (tick);
 
     const bool playingThis = engine.getPlayingPattern() == engine.getCurrentPattern();
     const int column = (playingThis && step >= firstStep && step < firstStep + visible) ? step - firstStep : -1;
@@ -620,6 +633,7 @@ void MainComponent::newProject()
     modeSwitch.setSelected (0);
     undoStack.clear(); redoStack.clear(); lastSnapshot = takeSnapshot();
     editor.setVisible (false);
+    pianoRoll.setVisible (false);
     syncControlsFromEngine();
     saveSession();
     repaint();
@@ -715,8 +729,17 @@ void MainComponent::showMessage (const juce::String& title, const juce::String& 
 }
 
 //==============================================================================
+void MainComponent::openPianoRoll (int channel)
+{
+    editor.setVisible (false);
+    pianoRoll.setChannel (channel);
+    pianoRoll.setVisible (true);
+    pianoRoll.toFront (false);
+}
+
 void MainComponent::openEditor (int channel)
 {
+    pianoRoll.setVisible (false);
     editor.setChannel (channel);
     editor.setVisible (true);
     editor.toFront (false);
@@ -812,6 +835,9 @@ void MainComponent::handleCommandLine (const juce::String& commandLine)
 
     if (const int i = args.indexOf ("--editor"); i >= 0)
         openEditor (juce::jlimit (0, SequencerEngine::numChannels - 1, args[i + 1].getIntValue()));
+
+    if (const int i = args.indexOf ("--roll"); i >= 0)
+        openPianoRoll (juce::jlimit (0, SequencerEngine::numChannels - 1, args[i + 1].getIntValue()));
 
     if (const int i = args.indexOf ("--mode"); i >= 0)
     {
