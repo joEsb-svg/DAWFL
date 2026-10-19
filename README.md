@@ -9,7 +9,7 @@ Un DAW per Android in stile "fruity loops", scritto in C++ con [JUCE](https://ju
 Ogni modifica sul branch `main` viene compilata automaticamente da GitHub Actions.
 L'ultimo APK è sempre qui:
 
-**https://github.com/joEsb-svg/DAWFL/releases/download/latest-build/JLoop.apk**
+**https://github.com/joEsb-svg/JLoop/releases/download/latest-build/JLoop.apk**
 
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
