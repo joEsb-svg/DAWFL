@@ -29,7 +29,8 @@ void ChannelRow::resized()
     left.removeFromLeft (4.0f);
     volumeKnob.setBounds (left.removeFromRight (h).toNearestInt());
     left.removeFromRight (4.0f);
-    nameArea = left;
+    nameArea  = left;
+    soundArea = left.removeFromRight (juce::jmin (34.0f, left.getWidth() * 0.3f));
 }
 
 juce::Rectangle<float> ChannelRow::getPadsArea() const
@@ -107,10 +108,29 @@ void ChannelRow::paint (juce::Graphics& g)
         g.setColour (colour.withAlpha (muted ? 0.35f : 1.0f));
         g.fillRoundedRectangle (r.withWidth (4.0f), 2.0f);
 
+        // Nome dello strumento + suono scelto dalla libreria
+        auto textArea = r.withTrimmedLeft (10.0f).withRight (soundArea.getX());
+        const float nameH = juce::jlimit (12.0f, 17.0f, r.getHeight() * 0.34f);
+        auto nameLine = textArea.removeFromTop (textArea.getHeight() * 0.56f);
+
         g.setColour (muted ? Theme::textDim : Theme::text);
-        g.setFont (Theme::font (juce::jlimit (12.0f, 18.0f, r.getHeight() * 0.38f), true));
+        g.setFont (Theme::font (nameH, true));
         g.drawFittedText (SequencerEngine::getChannelInfo (channel).name,
-                          r.withTrimmedLeft (10.0f).toNearestInt(), juce::Justification::centredLeft, 1);
+                          nameLine.toNearestInt(), juce::Justification::bottomLeft, 1);
+
+        g.setColour (colour.withAlpha (muted ? 0.4f : 0.9f).brighter (0.3f));
+        g.setFont (Theme::font (juce::jmax (11.0f, nameH * 0.8f)));
+        g.drawFittedText (SoundLibrary::getKitName (engine.getChannelKit (channel)),
+                          textArea.toNearestInt(), juce::Justification::topLeft, 1);
+
+        // Freccia: apre la libreria dei suoni
+        auto arrow = soundArea.reduced (soundArea.getWidth() * 0.3f, soundArea.getHeight() * 0.38f);
+        juce::Path tri;
+        tri.addTriangle (arrow.getX(), arrow.getY(), arrow.getRight(), arrow.getY(), arrow.getCentreX(), arrow.getBottom());
+        g.setColour (Theme::bgBottom.withAlpha (0.35f));
+        g.fillRoundedRectangle (soundArea.reduced (3.0f), 5.0f);
+        g.setColour (Theme::text.withAlpha (0.8f));
+        g.fillPath (tri);
     }
 
     // Pad
@@ -159,6 +179,12 @@ void ChannelRow::mouseDown (const juce::MouseEvent& e)
         auto& m = engine.getChannel (channel).muted;
         m.store (! m.load());
         repaint();
+        return;
+    }
+
+    if (soundArea.contains (e.position))
+    {
+        showSoundMenu();
         return;
     }
 
@@ -216,6 +242,12 @@ void ChannelRow::refresh (int currentStep)
         needsRepaint = true;
     }
 
+    if (const int kit = engine.getChannelKit (channel); kit != shownKit)
+    {
+        shownKit = kit;
+        needsRepaint = true;
+    }
+
     if (currentStep != current)
     {
         current = currentStep;
@@ -224,4 +256,29 @@ void ChannelRow::refresh (int currentStep)
 
     if (needsRepaint)
         repaint();
+}
+
+//==============================================================================
+void ChannelRow::showSoundMenu()
+{
+    juce::PopupMenu menu;
+    menu.addSectionHeader (juce::String (SequencerEngine::getChannelInfo (channel).name) + " - libreria suoni");
+
+    const int selectedKit = engine.getChannelKit (channel);
+    for (int k = 0; k < SoundLibrary::numKits; ++k)
+        menu.addItem (k + 1, SoundLibrary::getKitName (k), true, k == selectedKit);
+
+    juce::Component::SafePointer<ChannelRow> safeThis (this);
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
+                                                  .withTargetScreenArea (localAreaToGlobal (nameArea.toNearestInt())),
+                        [safeThis] (int result)
+                        {
+                            if (safeThis == nullptr || result <= 0)
+                                return;
+
+                            safeThis->engine.setChannelKit (safeThis->channel, result - 1);
+                            safeThis->engine.previewChannel (safeThis->channel);
+                            safeThis->repaint();
+                        });
 }

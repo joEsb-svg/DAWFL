@@ -17,6 +17,11 @@ MainComponent::MainComponent()
     bpmDisplay.setBpm = [this] (double v) { engine.setBpm (v); };
     addAndMakeVisible (bpmDisplay);
 
+    // Kit: cambia il suono di tutti gli strumenti insieme
+    kitButton.onClick = [this] { showKitMenu(); };
+    addAndMakeVisible (kitButton);
+    updateKitButton();
+
     // Volume master
     masterKnob.setSliderStyle (juce::Slider::RotaryVerticalDrag);
     masterKnob.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
@@ -105,6 +110,7 @@ void MainComponent::paint (juce::Graphics& g)
     g.setColour (Theme::textDim);
     g.setFont (Theme::font (11.0f, true));
     g.drawText ("MASTER", masterLabelArea, juce::Justification::centred);
+    g.drawText ("KIT", kitLabelArea, juce::Justification::centredRight);
 }
 
 void MainComponent::resized()
@@ -124,6 +130,10 @@ void MainComponent::resized()
     playButton.setBounds (header.removeFromLeft (juce::roundToInt (ctlH * 1.5)));
     header.removeFromLeft (10);
     bpmDisplay.setBounds (header.removeFromLeft (juce::roundToInt (ctlH * 2.6)));
+    header.removeFromLeft (10);
+    kitLabelArea = header.removeFromLeft (28).toFloat();
+    header.removeFromLeft (6);
+    kitButton.setBounds (header.removeFromLeft (juce::roundToInt (ctlH * 3.0)).reduced (0, ctlH / 8));
 
     meter.setBounds (header.removeFromRight (14));
     header.removeFromRight (8);
@@ -161,6 +171,8 @@ void MainComponent::timerCallback()
     stepLeds.setCurrentStep (step);
     meter.setLevel (engine.takeOutputPeak());
 
+    updateKitButton();
+
     if (playButton.getToggleState() != engine.isPlaying())
         playButton.setToggleState (engine.isPlaying(), juce::dontSendNotification);
 }
@@ -189,4 +201,42 @@ void MainComponent::updateInfoLabel()
     infoLabel.setText (device->getTypeName() + "  |  " + juce::String (juce::roundToInt (sr)) + " Hz  |  buffer "
                          + juce::String (buffer) + " campioni (" + juce::String (ms, 1) + " ms)",
                        juce::dontSendNotification);
+}
+
+//==============================================================================
+void MainComponent::updateKitButton()
+{
+    // Se tutti gli strumenti usano lo stesso kit ne mostra il nome, altrimenti "Misto".
+    const int first = engine.getChannelKit (0);
+    bool allSame = true;
+
+    for (int c = 1; c < SequencerEngine::numChannels; ++c)
+        allSame = allSame && engine.getChannelKit (c) == first;
+
+    const juce::String text = allSame ? juce::String (SoundLibrary::getKitName (first)) : juce::String ("Misto");
+
+    if (kitButton.getButtonText() != text)
+        kitButton.setButtonText (text);
+}
+
+void MainComponent::showKitMenu()
+{
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("Kit per tutti gli strumenti");
+
+    for (int k = 0; k < SoundLibrary::numKits; ++k)
+        menu.addItem (k + 1, SoundLibrary::getKitName (k));
+
+    juce::Component::SafePointer<MainComponent> safeThis (this);
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&kitButton),
+                        [safeThis] (int result)
+                        {
+                            if (safeThis == nullptr || result <= 0)
+                                return;
+
+                            safeThis->engine.setAllKits (result - 1);
+                            safeThis->engine.previewChannel (0);
+                            safeThis->updateKitButton();
+                        });
 }

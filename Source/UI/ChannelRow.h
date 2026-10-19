@@ -35,12 +35,15 @@ private:
     const juce::Colour colour;
 
     juce::Slider volumeKnob;
-    juce::Rectangle<float> muteArea, nameArea;
+    void showSoundMenu();
+
+    juce::Rectangle<float> muteArea, nameArea, soundArea;
 
     int  current = -1;
     float flash = 0.0f;
     bool paintValue = true;
     int  lastPaintedPad = -1;
+    int  shownKit = -1;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ChannelRow)
 };

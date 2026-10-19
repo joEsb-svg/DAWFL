@@ -14,6 +14,24 @@ public:
         setColour (juce::TextButton::textColourOffId, Theme::text);
         setColour (juce::TextButton::textColourOnId, Theme::bgBottom);
         setColour (juce::Label::textColourId, Theme::text);
+
+        setColour (juce::PopupMenu::backgroundColourId, Theme::panel);
+        setColour (juce::PopupMenu::textColourId, Theme::text);
+        setColour (juce::PopupMenu::headerTextColourId, Theme::textDim);
+        setColour (juce::PopupMenu::highlightedBackgroundColourId, Theme::accent);
+        setColour (juce::PopupMenu::highlightedTextColourId, Theme::bgBottom);
+    }
+
+    // Menu a tendina grandi, comodi da toccare col dito
+    juce::Font getPopupMenuFont() override    { return Theme::font (18.0f); }
+
+    void getIdealPopupMenuItemSize (const juce::String& text, bool isSeparator, int standardHeight,
+                                    int& idealWidth, int& idealHeight) override
+    {
+        juce::LookAndFeel_V4::getIdealPopupMenuItemSize (text, isSeparator, standardHeight, idealWidth, idealHeight);
+        if (! isSeparator)
+            idealHeight = juce::jmax (idealHeight, 42);
+        idealWidth = juce::jmax (idealWidth, 200);
     }
 
     void drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height, float pos,

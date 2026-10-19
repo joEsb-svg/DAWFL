@@ -16,7 +16,8 @@
 
     Contiene:
     - un clock a 16 step (sedicesimi) preciso al campione
-    - un channel rack di 6 strumenti di batteria sintetizzati
+    - un channel rack di 6 strumenti di batteria sintetizzati, ognuno con una libreria
+      di suoni per genere (vedi SoundLibrary.h)
     - volume e mute per canale, volume master con saturazione morbida
 */
 class SequencerEngine : public juce::AudioIODeviceCallback
@@ -27,8 +28,7 @@ public:
 
     struct ChannelInfo
     {
-        const char* name;
-        DrumType    type;
+        const char*  name;
         juce::uint32 colour;
     };
 
@@ -36,12 +36,12 @@ public:
     {
         static const ChannelInfo infos[numChannels] =
         {
-            { "Kick",     DrumType::kick,      0xffff8a1f },
-            { "Snare",    DrumType::snare,     0xffff4d6d },
-            { "Clap",     DrumType::clap,      0xffffc93c },
-            { "Hi-Hat",   DrumType::closedHat, 0xff3fd0c9 },
-            { "Open Hat", DrumType::openHat,   0xff4fa3ff },
-            { "Tom",      DrumType::tom,       0xffb37bff },
+            { "Kick",     0xffff8a1f },
+            { "Snare",    0xffff4d6d },
+            { "Clap",     0xffffc93c },
+            { "Hi-Hat",   0xff3fd0c9 },
+            { "Open Hat", 0xff4fa3ff },
+            { "Tom",      0xffb37bff },
         };
         return infos[index];
     }
@@ -55,7 +55,11 @@ public:
         std::atomic<bool>  muted            { false };
         std::atomic<bool>  previewRequested { false };
         std::atomic<float> activity         { 0.0f };   // per far "lampeggiare" la UI quando suona
+        std::atomic<int>   kit              { 0 };      // suono scelto dalla libreria (vedi SoundLibrary)
     };
+
+    static constexpr int closedHatChannel = 3;
+    static constexpr int openHatChannel   = 4;
 
     SequencerEngine()
     {
@@ -102,6 +106,17 @@ public:
 
     void previewChannel (int channel)           { channels[(size_t) channel].previewRequested.store (true); }
 
+    /** Sceglie il suono di un canale dalla libreria (kit = genere). */
+    void setChannelKit (int channel, int kit)   { channels[(size_t) channel].kit.store (juce::jlimit (0, SoundLibrary::numKits - 1, kit)); }
+    int getChannelKit (int channel) const       { return channels[(size_t) channel].kit.load(); }
+
+    /** Applica lo stesso kit a tutti gli strumenti. */
+    void setAllKits (int kit)
+    {
+        for (int c = 0; c < numChannels; ++c)
+            setChannelKit (c, kit);
+    }
+
     void setMasterVolume (float v)              { masterVolume.store (juce::jlimit (0.0f, 1.5f, v)); }
     float getMasterVolume() const               { return masterVolume.load(); }
 
@@ -125,7 +140,11 @@ public:
         restartRequested.store (true);
 
         for (int c = 0; c < numChannels; ++c)
-            voices[(size_t) c].prepare (sr, getChannelInfo (c).type);
+        {
+            appliedKits[(size_t) c] = channels[(size_t) c].kit.load();
+            voices[(size_t) c].setParams (SoundLibrary::get (c, appliedKits[(size_t) c]));
+            voices[(size_t) c].prepare (sr);
+        }
     }
 
     void audioDeviceStopped() override {}
@@ -143,6 +162,17 @@ public:
         {
             stepIndex = -1;
             samplesUntilNextStep = 0.0;   // il primo step parte subito
+        }
+
+        // Suoni cambiati dalla UI: aggiorna le ricette delle voci.
+        for (int c = 0; c < numChannels; ++c)
+        {
+            const int kit = channels[(size_t) c].kit.load();
+            if (kit != appliedKits[(size_t) c])
+            {
+                appliedKits[(size_t) c] = kit;
+                voices[(size_t) c].setParams (SoundLibrary::get (c, kit));
+            }
         }
 
         // Anteprime richieste dalla UI (tocco sul nome del canale).
@@ -202,8 +232,8 @@ private:
     void triggerChannel (int c)
     {
         // L'hi-hat chiuso "strozza" quello aperto, come su una vera drum machine.
-        if (getChannelInfo (c).type == DrumType::closedHat)
-            voices[4].choke();
+        if (c == closedHatChannel)
+            voices[openHatChannel].choke();
 
         voices[(size_t) c].trigger (1.0f);
         channels[(size_t) c].activity.store (1.0f);
@@ -229,6 +259,7 @@ private:
 
     // Stato usato SOLO dal thread audio
     std::array<DrumVoice, numChannels> voices;
+    std::array<int, numChannels> appliedKits {};
     int    stepIndex            = -1;
     double samplesUntilNextStep = 0.0;
 

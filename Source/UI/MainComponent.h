@@ -21,6 +21,8 @@ public:
 private:
     void timerCallback() override;
     void updateInfoLabel();
+    void updateKitButton();
+    void showKitMenu();
     juce::Rectangle<int> getContentArea() const;
 
     SequencerEngine engine;
@@ -31,13 +33,14 @@ private:
 
     PlayButton playButton;
     BpmDisplay bpmDisplay;
+    juce::TextButton kitButton;
     juce::Slider masterKnob;
     LevelMeter meter;
     StepLeds stepLeds;
     juce::Label infoLabel;
     juce::OwnedArray<ChannelRow> rows;
 
-    juce::Rectangle<float> headerArea, logoArea, masterLabelArea;
+    juce::Rectangle<float> headerArea, logoArea, masterLabelArea, kitLabelArea;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };

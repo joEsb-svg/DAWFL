@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <cmath>
 #include <cstdint>
+#include "SoundLibrary.h"
 
 //==============================================================================
 /** Generatore di rumore bianco velocissimo e sicuro per il thread audio. */
@@ -55,65 +56,57 @@ struct SVFilter
 };
 
 //==============================================================================
-enum class DrumType { kick, snare, clap, closedHat, openHat, tom };
-
-//==============================================================================
 /**
-    Una voce di batteria sintetizzata (nessun campione audio: tutto calcolato).
+    Una voce di batteria sintetizzata, guidata da una "ricetta" (DrumParams).
     Tutto qui dentro e' sicuro per il thread audio: niente allocazioni.
 */
 class DrumVoice
 {
 public:
-    void prepare (double newSampleRate, DrumType newType)
+    void prepare (double newSampleRate)
     {
         sr = newSampleRate;
-        type = newType;
         active = false;
+        clickFilter.set (sr, 1200.0, 0.7);
+        setParams (params);
+    }
 
-        c_0_002 = coef (0.002);
-        c_0_003 = coef (0.003);
-        c_0_004 = coef (0.004);
-        c_0_0045 = coef (0.0045);
-        c_0_02 = coef (0.02);
-        c_0_032 = coef (0.032);
-        c_0_055 = coef (0.055);
-        c_0_06 = coef (0.06);
-        c_0_11 = coef (0.11);
-        c_0_13 = coef (0.13);
-        c_0_16 = coef (0.16);
-        c_kickAmp = coef (0.17);
-        hatDecay = coef (type == DrumType::openHat ? 0.32 : 0.045);
+    /** Cambia il suono. Va chiamato dal thread audio (o prima che l'audio parta). */
+    void setParams (const DrumParams& p)
+    {
+        params = p;
 
-        switch (type)
-        {
-            case DrumType::snare:     filterA.set (sr, 1800.0, 0.7);  break;
-            case DrumType::clap:      filterA.set (sr, 1150.0, 1.4);  break;
-            case DrumType::closedHat:
-            case DrumType::openHat:   filterA.set (sr, 7200.0, 0.8);
-                                      filterB.set (sr, 10000.0, 0.9); break;
-            case DrumType::kick:
-            case DrumType::tom:       filterA.set (sr, 1200.0, 0.7);  break;
-        }
+        cPitch = coef (p.pitchTau);
+        cTone  = coef (p.toneTau);
+        cClick = coef (p.clickTau);
+        cNoise = coef (p.noiseTau);
+        cBurst = coef (p.burstTau);
+        cChoke = coef (0.004);
+        burstSamples = juce::jmax ((int64_t) 1, (int64_t) (p.burstSpacing * sr));
+
+        if (p.highPass > 0.0f) hpFilter.set (sr, p.highPass, 0.7);
+        if (p.bandPass > 0.0f) bpFilter.set (sr, p.bandPass, p.bandQ);
     }
 
     void trigger (float velocity)
     {
-        active    = true;
-        level     = velocity;
+        active      = true;
+        level       = velocity;
         sampleCount = 0;
-        phase     = 0.0;
-        pitchEnv  = 1.0f;
-        ampEnv    = 1.0f;
-        clickEnv  = 1.0f;
-        noiseEnv  = 1.0f;
-        chokeGain = 1.0f;
-        choking   = false;
-        clapTailStarted = false;
-        filterA.reset();
-        filterB.reset();
+        phase       = 0.0;
+        pitchEnv    = 1.0f;
+        // Gli ingredienti non usati partono gia' "spenti", cosi' la voce sa quando ha finito.
+        toneEnv     = params.toneLevel  > 0.0f ? 1.0f : 0.0f;
+        clickEnv    = params.clickLevel > 0.0f ? 1.0f : 0.0f;
+        noiseEnv    = (params.noiseLevel > 0.0f || params.metalLevel > 0.0f) ? 1.0f : 0.0f;
+        burstEnv    = 1.0f;
+        chokeGain   = 1.0f;
+        choking     = false;
+        clickFilter.reset();
+        hpFilter.reset();
+        bpFilter.reset();
 
-        for (auto& p : hatPhases)
+        for (auto& p : metalPhases)
             p = 0.0;
     }
 
@@ -127,167 +120,111 @@ public:
         if (! active)
             return 0.0f;
 
-        float out = 0.0f;
+        const auto& p = params;
+        float sig = 0.0f;
 
-        switch (type)
+        // TONO: sinusoide con caduta di pitch
+        if (p.toneLevel > 0.0f)
         {
-            case DrumType::kick:      out = renderKick();  break;
-            case DrumType::snare:     out = renderSnare(); break;
-            case DrumType::clap:      out = renderClap();  break;
-            case DrumType::closedHat: out = renderHat(); break;
-            case DrumType::openHat:   out = renderHat();  break;
-            case DrumType::tom:       out = renderTom();   break;
+            const double freq = p.toneEnd + (p.toneStart - p.toneEnd) * pitchEnv;
+            sig += (float) std::sin (phase) * toneEnv * p.toneLevel;
+
+            phase += juce::MathConstants<double>::twoPi * freq / sr;
+            if (phase > juce::MathConstants<double>::twoPi)
+                phase -= juce::MathConstants<double>::twoPi;
+
+            pitchEnv *= cPitch;
+            toneEnv  *= cTone;
         }
+
+        // CLICK
+        if (p.clickLevel > 0.0f)
+        {
+            sig += clickFilter.highPass (noise.next()) * clickEnv * p.clickLevel;
+            clickEnv *= cClick;
+        }
+
+        // RUMORE + METALLO, filtrati
+        if (p.noiseLevel > 0.0f || p.metalLevel > 0.0f)
+        {
+            float src = 0.0f;
+
+            if (p.noiseLevel > 0.0f)
+                src += noise.next() * p.noiseLevel;
+
+            if (p.metalLevel > 0.0f)
+            {
+                static constexpr double freqs[6] = { 205.3, 304.4, 369.6, 522.7, 540.0, 800.0 };
+                float metal = 0.0f;
+
+                for (int i = 0; i < 6; ++i)
+                {
+                    metalPhases[i] += freqs[i] * p.metalPitch / sr;
+                    if (metalPhases[i] >= 1.0)
+                        metalPhases[i] -= 1.0;
+                    metal += metalPhases[i] < 0.5 ? 1.0f : -1.0f;
+                }
+
+                src += metal * (p.metalLevel / 6.0f);
+            }
+
+            if (p.highPass > 0.0f) src = hpFilter.highPass (src);
+            if (p.bandPass > 0.0f) src = bpFilter.bandPass (src) * 1.6f;
+
+            sig += src * noiseEnvelope();
+        }
+
+        // Fine del suono quando tutti gli inviluppi sono spenti
+        if (toneEnv < 0.0003f && clickEnv < 0.0003f && noiseEnv < 0.0003f)
+            active = false;
 
         if (choking)
         {
-            chokeGain *= c_0_004;
+            chokeGain *= cChoke;
             if (chokeGain < 0.0005f)
                 active = false;
         }
 
         ++sampleCount;
-        return out * level * chokeGain;
+        return std::tanh (p.drive * sig) * p.gain * level * chokeGain;
     }
 
 private:
-    /** Coefficiente per un decadimento esponenziale con costante di tempo "tau" secondi. */
-    float coef (double tau) const noexcept    { return (float) std::exp (-1.0 / (tau * sr)); }
+    float coef (double tau) const noexcept    { return (float) std::exp (-1.0 / (juce::jmax (0.0005, tau) * sr)); }
 
-    double seconds() const noexcept           { return (double) sampleCount / sr; }
-
-    float sine (double freq) noexcept
+    /** Inviluppo del rumore: normale, oppure "a battiti" per il clap. */
+    float noiseEnvelope() noexcept
     {
-        const float v = (float) std::sin (phase);
-        phase += juce::MathConstants<double>::twoPi * freq / sr;
-        if (phase > juce::MathConstants<double>::twoPi)
-            phase -= juce::MathConstants<double>::twoPi;
-        return v;
-    }
+        const auto& p = params;
+        const float env = noiseEnv;
 
-    void stopWhenSilent (float env) noexcept
-    {
-        if (env < 0.0003f)
-            active = false;
+        if (p.bursts > 0 && sampleCount < burstSamples * p.bursts)
+        {
+            if (sampleCount % burstSamples == 0)
+                burstEnv = 1.0f;
+
+            const float e = burstEnv;
+            burstEnv *= cBurst;
+            return e;
+        }
+
+        noiseEnv *= cNoise;
+        return env;
     }
 
     //==============================================================================
-    float renderKick() noexcept
-    {
-        // Corpo: sinusoide che scende da ~190 Hz a 48 Hz. La saturazione aggiunge armoniche
-        // che si sentono anche dagli altoparlanti del telefono (che non riproducono i 48 Hz).
-        const double freq = 50.0 + 150.0 * pitchEnv;
-        pitchEnv *= c_0_032;
+    double     sr = 48000.0;
+    DrumParams params;
+    bool       active = false, choking = false;
+    int64_t    sampleCount = 0, burstSamples = 480;
+    double     phase = 0.0;
+    double     metalPhases[6] {};
+    float      level = 1.0f, pitchEnv = 1.0f, toneEnv = 1.0f, clickEnv = 1.0f,
+               noiseEnv = 1.0f, burstEnv = 1.0f, chokeGain = 1.0f;
 
-        float body = sine (freq) * ampEnv;
-        ampEnv *= c_kickAmp;
-
-        // Click d'attacco: un brevissimo colpo di rumore filtrato.
-        float click = filterA.highPass (noise.next()) * clickEnv * 0.5f;
-        clickEnv *= c_0_003;
-
-        stopWhenSilent (ampEnv);
-        return std::tanh (4.0f * (body + click)) * 0.9f;
-    }
-
-    float renderSnare() noexcept
-    {
-        const double freq = 185.0 + 70.0 * pitchEnv;
-        pitchEnv *= c_0_02;
-
-        const float tone = sine (freq) * ampEnv;
-        ampEnv *= c_0_055;
-
-        const float rattle = filterA.highPass (noise.next()) * noiseEnv;
-        noiseEnv *= c_0_13;
-
-        stopWhenSilent (noiseEnv);
-        return std::tanh (1.6f * (0.7f * tone + 0.85f * rattle));
-    }
-
-    float renderClap() noexcept
-    {
-        // Tre "battiti" ravvicinati (10 ms) e poi una coda: e' il trucco del clap analogico.
-        const double t = seconds();
-        const int burst = (int) (t / 0.010);
-
-        if (burst < 3)
-        {
-            if (sampleCount % (int64_t) (0.010 * sr) == 0)
-                noiseEnv = 1.0f;
-
-            noiseEnv *= c_0_0045;
-        }
-        else
-        {
-            if (! clapTailStarted)
-            {
-                clapTailStarted = true;
-                noiseEnv = 0.9f;
-            }
-
-            noiseEnv *= c_0_11;
-            stopWhenSilent (noiseEnv);
-        }
-
-        const float n = filterA.bandPass (noise.next()) * noiseEnv;
-        return std::tanh (3.2f * n);
-    }
-
-    float renderHat() noexcept
-    {
-        // Sei onde quadre a frequenze "metalliche" (ricetta della TR-808) + un po' di rumore.
-        static constexpr double ratios[6] = { 205.3, 304.4, 369.6, 522.7, 540.0, 800.0 };
-
-        float metal = 0.0f;
-        for (int i = 0; i < 6; ++i)
-        {
-            hatPhases[i] += ratios[i] * 1.7 / sr;
-            if (hatPhases[i] >= 1.0)
-                hatPhases[i] -= 1.0;
-            metal += hatPhases[i] < 0.5 ? 1.0f : -1.0f;
-        }
-
-        float sig = metal * (1.0f / 6.0f) + 0.35f * noise.next();
-        sig = filterB.bandPass (filterA.highPass (sig));
-
-        const float out = sig * ampEnv * 2.2f;
-        ampEnv *= hatDecay;
-
-        stopWhenSilent (ampEnv);
-        return std::tanh (out);
-    }
-
-    float renderTom() noexcept
-    {
-        const double freq = 105.0 + 70.0 * pitchEnv;
-        pitchEnv *= c_0_06;
-
-        const float body = sine (freq) * ampEnv;
-        ampEnv *= c_0_16;
-
-        const float click = filterA.highPass (noise.next()) * clickEnv * 0.25f;
-        clickEnv *= c_0_002;
-
-        stopWhenSilent (ampEnv);
-        return std::tanh (3.0f * (body + click)) * 0.9f;
-    }
-
-    //==============================================================================
-    double   sr = 48000.0;
-    DrumType type = DrumType::kick;
-    bool     active = false;
-    bool     choking = false;
-    bool     clapTailStarted = false;
-    int64_t  sampleCount = 0;
-    double   phase = 0.0;
-    double   hatPhases[6] {};
-    float    level = 1.0f, pitchEnv = 1.0f, ampEnv = 1.0f, clickEnv = 1.0f,
-             noiseEnv = 1.0f, chokeGain = 1.0f;
-
-    // Coefficienti di decadimento precalcolati in prepare() (exp() e' costoso da fare a ogni campione)
-    float c_0_002 = 0.0f, c_0_003 = 0.0f, c_0_004 = 0.0f, c_0_0045 = 0.0f, c_0_02 = 0.0f, c_0_032 = 0.0f, c_0_055 = 0.0f, c_0_06 = 0.0f, c_0_11 = 0.0f, c_0_13 = 0.0f, c_0_16 = 0.0f, c_kickAmp = 0.0f, hatDecay = 0.0f;
+    // Coefficienti di decadimento precalcolati (exp() e' costoso da fare a ogni campione)
+    float cPitch = 0.0f, cTone = 0.0f, cClick = 0.0f, cNoise = 0.0f, cBurst = 0.0f, cChoke = 0.0f;
 
     FastNoise noise;
-    SVFilter  filterA, filterB;
+    SVFilter  clickFilter, hpFilter, bpFilter;
 };

@@ -38,7 +38,10 @@ public:
             setFullScreen (true);
            #else
             setResizable (true, true);
-            centreWithSize (getWidth(), getHeight());
+
+            // Sul PC: finestra delle dimensioni di un telefono in orizzontale, mai piu' grande dello schermo.
+            auto screen = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()->userArea;
+            centreWithSize (juce::jmin (900, screen.getWidth()), juce::jmin (440, screen.getHeight()));
            #endif
 
             setVisible (true);
