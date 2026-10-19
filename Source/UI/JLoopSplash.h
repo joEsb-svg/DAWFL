@@ -79,7 +79,7 @@ private:
         }
     }
 
-    static constexpr double fadeInTime = 0.7, fadeOutStart = 2.2, fadeOutTime = 0.55;
+    static constexpr double fadeInTime = 0.7, fadeOutStart = 2.2, fadeOutTime = 2.55;
     juce::Image logo;
     double start = 0.0;
 
