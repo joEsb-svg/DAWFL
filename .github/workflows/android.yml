@@ -1,0 +1,108 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-build
+  cancel-in-progress: true
+
+env:
+  JUCE_VERSION: "9.0.4"
+  NDK_VERSION: "28.1.13356709"
+  CMAKE_VERSION: "3.22.1"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Java (8 per il toolchain JUCE, 17 per Gradle)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: |
+            8
+            17
+
+      # JUCE + Projucer compilato vengono messi in cache: dalla seconda build in poi si risparmiano minuti.
+      - name: Cache JUCE e Projucer
+        id: juce-cache
+        uses: actions/cache@v4
+        with:
+          path: JUCE
+          key: juce-${{ env.JUCE_VERSION }}-projucer-v1
+
+      - name: Scarica JUCE
+        if: steps.juce-cache.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch "$JUCE_VERSION" https://github.com/juce-framework/JUCE.git JUCE
+
+      - name: Compila Projucer
+        if: steps.juce-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfreetype-dev libfontconfig1-dev
+          # Projucer serve solo da riga di comando: le estensioni X11 opzionali e curl non servono.
+          make -C JUCE/extras/Projucer/Builds/LinuxMakefile CONFIG=Release -j"$(nproc)" \
+            CPPFLAGS="-UJUCE_USE_CURL -DJUCE_USE_CURL=0 -DJUCE_USE_XRANDR=0 -DJUCE_USE_XINERAMA=0 -DJUCE_USE_XCURSOR=0 -DJUCE_USE_XINPUT=0 -DJUCE_USE_XRENDER=0"
+
+      - name: Genera il progetto Android
+        run: JUCE/extras/Projucer/Builds/LinuxMakefile/build/Projucer --resave DAWFL.jucer
+
+      - name: Installa NDK e CMake
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION" "cmake;$CMAKE_VERSION" > /dev/null
+
+      # Sempre la stessa chiave di firma: cosi' ogni nuovo APK si installa sopra il precedente.
+      - name: Chiave di firma
+        run: |
+          mkdir -p ~/.android
+          cp ci/debug.keystore ~/.android/debug.keystore
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('Builds/Android/**/*.gradle', 'Builds/Android/gradle/wrapper/gradle-wrapper.properties') }}
+
+      - name: Compila APK
+        working-directory: Builds/Android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease_Release --no-daemon --stacktrace \
+            -Porg.gradle.java.installations.paths="$JAVA_HOME_8_X64,$JAVA_HOME_17_X64"
+
+      - name: Prepara APK
+        id: apk
+        run: |
+          APK=$(find Builds/Android/app/build/outputs/apk -name "*.apk" | head -n 1)
+          echo "Trovato: $APK"
+          cp "$APK" DAWFL.apk
+
+      - name: Carica come artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DAWFL-apk
+          path: DAWFL.apk
+
+      # Pubblica l'APK sempre allo stesso link: .../releases/download/latest-build/DAWFL.apk
+      - name: Pubblica release "latest-build"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest-build --yes --cleanup-tag || true
+          gh release create latest-build DAWFL.apk \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "DAWFL - ultima build (${GITHUB_SHA::7})" \
+            --notes "APK compilato automaticamente dal commit ${GITHUB_SHA::7}. Scarica DAWFL.apk e installalo sul telefono."

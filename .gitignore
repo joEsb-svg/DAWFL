@@ -1,0 +1,7 @@
+JUCE/
+JUCE
+Builds/
+JuceLibraryCode/
+*.apk
+.DS_Store
+.vs/
