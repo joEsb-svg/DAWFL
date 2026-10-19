@@ -69,7 +69,10 @@ public:
         // Traccia e valore: un anello sottile
         juce::Path bgArc, valueArc;
         bgArc.addCentredArc (centre.x, centre.y, arcR, arcR, 0.0f, startAngle, endAngle, true);
-        valueArc.addCentredArc (centre.x, centre.y, arcR, arcR, 0.0f, startAngle, angle, true);
+        // Manopole "bipolari" (pitch, tono, pan): l'arco parte dal centro
+        const bool bipolar = slider.getProperties().getWithDefault ("bipolar", false);
+        const float from = bipolar ? (startAngle + endAngle) * 0.5f : startAngle;
+        valueArc.addCentredArc (centre.x, centre.y, arcR, arcR, 0.0f, juce::jmin (from, angle), juce::jmax (from, angle), true);
         g.setColour (Theme::border);
         g.strokePath (bgArc, juce::PathStrokeType (track, juce::PathStrokeType::curved, juce::PathStrokeType::butt));
         g.setColour (colour);

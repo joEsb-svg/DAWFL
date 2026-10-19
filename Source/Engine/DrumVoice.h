@@ -56,9 +56,43 @@ struct SVFilter
 };
 
 //==============================================================================
+/** Le regolazioni del canale che modellano il preset (editor del canale). */
+struct SoundShape
+{
+    float pitch = 0.0f;   // semitoni, -12..+12
+    float decay = 1.0f;   // moltiplicatore della durata, 0.25..3
+    float tone  = 0.0f;   // -1 (scuro) .. +1 (brillante)
+    float drive = 0.0f;   // 0..1, saturazione in piu'
+};
+
+/** Applica le regolazioni del canale a una ricetta della libreria. */
+inline DrumParams shapeParams (DrumParams p, const SoundShape& s)
+{
+    const float ratio = std::pow (2.0f, s.pitch / 12.0f);
+    p.toneStart *= ratio;
+    p.toneEnd   *= ratio;
+    p.metalPitch *= ratio;
+    if (p.bandPass > 0.0f) p.bandPass *= ratio * std::pow (2.0f, 0.5f * s.tone);
+    if (p.highPass > 0.0f) p.highPass *= std::sqrt (ratio) * std::pow (2.0f, s.tone);
+
+    p.toneTau  *= s.decay;
+    p.noiseTau *= s.decay;
+    p.pitchTau *= std::sqrt (s.decay);
+
+    p.clickLevel *= juce::jmax (0.0f, 1.0f + s.tone);
+    p.drive *= 1.0f + 3.0f * s.drive;
+    p.gain  /= 1.0f + 0.35f * s.drive;
+    return p;
+}
+
+//==============================================================================
 /**
     Una voce di batteria sintetizzata, guidata da una "ricetta" (DrumParams).
     Tutto qui dentro e' sicuro per il thread audio: niente allocazioni.
+
+    Oltre alla ricetta:
+    - la VELOCITY cambia anche il timbro (colpo forte = piu' click, piu' saturo, piu' brillante)
+    - HUMANIZE: piccole variazioni casuali di forza, intonazione e tempo a ogni colpo
 */
 class DrumVoice
 {
@@ -67,14 +101,16 @@ public:
     {
         sr = newSampleRate;
         active = false;
+        pendingDelay = -1;
         clickFilter.set (sr, 1200.0, 0.7);
-        setParams (params);
+        setParams (params, toneTilt);
     }
 
     /** Cambia il suono. Va chiamato dal thread audio (o prima che l'audio parta). */
-    void setParams (const DrumParams& p)
+    void setParams (const DrumParams& p, float newToneTilt = 0.0f)
     {
         params = p;
+        toneTilt = newToneTilt;
 
         cPitch = coef (p.pitchTau);
         cTone  = coef (p.toneTau);
@@ -88,37 +124,47 @@ public:
         if (p.bandPass > 0.0f) bpFilter.set (sr, p.bandPass, p.bandQ);
     }
 
-    void trigger (float velocity)
+    /**
+        Fa partire un colpo.
+        @param velocity   0..1
+        @param humanize   0..1, quanta variazione casuale aggiungere
+    */
+    void trigger (float velocity, float humanize = 0.0f)
     {
-        active      = true;
-        level       = velocity;
-        sampleCount = 0;
-        phase       = 0.0;
-        pitchEnv    = 1.0f;
-        // Gli ingredienti non usati partono gia' "spenti", cosi' la voce sa quando ha finito.
-        toneEnv     = params.toneLevel  > 0.0f ? 1.0f : 0.0f;
-        clickEnv    = params.clickLevel > 0.0f ? 1.0f : 0.0f;
-        noiseEnv    = (params.noiseLevel > 0.0f || params.metalLevel > 0.0f) ? 1.0f : 0.0f;
-        burstEnv    = 1.0f;
-        chokeGain   = 1.0f;
-        choking     = false;
-        clickFilter.reset();
-        hpFilter.reset();
-        bpFilter.reset();
+        float vel = velocity;
+        float detune = 1.0f;
+        int delay = 0;
 
-        for (auto& p : metalPhases)
-            p = 0.0;
+        if (humanize > 0.0f)
+        {
+            vel    *= 1.0f - humanize * 0.22f * (0.5f + 0.5f * random.next());
+            detune  = std::pow (2.0f, humanize * 0.25f * random.next() / 12.0f);   // fino a +-1/4 di semitono
+            delay   = (int) (std::abs (random.next()) * humanize * 0.006 * sr);    // fino a 6 ms in ritardo
+        }
+
+        pendingVelocity = juce::jlimit (0.0f, 1.0f, vel);
+        pendingDetune = detune;
+        pendingDelay = delay;
+
+        if (delay == 0)
+            start();
     }
 
     /** Sfuma velocemente la voce (es. l'hi-hat chiuso "strozza" quello aperto). */
     void choke()                    { if (active) choking = true; }
 
-    bool isActive() const noexcept  { return active; }
+    bool isActive() const noexcept  { return active || pendingDelay >= 0; }
 
     float render() noexcept
     {
+        if (pendingDelay > 0 && --pendingDelay == 0)
+            start();
+
         if (! active)
+        {
+            lpState = 0.0f;
             return 0.0f;
+        }
 
         const auto& p = params;
         float sig = 0.0f;
@@ -126,7 +172,7 @@ public:
         // TONO: sinusoide con caduta di pitch
         if (p.toneLevel > 0.0f)
         {
-            const double freq = p.toneEnd + (p.toneStart - p.toneEnd) * pitchEnv;
+            const double freq = (p.toneEnd + (p.toneStart - p.toneEnd) * pitchEnv) * detuneRatio;
             sig += (float) std::sin (phase) * toneEnv * p.toneLevel;
 
             phase += juce::MathConstants<double>::twoPi * freq / sr;
@@ -137,10 +183,10 @@ public:
             toneEnv  *= cTone;
         }
 
-        // CLICK
+        // CLICK (piu' presente nei colpi forti)
         if (p.clickLevel > 0.0f)
         {
-            sig += clickFilter.highPass (noise.next()) * clickEnv * p.clickLevel;
+            sig += clickFilter.highPass (noise.next()) * clickEnv * p.clickLevel * clickGain;
             clickEnv *= cClick;
         }
 
@@ -159,7 +205,7 @@ public:
 
                 for (int i = 0; i < 6; ++i)
                 {
-                    metalPhases[i] += freqs[i] * p.metalPitch / sr;
+                    metalPhases[i] += freqs[i] * p.metalPitch * detuneRatio / sr;
                     if (metalPhases[i] >= 1.0)
                         metalPhases[i] -= 1.0;
                     metal += metalPhases[i] < 0.5 ? 1.0f : -1.0f;
@@ -186,10 +232,48 @@ public:
         }
 
         ++sampleCount;
-        return std::tanh (p.drive * sig) * p.gain * level * chokeGain;
+
+        float out = std::tanh (p.drive * driveGain * sig) * p.gain * level * chokeGain;
+
+        // Passa-basso a un polo: piu' chiuso nei colpi deboli e con "tono" scuro
+        lpState += lpCoef * (out - lpState);
+        return lpState;
     }
 
 private:
+    void start() noexcept
+    {
+        pendingDelay = -1;
+        const float v = pendingVelocity;
+
+        active      = true;
+        level       = std::pow (v, 1.3f);                 // curva un po' esponenziale, come le drum machine
+        clickGain   = 0.35f + 0.65f * v;
+        driveGain   = 0.65f + 0.35f * v;
+        detuneRatio = pendingDetune;
+
+        const double cutoff = juce::jlimit (300.0, sr * 0.45,
+                                            2200.0 * std::pow (9.0, (double) v) * std::pow (2.0, 1.5 * toneTilt));
+        lpCoef = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * cutoff / sr));
+
+        sampleCount = 0;
+        phase       = 0.0;
+        pitchEnv    = 1.0f;
+        // Gli ingredienti non usati partono gia' "spenti", cosi' la voce sa quando ha finito.
+        toneEnv     = params.toneLevel  > 0.0f ? 1.0f : 0.0f;
+        clickEnv    = params.clickLevel > 0.0f ? 1.0f : 0.0f;
+        noiseEnv    = (params.noiseLevel > 0.0f || params.metalLevel > 0.0f) ? 1.0f : 0.0f;
+        burstEnv    = 1.0f;
+        chokeGain   = 1.0f;
+        choking     = false;
+        clickFilter.reset();
+        hpFilter.reset();
+        bpFilter.reset();
+
+        for (auto& ph : metalPhases)
+            ph = 0.0;
+    }
+
     float coef (double tau) const noexcept    { return (float) std::exp (-1.0 / (juce::jmax (0.0005, tau) * sr)); }
 
     /** Inviluppo del rumore: normale, oppure "a battiti" per il clap. */
@@ -215,16 +299,22 @@ private:
     //==============================================================================
     double     sr = 48000.0;
     DrumParams params;
+    float      toneTilt = 0.0f;
     bool       active = false, choking = false;
     int64_t    sampleCount = 0, burstSamples = 480;
     double     phase = 0.0;
     double     metalPhases[6] {};
     float      level = 1.0f, pitchEnv = 1.0f, toneEnv = 1.0f, clickEnv = 1.0f,
                noiseEnv = 1.0f, burstEnv = 1.0f, chokeGain = 1.0f;
+    float      clickGain = 1.0f, driveGain = 1.0f, detuneRatio = 1.0f, lpCoef = 1.0f, lpState = 0.0f;
+
+    // Colpo in attesa (humanize: puo' partire qualche ms dopo)
+    int        pendingDelay = -1;
+    float      pendingVelocity = 1.0f, pendingDetune = 1.0f;
 
     // Coefficienti di decadimento precalcolati (exp() e' costoso da fare a ogni campione)
     float cPitch = 0.0f, cTone = 0.0f, cClick = 0.0f, cNoise = 0.0f, cBurst = 0.0f, cChoke = 0.0f;
 
-    FastNoise noise;
+    FastNoise noise, random { 0x9e3779b9u };
     SVFilter  clickFilter, hpFilter, bpFilter;
 };

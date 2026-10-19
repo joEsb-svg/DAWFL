@@ -9,9 +9,12 @@ public:
     const juce::String getApplicationVersion() override    { return ProjectInfo::versionString; }
     bool moreThanOneInstanceAllowed() override             { return false; }
 
-    void initialise (const juce::String&) override
+    void initialise (const juce::String& commandLine) override
     {
         mainWindow = std::make_unique<MainWindow> (getApplicationName());
+
+        if (auto* main = dynamic_cast<MainComponent*> (mainWindow->getContentComponent()))
+            main->handleCommandLine (commandLine);
     }
 
     void shutdown() override

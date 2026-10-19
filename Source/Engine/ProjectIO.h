@@ -12,7 +12,7 @@
 */
 namespace ProjectIO
 {
-    static constexpr int formatVersion = 1;
+    static constexpr int formatVersion = 2;
     static constexpr const char* extension = ".dawfl";
 
     inline juce::File getRootFolder()
@@ -46,20 +46,20 @@ namespace ProjectIO
 
     //==============================================================================
     /** Una riga di step come stringa compatta: 2 cifre esadecimali per step ("00" = spento). */
-    inline juce::String encodeRow (SequencerEngine::Pattern& p, int channel)
+    inline juce::String encodeRow (const SequencerEngine::Pattern::Row& row)
     {
         juce::String s;
         for (int i = 0; i < SequencerEngine::maxSteps; ++i)
-            s << juce::String::toHexString ((int) p.velocity[(size_t) channel][(size_t) i].load()).paddedLeft ('0', 2);
+            s << juce::String::toHexString ((int) row[(size_t) i].load()).paddedLeft ('0', 2);
         return s;
     }
 
-    inline void decodeRow (SequencerEngine::Pattern& p, int channel, const juce::String& s)
+    inline void decodeRow (SequencerEngine::Pattern::Row& row, const juce::String& s, int minValue, int maxValue)
     {
-        for (int i = 0; i < SequencerEngine::maxSteps; ++i)
+        for (int i = 0; i < SequencerEngine::maxSteps && i * 2 + 2 <= s.length(); ++i)
         {
             const int v = s.substring (i * 2, i * 2 + 2).getHexValue32();
-            p.velocity[(size_t) channel][(size_t) i].store ((uint8_t) juce::jlimit (0, 127, v));
+            row[(size_t) i].store ((uint8_t) juce::jlimit (minValue, maxValue, v));
         }
     }
 
@@ -83,6 +83,15 @@ namespace ProjectIO
             o->setProperty ("kit", ch.kit.load());
             o->setProperty ("volume", ch.volume.load());
             o->setProperty ("muted", ch.muted.load());
+            o->setProperty ("pan", ch.pan.load());
+            o->setProperty ("pitch", ch.pitch.load());
+            o->setProperty ("decay", ch.decay.load());
+            o->setProperty ("tone", ch.tone.load());
+            o->setProperty ("drive", ch.drive.load());
+            o->setProperty ("filter", ch.filter.load());
+            o->setProperty ("reverb", ch.reverb.load());
+            o->setProperty ("delay", ch.delay.load());
+            o->setProperty ("humanize", ch.humanize.load());
             channels.add (juce::var (o));
         }
         root->setProperty ("channels", channels);
@@ -94,11 +103,17 @@ namespace ProjectIO
             auto* o = new juce::DynamicObject();
             o->setProperty ("length", pat.length.load());
 
-            juce::Array<juce::var> rows;
+            juce::Array<juce::var> rows, probs, ratchets;
             for (int c = 0; c < SequencerEngine::numChannels; ++c)
-                rows.add (encodeRow (pat, c));
+            {
+                rows.add (encodeRow (pat.velocity[(size_t) c]));
+                probs.add (encodeRow (pat.probability[(size_t) c]));
+                ratchets.add (encodeRow (pat.ratchet[(size_t) c]));
+            }
 
             o->setProperty ("steps", rows);
+            o->setProperty ("probability", probs);
+            o->setProperty ("ratchet", ratchets);
             patterns.add (juce::var (o));
         }
         root->setProperty ("patterns", patterns);
@@ -126,6 +141,22 @@ namespace ProjectIO
                 engine.setChannelKit (c, (int) o.getProperty ("kit", 0));
                 ch.volume.store (juce::jlimit (0.0f, 1.0f, (float) (double) o.getProperty ("volume", 0.8)));
                 ch.muted.store ((bool) o.getProperty ("muted", false));
+
+                auto get = [&o] (const char* key, float def, float lo, float hi)
+                {
+                    return juce::jlimit (lo, hi, (float) (double) o.getProperty (key, (double) def));
+                };
+
+                ch.pan.store      (get ("pan",      0.0f, -1.0f, 1.0f));
+                ch.pitch.store    (get ("pitch",    0.0f, -12.0f, 12.0f));
+                ch.decay.store    (get ("decay",    1.0f, 0.25f, 3.0f));
+                ch.tone.store     (get ("tone",     0.0f, -1.0f, 1.0f));
+                ch.drive.store    (get ("drive",    0.0f, 0.0f, 1.0f));
+                ch.filter.store   (get ("filter",   1.0f, 0.0f, 1.0f));
+                ch.reverb.store   (get ("reverb",   0.0f, 0.0f, 1.0f));
+                ch.delay.store    (get ("delay",    0.0f, 0.0f, 1.0f));
+                ch.humanize.store (get ("humanize", 0.15f, 0.0f, 1.0f));
+                ch.touchSound();
             }
         }
 
@@ -137,9 +168,17 @@ namespace ProjectIO
                 auto& pat = engine.getPattern (p);
                 pat.length.store ((int) o.getProperty ("length", 16) > 16 ? 32 : 16);
 
-                if (auto* rows = o.getProperty ("steps", {}).getArray())
-                    for (int c = 0; c < juce::jmin (rows->size(), SequencerEngine::numChannels); ++c)
-                        decodeRow (pat, c, rows->getReference (c).toString());
+                auto readRows = [&o] (const char* key, std::array<SequencerEngine::Pattern::Row, SequencerEngine::numChannels>& target,
+                                      int lo, int hi)
+                {
+                    if (auto* rows = o.getProperty (key, {}).getArray())
+                        for (int c = 0; c < juce::jmin (rows->size(), SequencerEngine::numChannels); ++c)
+                            decodeRow (target[(size_t) c], rows->getReference (c).toString(), lo, hi);
+                };
+
+                readRows ("steps",       pat.velocity,    0, 127);
+                readRows ("probability", pat.probability, 0, 100);   // assenti nei file vecchi: restano al 100%
+                readRows ("ratchet",     pat.ratchet,     1, SequencerEngine::maxRatchet);
             }
         }
 

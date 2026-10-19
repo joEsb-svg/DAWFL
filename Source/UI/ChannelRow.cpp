@@ -1,6 +1,8 @@
 #include "ChannelRow.h"
 #include "Theme.h"
 
+ChannelRow::RowClipboard ChannelRow::clipboard;
+
 ChannelRow::ChannelRow (SequencerEngine& e, int channelIndex)
     : engine (e),
       channel (channelIndex),
@@ -32,8 +34,8 @@ void ChannelRow::resized()
     muteArea = left.removeFromLeft (juce::jmin (26.0f, h * 0.7f));
     volumeKnob.setBounds (left.removeFromLeft (h).reduced (1.0f).toNearestInt());
     left.removeFromLeft (4.0f);
-    nameArea  = left.reduced (0.0f, 1.0f);
-    soundArea = nameArea.withLeft (nameArea.getRight() - juce::jmin (30.0f, nameArea.getWidth() * 0.28f));
+    nameArea = left.reduced (0.0f, 1.0f);
+    menuArea = nameArea.withLeft (nameArea.getRight() - juce::jmin (30.0f, nameArea.getWidth() * 0.28f));
 }
 
 juce::Rectangle<float> ChannelRow::getPadsArea() const
@@ -67,12 +69,12 @@ int ChannelRow::columnAt (juce::Point<float> p) const
     return -1;
 }
 
-void ChannelRow::setView (int firstStepToShow, bool velocityModeOn)
+void ChannelRow::setView (int firstStepToShow, EditMode newMode)
 {
-    if (firstStepToShow != firstStep || velocityModeOn != velocityMode)
+    if (firstStepToShow != firstStep || newMode != mode)
     {
         firstStep = firstStepToShow;
-        velocityMode = velocityModeOn;
+        mode = newMode;
         repaint();
     }
 }
@@ -83,6 +85,7 @@ void ChannelRow::paint (juce::Graphics& g)
     auto& ch = engine.getChannel (channel);
     const bool muted = ch.muted.load();
     const int length = engine.getPatternLength();
+    const bool showPlayhead = engine.getPlayingPattern() == engine.getCurrentPattern();
 
     // LED di mute (verde = canale attivo)
     {
@@ -106,11 +109,10 @@ void ChannelRow::paint (juce::Graphics& g)
         auto r = nameArea;
         Theme::drawRaised (g, r, Theme::raised.interpolatedWith (Theme::raisedHi, flash));
 
-        // Filo colorato a sinistra: unico tocco di colore del canale
         g.setColour (colour.withAlpha (muted ? 0.3f : 0.9f));
         g.fillRect (r.withWidth (3.0f).reduced (0.0f, 3.0f).translated (3.0f, 0.0f));
 
-        auto textArea = r.withTrimmedLeft (11.0f).withRight (soundArea.getX());
+        auto textArea = r.withTrimmedLeft (11.0f).withRight (menuArea.getX());
         const float nameH = juce::jlimit (12.0f, 15.0f, r.getHeight() * 0.36f);
         auto nameLine = textArea.removeFromTop (textArea.getHeight() * 0.55f);
 
@@ -124,12 +126,11 @@ void ChannelRow::paint (juce::Graphics& g)
         g.drawFittedText (SoundLibrary::getKitName (engine.getChannelKit (channel)), textArea.toNearestInt(),
                           juce::Justification::topLeft, 1);
 
-        // Separatore e freccia della libreria suoni
         g.setColour (Theme::border.withAlpha (0.8f));
-        g.drawVerticalLine ((int) soundArea.getX(), soundArea.getY() + 5.0f, soundArea.getBottom() - 5.0f);
+        g.drawVerticalLine ((int) menuArea.getX(), menuArea.getY() + 5.0f, menuArea.getBottom() - 5.0f);
 
-        const float a = juce::jmin (soundArea.getWidth(), soundArea.getHeight()) * 0.16f;
-        auto c = soundArea.getCentre();
+        const float a = juce::jmin (menuArea.getWidth(), menuArea.getHeight()) * 0.16f;
+        auto c = menuArea.getCentre();
         juce::Path tri;
         tri.addTriangle (c.x - a, c.y - a * 0.5f, c.x + a, c.y - a * 0.5f, c.x, c.y + a * 0.7f);
         g.setColour (Theme::textDim);
@@ -141,31 +142,34 @@ void ChannelRow::paint (juce::Graphics& g)
     {
         const int step = firstStep + col;
         auto pad = getPadBounds (col);
-        const bool outside = step >= length;                       // oltre la lunghezza del pattern
-        const int vel = outside ? 0 : engine.getStepVelocity (channel, step);
-        const bool isCurrent = step == current;
-        auto off = (col / 4) % 2 == 0 ? Theme::stepOffA : Theme::stepOffB;
 
-        if (outside)
+        if (step >= length)   // oltre la lunghezza del pattern
         {
             g.setColour (Theme::panel);
             g.fillRoundedRectangle (pad, 2.0f);
             continue;
         }
 
+        const int vel  = engine.getStepVelocity (channel, step);
+        const bool isCurrent = showPlayhead && step == current;
+        auto off = (col / 4) % 2 == 0 ? Theme::stepOffA : Theme::stepOffB;
         if (isCurrent)
             off = off.brighter (0.25f);
 
-        if (velocityMode)
+        const auto onColour = (isCurrent ? Theme::stepOnHi : Theme::stepOn).withMultipliedAlpha (muted ? 0.45f : 1.0f);
+
+        if (mode == EditMode::velocity || mode == EditMode::probability)
         {
-            // Sfondo dello step + barra verticale proporzionale alla velocity
+            // Barra verticale: velocity (grigio) o probabilita' (con accento)
             Theme::drawSunken (g, pad, off.darker (0.35f), 2.0f);
 
             if (vel > 0)
             {
+                const float amount = mode == EditMode::velocity ? (float) vel / 127.0f
+                                                                : (float) engine.getStepProbability (channel, step) / 100.0f;
                 auto bar = pad.reduced (3.0f);
-                bar = bar.removeFromBottom (bar.getHeight() * (float) vel / 127.0f);
-                g.setColour ((isCurrent ? Theme::stepOnHi : Theme::stepOn).withAlpha (muted ? 0.4f : 1.0f));
+                bar = bar.removeFromBottom (juce::jmax (2.0f, bar.getHeight() * amount));
+                g.setColour (mode == EditMode::velocity ? onColour : onColour.interpolatedWith (Theme::accent, 0.35f));
                 g.fillRect (bar);
                 g.setColour (Theme::accent);
                 g.fillRect (bar.removeFromTop (2.0f));
@@ -175,16 +179,37 @@ void ChannelRow::paint (juce::Graphics& g)
 
         if (vel > 0)
         {
-            // Acceso: piu' chiaro quanto piu' e' forte
-            auto on = off.interpolatedWith (isCurrent ? Theme::stepOnHi : Theme::stepOn, 0.45f + 0.55f * (float) vel / 127.0f);
-            if (muted)
-                on = on.interpolatedWith (off, 0.6f);
-
+            auto on = off.interpolatedWith (onColour, 0.45f + 0.55f * (float) vel / 127.0f);
             Theme::drawRaised (g, pad, on, 2.0f);
         }
         else
         {
             Theme::drawRaised (g, pad, off, 2.0f);
+        }
+
+        if (vel > 0)
+        {
+            // Segni sullo step: tacche per il ratchet, puntino per la probabilita' < 100%
+            const int rat = engine.getStepRatchet (channel, step);
+            const bool showRatchet = rat > 1 || mode == EditMode::ratchet;
+
+            if (showRatchet)
+            {
+                auto inner = pad.reduced (pad.getWidth() * 0.22f, pad.getHeight() * 0.3f);
+                const float segH = inner.getHeight() / (float) SequencerEngine::maxRatchet;
+
+                for (int i = 0; i < rat; ++i)
+                {
+                    g.setColour (Theme::bg.withAlpha (0.75f));
+                    g.fillRect (inner.withY (inner.getBottom() - segH * (float) (i + 1)).withHeight (segH - 2.0f));
+                }
+            }
+
+            if (engine.getStepProbability (channel, step) < 100)
+            {
+                g.setColour (Theme::accent);
+                g.fillEllipse (pad.getRight() - 7.0f, pad.getY() + 3.0f, 4.0f, 4.0f);
+            }
         }
     }
 }
@@ -193,24 +218,27 @@ void ChannelRow::paint (juce::Graphics& g)
 void ChannelRow::mouseDown (const juce::MouseEvent& e)
 {
     lastColumn = -1;
+    pressOnName = false;
 
     if (muteArea.expanded (2.0f).contains (e.position))
     {
         auto& m = engine.getChannel (channel).muted;
         m.store (! m.load());
+        if (onTap) onTap();
         repaint();
         return;
     }
 
-    if (soundArea.contains (e.position))
+    if (menuArea.contains (e.position))
     {
-        showSoundMenu();
+        showRowMenu();
         return;
     }
 
     if (nameArea.contains (e.position))
     {
         engine.previewChannel (channel);
+        pressOnName = true;   // se resta premuto a lungo, al rilascio apre l'editor
         return;
     }
 
@@ -218,17 +246,37 @@ void ChannelRow::mouseDown (const juce::MouseEvent& e)
     if (col < 0 || firstStep + col >= engine.getPatternLength())
         return;
 
+    const int step = firstStep + col;
     lastColumn = col;
 
-    if (velocityMode)
+    switch (mode)
     {
-        applyVelocityAt (e.position);
-        return;
+        case EditMode::velocity:
+        case EditMode::probability:
+            applyVerticalValueAt (e.position);
+            return;
+
+        case EditMode::ratchet:
+            if (engine.isStepOn (channel, step))
+                engine.setStepRatchet (channel, step, engine.getStepRatchet (channel, step) % SequencerEngine::maxRatchet + 1);
+            break;
+
+        case EditMode::step:
+            paintValue = ! engine.isStepOn (channel, step);
+            if (paintValue)
+            {
+                engine.setStepVelocity (channel, step, SequencerEngine::defaultVelocity);
+                engine.setStepProbability (channel, step, 100);
+                engine.setStepRatchet (channel, step, 1);
+            }
+            else
+            {
+                engine.setStepVelocity (channel, step, 0);
+            }
+            break;
     }
 
-    const int step = firstStep + col;
-    paintValue = ! engine.isStepOn (channel, step);
-    engine.setStepVelocity (channel, step, paintValue ? SequencerEngine::defaultVelocity : 0);
+    if (onTap) onTap();
     repaint();
 }
 
@@ -237,34 +285,65 @@ void ChannelRow::mouseDrag (const juce::MouseEvent& e)
     if (lastColumn < 0)
         return;
 
-    if (velocityMode)
+    if (mode == EditMode::velocity || mode == EditMode::probability)
     {
-        applyVelocityAt (e.position);
+        applyVerticalValueAt (e.position);
         return;
     }
+
+    if (mode != EditMode::step)
+        return;
 
     const int col = columnAt ({ e.position.x, getPadsArea().getCentreY() });
     if (col >= 0 && col != lastColumn && firstStep + col < engine.getPatternLength())
     {
-        engine.setStepVelocity (channel, firstStep + col, paintValue ? SequencerEngine::defaultVelocity : 0);
+        const int step = firstStep + col;
+        engine.setStepVelocity (channel, step, paintValue ? SequencerEngine::defaultVelocity : 0);
+        if (paintValue)
+        {
+            engine.setStepProbability (channel, step, 100);
+            engine.setStepRatchet (channel, step, 1);
+        }
         lastColumn = col;
+        if (onTap) onTap();
         repaint();
     }
 }
 
-void ChannelRow::applyVelocityAt (juce::Point<float> p)
+void ChannelRow::mouseUp (const juce::MouseEvent& e)
 {
-    // In modalita' VEL il dito puo' scorrere sugli step: conta la colonna sotto il dito
-    // e l'altezza del dito dentro la riga.
+    if (pressOnName && e.getLengthOfMousePress() > 450 && onOpenEditor)
+        onOpenEditor (channel);
+
+    pressOnName = false;
+}
+
+void ChannelRow::applyVerticalValueAt (juce::Point<float> p)
+{
+    // Il dito puo' scorrere sugli step: conta la colonna sotto il dito e la sua altezza nella riga.
     const int col = columnAt ({ p.x, getPadsArea().getCentreY() });
     if (col < 0 || firstStep + col >= engine.getPatternLength())
         return;
 
+    const int step = firstStep + col;
     auto pad = getPadBounds (col).reduced (3.0f);
-    const float norm = 1.0f - (p.y - pad.getY()) / juce::jmax (1.0f, pad.getHeight());
-    const int vel = juce::jlimit (1, 127, juce::roundToInt (norm * 127.0f));
+    const float norm = juce::jlimit (0.0f, 1.0f, 1.0f - (p.y - pad.getY()) / juce::jmax (1.0f, pad.getHeight()));
 
-    engine.setStepVelocity (channel, firstStep + col, vel);
+    if (mode == EditMode::velocity)
+    {
+        if (! engine.isStepOn (channel, step))
+        {
+            engine.setStepProbability (channel, step, 100);
+            engine.setStepRatchet (channel, step, 1);
+        }
+        engine.setStepVelocity (channel, step, juce::jlimit (1, 127, juce::roundToInt (norm * 127.0f)));
+    }
+    else if (engine.isStepOn (channel, step))
+    {
+        // Probabilita' a scatti del 5%, minimo 5%
+        engine.setStepProbability (channel, step, juce::jlimit (5, 100, juce::roundToInt (norm * 20.0f) * 5));
+    }
+
     lastColumn = col;
     repaint();
 }
@@ -293,14 +372,14 @@ void ChannelRow::refresh (int currentStep)
         needsRepaint = true;
     }
 
-    // Cambiamenti fatti altrove (kit globale, cambio pattern, caricamento progetto)
+    // Cambiamenti fatti altrove (kit globale, cambio pattern, caricamento progetto, undo)
     if (const int kit = engine.getChannelKit (channel); kit != shownKit)
     {
         shownKit = kit;
         needsRepaint = true;
     }
 
-    if (const int pat = engine.getCurrentPattern(); pat != shownPattern)
+    if (const int pat = engine.getCurrentPattern() * 16 + engine.getPlayingPattern(); pat != shownPattern)
     {
         shownPattern = pat;
         needsRepaint = true;
@@ -321,14 +400,33 @@ void ChannelRow::refresh (int currentStep)
 }
 
 //==============================================================================
-void ChannelRow::showSoundMenu()
+void ChannelRow::showRowMenu()
 {
-    juce::PopupMenu menu;
-    menu.addSectionHeader (juce::String (SequencerEngine::getChannelInfo (channel).name) + "  -  libreria suoni");
+    juce::PopupMenu library, fill;
 
     const int selectedKit = engine.getChannelKit (channel);
     for (int k = 0; k < SoundLibrary::numKits; ++k)
-        menu.addItem (k + 1, SoundLibrary::getKitName (k), true, k == selectedKit);
+        library.addItem (100 + k, SoundLibrary::getKitName (k), true, k == selectedKit);
+
+    fill.addItem (201, "Ogni step");
+    fill.addItem (202, "Ogni 2 step (ottavi)");
+    fill.addItem (204, "Ogni 4 step (quarti)");
+    fill.addItem (208, "Ogni 8 step");
+    fill.addItem (210, "Controtempo (sugli ottavi pari)");
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader (SequencerEngine::getChannelInfo (channel).name);
+    menu.addItem (1, "Modifica suono...");
+    menu.addSubMenu ("Libreria suoni", library);
+    menu.addSeparator();
+    menu.addItem (2, juce::String (juce::CharPointer_UTF8 ("Sposta a sinistra  \xe2\x97\x80")));
+    menu.addItem (3, juce::String (juce::CharPointer_UTF8 ("Sposta a destra  \xe2\x96\xb6")));
+    menu.addItem (4, "Inverti");
+    menu.addSubMenu ("Riempi", fill);
+    menu.addSeparator();
+    menu.addItem (5, "Copia riga");
+    menu.addItem (6, "Incolla riga", clipboard.valid);
+    menu.addItem (7, "Svuota riga");
 
     juce::Component::SafePointer<ChannelRow> safeThis (this);
 
@@ -339,8 +437,42 @@ void ChannelRow::showSoundMenu()
                             if (safeThis == nullptr || result <= 0)
                                 return;
 
-                            safeThis->engine.setChannelKit (safeThis->channel, result - 1);
-                            safeThis->engine.previewChannel (safeThis->channel);
-                            safeThis->repaint();
+                            auto& self = *safeThis;
+                            auto& e = self.engine;
+                            const int c = self.channel;
+
+                            if (result == 1)        { if (self.onOpenEditor) self.onOpenEditor (c); }
+                            else if (result == 2)   e.shiftRow (c, -1);
+                            else if (result == 3)   e.shiftRow (c, 1);
+                            else if (result == 4)   e.reverseRow (c);
+                            else if (result == 5)
+                            {
+                                for (int s = 0; s < SequencerEngine::maxSteps; ++s)
+                                {
+                                    clipboard.velocity[s]    = (uint8_t) e.getStepVelocity (c, s);
+                                    clipboard.probability[s] = (uint8_t) e.getStepProbability (c, s);
+                                    clipboard.ratchet[s]     = (uint8_t) e.getStepRatchet (c, s);
+                                }
+                                clipboard.valid = true;
+                            }
+                            else if (result == 6)
+                            {
+                                for (int s = 0; s < SequencerEngine::maxSteps; ++s)
+                                {
+                                    e.setStepVelocity (c, s, clipboard.velocity[s]);
+                                    e.setStepProbability (c, s, clipboard.probability[s]);
+                                    e.setStepRatchet (c, s, clipboard.ratchet[s]);
+                                }
+                            }
+                            else if (result == 7)   e.clearRow (c);
+                            else if (result == 210) e.fillRow (c, 4, 2);
+                            else if (result > 200)  e.fillRow (c, result - 200);
+                            else if (result >= 100)
+                            {
+                                e.setChannelKit (c, result - 100);
+                                e.previewChannel (c);
+                            }
+
+                            self.repaint();
                         });
 }

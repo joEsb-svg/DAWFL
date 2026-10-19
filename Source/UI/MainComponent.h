@@ -5,6 +5,7 @@
 #include "DawLookAndFeel.h"
 #include "Widgets.h"
 #include "ChannelRow.h"
+#include "ChannelEditor.h"
 
 //==============================================================================
 /** La schermata principale: barra del trasporto + channel rack. */
@@ -20,6 +21,9 @@ public:
 
     /** Salva lo stato corrente nel file di autosalvataggio (chiamato anche quando l'app va in background). */
     void saveSession();
+
+    /** Solo per i test sul PC: "--editor N" apre l'editor del canale N, "--mode N" sceglie la modalita'. */
+    void handleCommandLine (const juce::String& commandLine);
 
 private:
     void timerCallback() override;
@@ -38,6 +42,19 @@ private:
     void showMessage (const juce::String& title, const juce::String& message);
 
     void syncControlsFromEngine();
+    void openEditor (int channel);
+    void tapTempo();
+
+    // Undo / redo: istantanee del progetto prese automaticamente dopo ogni modifica
+    juce::String takeSnapshot();
+    void applySnapshot (const juce::String& snapshot);
+    void checkForChanges();
+    void undo();
+    void redo();
+    juce::StringArray undoStack, redoStack;
+    juce::String lastSnapshot;
+    int snapshotCounter = 0;
+    juce::Array<double> tapTimes;
     void updateViews();
     juce::String getKitLabel() const;
 
@@ -53,7 +70,10 @@ private:
     juce::TextButton fileButton { "MENU" }, kitButton;
     PlayButton playButton;
     LcdSelector bpmDisplay, patternDisplay;
-    SegmentedControl modeSwitch  { { "STEP", "VEL" } };
+    SegmentedControl modeSwitch  { { "STEP", "VEL", "PROB", "ROLL" } };
+    IconButton undoButton { IconButton::Icon::undo }, redoButton { IconButton::Icon::redo },
+               metroButton { IconButton::Icon::metronome };
+    ChannelEditor editor { engine };
     SegmentedControl lengthSwitch { { "16", "32" } };
     SegmentedControl pageSwitch  { { "1-16", "17-32" } };
     juce::Slider swingKnob, masterKnob;
@@ -61,7 +81,7 @@ private:
     StepRuler ruler;
     juce::OwnedArray<ChannelRow> rows;
 
-    juce::Rectangle<float> headerArea, logoArea, swingCaption, masterCaption, kitCaption, rackArea;
+    juce::Rectangle<float> headerArea, logoArea, swingCaption, masterCaption, kitCaption, rackArea, toolbarCaption;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };

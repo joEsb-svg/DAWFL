@@ -39,7 +39,17 @@ MainComponent::MainComponent()
     bpmDisplay.getText = [this] { return juce::String (juce::roundToInt (engine.getBpm())); };
     bpmDisplay.onStep  = [this] (int d) { engine.setBpm (std::round (engine.getBpm()) + d); };
     bpmDisplay.onDrag  = [this] (double d) { engine.setBpm (engine.getBpm() + d); };
+    bpmDisplay.onCentreTap = [this] { tapTempo(); };   // tocca il numero a tempo: "tap tempo"
     addAndMakeVisible (bpmDisplay);
+
+    // --- Undo / redo / metronomo
+    undoButton.onClick = [this] { undo(); };
+    redoButton.onClick = [this] { redo(); };
+    metroButton.setClickingTogglesState (true);
+    metroButton.onClick = [this] { engine.setMetronome (metroButton.getToggleState()); };
+    addAndMakeVisible (undoButton);
+    addAndMakeVisible (redoButton);
+    addAndMakeVisible (metroButton);
 
     // --- Pattern
     patternDisplay.caption = "Pattern";
@@ -82,7 +92,14 @@ MainComponent::MainComponent()
 
     // --- Channel rack
     for (int c = 0; c < SequencerEngine::numChannels; ++c)
-        addAndMakeVisible (rows.add (new ChannelRow (engine, c)));
+    {
+        auto* row = rows.add (new ChannelRow (engine, c));
+        row->onOpenEditor = [this] (int ch) { openEditor (ch); };
+        addAndMakeVisible (row);
+    }
+
+    editor.onClose = [this] { editor.setVisible (false); };
+    addChildComponent (editor);
 
     ruler.getColumnBounds = [this] (int i)
     {
@@ -99,6 +116,7 @@ MainComponent::MainComponent()
         projectName = json.getProperty ("projectName", untitled).toString();
     }
     syncControlsFromEngine();
+    lastSnapshot = takeSnapshot();
 
     // --- Audio: 0 ingressi, 2 uscite (stereo)
     audioError = deviceManager.initialiseWithDefaultDevices (0, 2);
@@ -176,17 +194,19 @@ void MainComponent::resized()
     auto header = full.removeFromTop (headerH).reduced (0, 5);
     const int h = header.getHeight();
 
-    logoArea = header.removeFromLeft (92).toFloat();
+    logoArea = header.removeFromLeft (88).toFloat();
+    header.removeFromLeft (4);
+    fileButton.setBounds (header.removeFromLeft (50));
     header.removeFromLeft (6);
-    fileButton.setBounds (header.removeFromLeft (54));
+    undoButton.setBounds (header.removeFromLeft (h));
+    header.removeFromLeft (3);
+    redoButton.setBounds (header.removeFromLeft (h));
     header.removeFromLeft (10);
     playButton.setBounds (header.removeFromLeft (juce::roundToInt (h * 1.25)));
     header.removeFromLeft (6);
-    bpmDisplay.setBounds (header.removeFromLeft (104));
+    bpmDisplay.setBounds (header.removeFromLeft (100));
     header.removeFromLeft (6);
-    patternDisplay.setBounds (header.removeFromLeft (104));
-    header.removeFromLeft (10);
-    modeSwitch.setBounds (header.removeFromLeft (92).reduced (0, h / 6));
+    patternDisplay.setBounds (header.removeFromLeft (100));
 
     meter.setBounds (header.removeFromRight (8));
     header.removeFromRight (6);
@@ -201,7 +221,7 @@ void MainComponent::resized()
 
     knobWithCaption (masterKnob, masterCaption, 48);
     {
-        auto area = header.removeFromRight (104);
+        auto area = header.removeFromRight (juce::jlimit (80, 110, header.getWidth() / 2));
         kitCaption = area.removeFromBottom (12).toFloat();
         kitButton.setBounds (area.reduced (0, 1));
         header.removeFromRight (6);
@@ -213,17 +233,23 @@ void MainComponent::resized()
     rackArea = full.toFloat();
     auto rack = full.reduced (6, 4);
 
-    // Barra sopra le righe: lunghezza e pagina a sinistra, righello allineato agli step a destra
+    // Barra degli strumenti del sequencer
     auto bar = rack.removeFromTop (26);
-    const int headerW = (int) ChannelRow::getHeaderWidth ((float) rack.getWidth());
-    auto barLeft = bar.removeFromLeft (headerW);
-    lengthSwitch.setBounds (barLeft.removeFromLeft (64).reduced (0, 2));
-    barLeft.removeFromLeft (6);
-    pageSwitch.setBounds (barLeft.removeFromLeft (juce::jmin (100, barLeft.getWidth())).reduced (0, 2));
-    rack.removeFromTop (4);
+    modeSwitch.setBounds (bar.removeFromLeft (220).reduced (0, 1));
+    bar.removeFromLeft (8);
+    lengthSwitch.setBounds (bar.removeFromLeft (64).reduced (0, 1));
+    bar.removeFromLeft (8);
+    pageSwitch.setBounds (bar.removeFromLeft (100).reduced (0, 1));
+    bar.removeFromLeft (8);
+    metroButton.setBounds (bar.removeFromLeft (34));
+
+    // Righello allineato agli step, poi le righe
+    auto rulerArea = rack.removeFromTop (16);
+    rack.removeFromTop (2);
 
     const int gap = 4;
     const int rowH = (rack.getHeight() - gap * (SequencerEngine::numChannels - 1)) / SequencerEngine::numChannels;
+    auto rowsArea = rack;
 
     for (auto* row : rows)
     {
@@ -231,8 +257,8 @@ void MainComponent::resized()
         rack.removeFromTop (gap);
     }
 
-    ruler.setBounds (rows.getFirst()->getX(), bar.getY(), rows.getFirst()->getWidth(), bar.getHeight());
-    ruler.toBack();
+    ruler.setBounds (rows.getFirst()->getX(), rulerArea.getY(), rows.getFirst()->getWidth(), rulerArea.getHeight());
+    editor.setBounds (rowsArea.withTop (rulerArea.getY()).expanded (2, 2));
     updateViews();
 }
 
@@ -248,10 +274,13 @@ void MainComponent::updateViews()
         pageSwitch.setSelected (0);
 
     const int firstStep = pageSwitch.getSelected() * 16;
-    const bool velocity = modeSwitch.getSelected() == 1;
+    const auto mode = (ChannelRow::EditMode) modeSwitch.getSelected();
 
     for (auto* row : rows)
-        row->setView (firstStep, velocity);
+        row->setView (firstStep, mode);
+
+    undoButton.setEnabled (! undoStack.isEmpty());
+    redoButton.setEnabled (! redoStack.isEmpty());
 
     patternDisplay.repaint();
     repaint (headerArea.toNearestInt());
@@ -260,6 +289,9 @@ void MainComponent::updateViews()
 void MainComponent::syncControlsFromEngine()
 {
     swingKnob.setValue (engine.getSwing(), juce::dontSendNotification);
+    metroButton.setToggleState (engine.isMetronomeOn(), juce::dontSendNotification);
+    if (editor.isVisible())
+        editor.refreshFromEngine();
     masterKnob.setValue (engine.getMasterVolume(), juce::dontSendNotification);
     kitButton.setButtonText (getKitLabel());
     bpmDisplay.repaint();
@@ -295,6 +327,13 @@ void MainComponent::timerCallback()
 
     if (const auto label = getKitLabel(); kitButton.getButtonText() != label)
         kitButton.setButtonText (label);
+
+    // Undo: cerca modifiche ~8 volte al secondo
+    if (++snapshotCounter >= 5)
+    {
+        snapshotCounter = 0;
+        checkForChanges();
+    }
 
     // Autosalvataggio ogni ~15 secondi (solo se qualcosa e' cambiato)
     if (++autosaveCounter >= 40 * 15)
@@ -384,8 +423,8 @@ void MainComponent::askProjectName (const juce::String& title, std::function<voi
     window->addButton ("Salva", 1, juce::KeyPress (juce::KeyPress::returnKey));
     window->addButton ("Annulla", 0, juce::KeyPress (juce::KeyPress::escapeKey));
 
-    if (auto* editor = window->getTextEditor ("name"))
-        editor->setFont (Theme::font (18.0f));
+    if (auto* textEditor = window->getTextEditor ("name"))
+        textEditor->setFont (Theme::font (18.0f));
 
     window->enterModalState (true, juce::ModalCallbackFunction::create ([window, onName] (int result)
     {
@@ -431,6 +470,7 @@ void MainComponent::openProject (const juce::String& name)
     {
         projectName = name;
         pageSwitch.setSelected (0);
+        undoStack.clear(); redoStack.clear(); lastSnapshot = takeSnapshot();
         syncControlsFromEngine();
         saveSession();
     }
@@ -468,6 +508,8 @@ void MainComponent::newProject()
     projectName = untitled;
     pageSwitch.setSelected (0);
     modeSwitch.setSelected (0);
+    undoStack.clear(); redoStack.clear(); lastSnapshot = takeSnapshot();
+    editor.setVisible (false);
     syncControlsFromEngine();
     saveSession();
     repaint();
@@ -560,4 +602,109 @@ void MainComponent::showMessage (const juce::String& title, const juce::String& 
     juce::AlertWindow::showAsync (juce::MessageBoxOptions().withTitle (title).withMessage (message)
                                                            .withButton ("OK").withAssociatedComponent (this),
                                   nullptr);
+}
+
+//==============================================================================
+void MainComponent::openEditor (int channel)
+{
+    editor.setChannel (channel);
+    editor.setVisible (true);
+    editor.toFront (false);
+}
+
+void MainComponent::tapTempo()
+{
+    const double now = juce::Time::getMillisecondCounterHiRes();
+
+    if (! tapTimes.isEmpty() && now - tapTimes.getLast() > 2000.0)
+        tapTimes.clear();
+
+    tapTimes.add (now);
+    if (tapTimes.size() > 5)
+        tapTimes.remove (0);
+
+    if (tapTimes.size() >= 2)
+    {
+        const double avg = (tapTimes.getLast() - tapTimes.getFirst()) / (tapTimes.size() - 1);
+        engine.setBpm (std::round (60000.0 / avg));
+        bpmDisplay.repaint();
+    }
+}
+
+//==============================================================================
+juce::String MainComponent::takeSnapshot()
+{
+    // Il pattern selezionato non conta come "modifica": lo togliamo dall'istantanea
+    auto json = ProjectIO::toJson (engine);
+    if (auto* obj = json.getDynamicObject())
+        obj->removeProperty ("currentPattern");
+    return juce::JSON::toString (json, true);
+}
+
+void MainComponent::applySnapshot (const juce::String& snapshot)
+{
+    const int pattern = engine.getCurrentPattern();
+    ProjectIO::fromJson (engine, juce::JSON::parse (snapshot));
+    engine.selectPattern (pattern);
+    lastSnapshot = snapshot;
+    syncControlsFromEngine();
+
+    for (auto* row : rows)
+        row->repaint();
+}
+
+void MainComponent::checkForChanges()
+{
+    // Aspetta che il dito sia sollevato: un gesto intero (trascinamento, manopola) = un solo undo
+    if (juce::Desktop::getInstance().getNumDraggingMouseSources() > 0)
+        return;
+
+    const auto now = takeSnapshot();
+    if (now == lastSnapshot)
+        return;
+
+    undoStack.add (lastSnapshot);
+    if (undoStack.size() > 60)
+        undoStack.remove (0);
+
+    redoStack.clear();
+    lastSnapshot = now;
+    updateViews();
+}
+
+void MainComponent::undo()
+{
+    checkForChanges();
+    if (undoStack.isEmpty())
+        return;
+
+    redoStack.add (lastSnapshot);
+    const auto previous = undoStack[undoStack.size() - 1];
+    undoStack.remove (undoStack.size() - 1);
+    applySnapshot (previous);
+}
+
+void MainComponent::redo()
+{
+    if (redoStack.isEmpty())
+        return;
+
+    undoStack.add (lastSnapshot);
+    const auto next = redoStack[redoStack.size() - 1];
+    redoStack.remove (redoStack.size() - 1);
+    applySnapshot (next);
+}
+
+void MainComponent::handleCommandLine (const juce::String& commandLine)
+{
+    auto args = juce::StringArray::fromTokens (commandLine, true);
+
+    if (const int i = args.indexOf ("--editor"); i >= 0)
+        openEditor (juce::jlimit (0, SequencerEngine::numChannels - 1, args[i + 1].getIntValue()));
+
+    if (const int i = args.indexOf ("--mode"); i >= 0)
+    {
+        modeSwitch.setSelected (juce::jlimit (0, 3, args[i + 1].getIntValue()));
+        updateViews();
+    }
 }

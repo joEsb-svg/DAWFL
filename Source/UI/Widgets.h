@@ -276,3 +276,59 @@ private:
     int playingColumn = -1;
     int firstStep = 0;
 };
+
+//==============================================================================
+/** Pulsante con un'icona disegnata (undo, redo, metronomo). */
+class IconButton : public juce::Button
+{
+public:
+    enum class Icon { undo, redo, metronome };
+
+    explicit IconButton (Icon i) : juce::Button ("icon"), icon (i) {}
+
+    void paintButton (juce::Graphics& g, bool isHighlighted, bool isDown) override
+    {
+        auto r = getLocalBounds().toFloat();
+        auto base = Theme::raised;
+        if (isDown)             base = base.darker (0.25f);
+        else if (isHighlighted) base = base.brighter (0.06f);
+        Theme::drawRaised (g, r, base);
+
+        const bool on = getToggleState();
+        const auto colour = ! isEnabled() ? Theme::textDim.withAlpha (0.4f) : (on ? Theme::accent : Theme::textBright);
+        const float s = juce::jmin (r.getWidth(), r.getHeight()) * 0.5f;
+        auto box = juce::Rectangle<float> (s, s).withCentre (r.getCentre());
+        g.setColour (colour);
+
+        if (icon == Icon::metronome)
+        {
+            juce::Path p;
+            p.addTriangle (box.getCentreX(), box.getY(), box.getX() + s * 0.12f, box.getBottom(), box.getRight() - s * 0.12f, box.getBottom());
+            g.strokePath (p, juce::PathStrokeType (1.6f));
+            g.drawLine (box.getCentreX(), box.getBottom() - s * 0.2f, box.getRight() - s * 0.05f, box.getY() + s * 0.15f, 1.8f);
+        }
+        else
+        {
+            // Freccia curva: arco + punta
+            const bool undo = icon == Icon::undo;
+            juce::Path arc;
+            const float rad = s * 0.42f;
+            const auto c = box.getCentre().translated (0.0f, s * 0.08f);
+            arc.addCentredArc (c.x, c.y, rad, rad, 0.0f,
+                               undo ? -juce::MathConstants<float>::halfPi * 1.4f : juce::MathConstants<float>::halfPi * 1.4f,
+                               undo ? juce::MathConstants<float>::halfPi * 0.9f : -juce::MathConstants<float>::halfPi * 0.9f, true);
+            g.strokePath (arc, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+            const auto start = arc.getPointAlongPath (0.0f);
+            const float dir = undo ? -1.0f : 1.0f;
+            juce::Path head;
+            head.addTriangle (start.x + dir * s * 0.02f - dir * s * 0.24f, start.y,
+                              start.x + dir * s * 0.16f, start.y - s * 0.17f,
+                              start.x + dir * s * 0.16f, start.y + s * 0.17f);
+            g.fillPath (head);
+        }
+    }
+
+private:
+    Icon icon;
+};

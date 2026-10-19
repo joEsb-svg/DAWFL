@@ -17,6 +17,7 @@
         <FILE id="Fi0002" name="Theme.h" compile="0" resource="0" file="Source/UI/Theme.h"/>
         <FILE id="Fi0007" name="DawLookAndFeel.h" compile="0" resource="0" file="Source/UI/DawLookAndFeel.h"/>
         <FILE id="Fi0008" name="Widgets.h" compile="0" resource="0" file="Source/UI/Widgets.h"/>
+        <FILE id="Fi0013" name="ChannelEditor.h" compile="0" resource="0" file="Source/UI/ChannelEditor.h"/>
         <FILE id="Fi0009" name="ChannelRow.h" compile="0" resource="0" file="Source/UI/ChannelRow.h"/>
         <FILE id="Fi0010" name="ChannelRow.cpp" compile="1" resource="0" file="Source/UI/ChannelRow.cpp"/>
         <FILE id="Fi0003" name="MainComponent.h" compile="0" resource="0" file="Source/UI/MainComponent.h"/>

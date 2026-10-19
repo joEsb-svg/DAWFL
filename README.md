@@ -12,16 +12,23 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.4)
+## Stato attuale (v0.5)
 
-- Motore audio a bassa latenza (Oboe, tramite JUCE)
-- Channel rack con 6 strumenti sintetizzati: Kick, Snare, Clap, Hi-Hat, Open Hat, Tom
-- Libreria suoni: 6 kit per strumento (Classic, Rock, Drum & Bass, Dubstep, Techno, Progressive)
-- 8 pattern per progetto, lunghezza 16 o 32 step; copia, svuota, cambio al volo
-- Modalita' STEP (accendi/spegni, trascina per dipingere) e VEL (forza di ogni colpo)
-- Swing globale, BPM, volume master con saturazione morbida, meter
-- Progetti: nuovo, apri, salva, salva con nome, elimina (menu FILE)
-- Autosalvataggio: alla riapertura ritrovi il lavoro esattamente com'era
+**Suono e mix**
+- 6 strumenti sintetizzati, 6 kit per strumento (Classic, Rock, Drum & Bass, Dubstep, Techno, Progressive)
+- Editor del canale (tieni premuto il nome, o menu ▾ > Modifica suono): pitch, decay, tono, drive,
+  humanize, volume, pan, filtro, riverbero, delay
+- Uscita stereo, velocity che cambia anche il timbro, humanize (variazioni naturali a ogni colpo)
+- Master: riverbero e delay a tempo condivisi, limiter con look-ahead, meter
+
+**Sequencer**
+- 8 pattern da 16 o 32 step; il cambio pattern mentre suona avviene a fine giro
+- Modalita' STEP, VEL (forza), PROB (probabilita'), ROLL (ratchet 1-4 colpi per step)
+- Strumenti per riga: sposta, inverti, riempi, copia/incolla, svuota
+- Undo / redo, swing, tap tempo (tocca il numero dei BPM), metronomo
+
+**Progetti**
+- Nuovo, apri, salva, salva con nome, elimina; autosalvataggio e ripristino all'avvio
 
 ## Struttura
 
