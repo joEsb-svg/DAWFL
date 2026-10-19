@@ -5,6 +5,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "Theme.h"
+#include "SynthMobileEditor.h"
 
 //==============================================================================
 /**
@@ -20,11 +21,15 @@ class SynthPanel : public juce::Component
 public:
     explicit SynthPanel (BassForgeAudioProcessor& p) : processor (p)
     {
-        for (auto* b : { &presetButton, &zoomButton, &mixButton, &playButton, &closeButton })
+        for (auto* b : { &presetButton, &mixButton, &playButton, &closeButton })
             addAndMakeVisible (b);
 
         zoomButton.setClickingTogglesState (true);
         zoomButton.onClick  = [this] { layoutEditor(); };
+        advancedButton.setClickingTogglesState (true);
+        advancedButton.onClick = [this] { setAdvanced (advancedButton.getToggleState()); };
+        addAndMakeVisible (advancedButton);
+        addChildComponent (zoomButton);
         closeButton.onClick = [this] { if (onClose) onClose(); };
         mixButton.onClick   = [this] { if (onOpenMix) onOpenMix(); };
         playButton.onClick  = [this] { if (onPreview) onPreview(); };
@@ -35,15 +40,54 @@ public:
         viewport.setScrollOnDragMode (juce::Viewport::ScrollOnDragMode::never);   // il dito serve alle manopole
         content.addAndMakeVisible (holder);
         viewport.setViewedComponent (&content, false);
-        addAndMakeVisible (viewport);
+        addChildComponent (viewport);
     }
 
     ~SynthPanel() override   { closeEditor(); }
+
+    /** Chiude tutto (alla chiusura del pannello): l'editor originale non resta in memoria. */
+    void closeAll()
+    {
+        closeEditor();
+        mobile.reset();
+    }
 
     std::function<void()> onClose, onOpenMix, onPreview;
     std::function<void (juce::Component&)> onShowPresets;
 
     void open()
+    {
+        if (mobile == nullptr)
+        {
+            mobile = std::make_unique<SynthMobileEditor> (processor);
+            addAndMakeVisible (*mobile);
+            resized();
+        }
+
+        setAdvanced (advancedButton.getToggleState());
+        refreshPresetName();
+    }
+
+    void showTab (int tab, int section)     { if (mobile != nullptr) mobile->showTab (tab, section); }
+
+    /** Interfaccia originale di BassForge (wavetable, Performer, matrice grafica). */
+    void setAdvanced (bool shouldShowOriginal)
+    {
+        advancedButton.setToggleState (shouldShowOriginal, juce::dontSendNotification);
+        advancedButton.setButtonText (shouldShowOriginal ? "Semplice" : "Avanzato");
+        zoomButton.setVisible (shouldShowOriginal);
+        resized();
+        viewport.setVisible (shouldShowOriginal);
+        if (mobile != nullptr)
+            mobile->setVisible (! shouldShowOriginal);
+
+        if (shouldShowOriginal)
+            openOriginalEditor();
+        else
+            closeEditor();
+    }
+
+    void openOriginalEditor()
     {
         if (editor == nullptr)
         {
@@ -64,7 +108,8 @@ public:
         if (editor != nullptr)
         {
             holder.removeChildComponent (editor.get());
-            editor.reset();   // il distruttore avvisa il processore (editorBeingDeleted)
+            processor.editorBeingDeleted (editor.get());   // come fa una DAW: senza questo l'editor non si riapre
+            editor.reset();
         }
     }
 
@@ -79,6 +124,9 @@ public:
         g.fillAll (Theme::bg);
         g.setColour (Theme::panel);
         g.fillRect (barArea);
+
+        if (compact)
+            return;
 
         auto title = barArea.reduced (10.0f, 0.0f);
         g.setColour (juce::Colour (0xff2fc6d6));
@@ -95,19 +143,29 @@ public:
         auto bar = r.removeFromTop (40);
         barArea = bar.toFloat();
         bar.reduce (8, 5);
-        bar.removeFromLeft (110);
+        compact = getWidth() < 640;              // telefono in verticale: niente titolo
+        if (! compact)
+            bar.removeFromLeft (110);
 
         closeButton.setBounds (bar.removeFromRight (74));
         bar.removeFromRight (6);
-        zoomButton.setBounds (bar.removeFromRight (70));
+        advancedButton.setBounds (bar.removeFromRight (compact ? 74 : 84));
         bar.removeFromRight (6);
-        mixButton.setBounds (bar.removeFromRight (60));
+        if (zoomButton.isVisible())
+        {
+            zoomButton.setBounds (bar.removeFromRight (70));
+            bar.removeFromRight (6);
+        }
+        mixButton.setBounds (bar.removeFromRight (compact ? 44 : 60));
         bar.removeFromRight (6);
-        playButton.setBounds (bar.removeFromRight (70));
+        playButton.setBounds (bar.removeFromRight (compact ? 0 : 70));   // in verticale si ascolta dal channel rack
+        playButton.setVisible (! compact);
         bar.removeFromRight (10);
         presetButton.setBounds (bar.removeFromLeft (juce::jmin (260, bar.getWidth())));
 
         viewport.setBounds (r);
+        if (mobile != nullptr)
+            mobile->setBounds (r);
         layoutEditor();
     }
 
@@ -139,10 +197,12 @@ private:
 
     BassForgeAudioProcessor& processor;
     std::unique_ptr<juce::AudioProcessorEditor> editor;
+    std::unique_ptr<SynthMobileEditor> mobile;
     juce::Component content, holder;
     juce::Viewport viewport;
-    juce::TextButton presetButton, zoomButton { "Zoom" }, mixButton { "Mix" }, playButton { "Ascolta" }, closeButton { "Chiudi" };
+    juce::TextButton presetButton, zoomButton { "Zoom" }, advancedButton { "Avanzato" }, mixButton { "Mix" }, playButton { "Ascolta" }, closeButton { "Chiudi" };
     juce::Rectangle<float> barArea;
+    bool compact = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SynthPanel)
 };

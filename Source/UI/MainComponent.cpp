@@ -27,11 +27,11 @@ MainComponent::MainComponent()
     engine.setSynth (bassForge.get());
 
     synthPanel = std::make_unique<SynthPanel> (*bassForge);
-    synthPanel->onClose   = [this] { synthPanel->closeEditor(); synthPanel->setVisible (false); };
+    synthPanel->onClose   = [this] { synthPanel->closeAll(); synthPanel->setVisible (false); };
     synthPanel->onPreview = [this] { engine.previewChannel (SequencerEngine::synthChannel); };
     synthPanel->onOpenMix = [this]
     {
-        synthPanel->closeEditor();
+        synthPanel->closeAll();
         synthPanel->setVisible (false);
         openEditor (SequencerEngine::synthChannel);
     };
@@ -884,6 +884,29 @@ void MainComponent::handleCommandLine (const juce::String& commandLine)
 
     if (args.contains ("--synth"))
         openSynthPanel();
+
+    if (const int i = args.indexOf ("--synth-tab"); i >= 0)   // test: apre una scheda dell'interfaccia mobile
+    {
+        openSynthPanel();
+        synthPanel->showTab (args[i + 1].getIntValue(), args[i + 2].getIntValue());
+    }
+
+    if (args.contains ("--synth-advanced"))
+    {
+        openSynthPanel();
+        synthPanel->setAdvanced (true);
+    }
+
+    if (args.contains ("--synth-reopen"))   // test: apri, chiudi, riapri
+    {
+        openSynthPanel();
+        synthPanel->setAdvanced (true);
+        synthPanel->onClose();
+        openSynthPanel();
+        synthPanel->setAdvanced (true);
+        synthPanel->onClose();
+        openSynthPanel();
+    }
 
     if (const int i = args.indexOf ("--roll"); i >= 0)
         openPianoRoll (juce::jlimit (0, SequencerEngine::numChannels - 1, args[i + 1].getIntValue()));

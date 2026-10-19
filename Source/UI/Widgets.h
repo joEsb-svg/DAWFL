@@ -345,3 +345,35 @@ public:
 private:
     Icon icon;
 };
+
+//==============================================================================
+/** Interruttore acceso/spento in stile hardware: pastiglia con LED verde e scritta ON/OFF. */
+class LedToggle : public juce::Button
+{
+public:
+    LedToggle() : juce::Button ("toggle") {}
+
+    void paintButton (juce::Graphics& g, bool isHighlighted, bool isDown) override
+    {
+        auto r = getLocalBounds().toFloat();
+        const bool on = getToggleState();
+        auto base = Theme::raised;
+        if (isDown)             base = base.darker (0.25f);
+        else if (isHighlighted) base = base.brighter (0.06f);
+        Theme::drawRaised (g, r, base);
+
+        const float d = juce::jmin (r.getHeight() * 0.38f, 12.0f);
+        auto led = juce::Rectangle<float> (d, d).withCentre ({ r.getX() + r.getHeight() * 0.55f, r.getCentreY() });
+        if (on)
+        {
+            g.setColour (Theme::led.withAlpha (0.25f));
+            g.fillEllipse (led.expanded (d * 0.4f));
+        }
+        g.setColour (on ? Theme::led : Theme::bg);
+        g.fillEllipse (led);
+
+        g.setColour (on ? Theme::textBright : Theme::textDim);
+        g.setFont (Theme::font (juce::jmin (14.0f, r.getHeight() * 0.42f), true));
+        g.drawText (on ? "ON" : "OFF", r.withTrimmedLeft (led.getRight() - r.getX() + 4.0f), juce::Justification::centred, false);
+    }
+};

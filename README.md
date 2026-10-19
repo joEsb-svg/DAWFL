@@ -14,7 +14,7 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.10)
+## Stato attuale (v0.11)
 
 **Suono e mix**
 - 6 strumenti sintetizzati, 6 kit per strumento (Classic, Rock, Drum & Bass, Dubstep, Techno, Progressive)
@@ -32,7 +32,9 @@ Gli aggiornamenti si installano sopra la versione precedente.
 - Il synth BassForge (repository VST-, ramo bassforge-initial) e' compilato dentro l'app come settimo canale
 - Suona dagli step (nota C3) o dal piano roll, con note on/off precise al campione; BPM e posizione arrivano
   al synth per LFO e Performer a tempo
-- Interfaccia completa di BassForge a schermo intero (Adatta / Zoom), preset di fabbrica e utente
+- Interfaccia di BassForge pensata per il telefono: schede OSC, FILTRI, ENV, LFO, MOD, MACRO, FX con
+  manopole grandi, interruttori e menu; l'interfaccia originale resta disponibile con "Avanzato" (Adatta / Zoom)
+- Preset di fabbrica e utente
 - 19 preset di fabbrica per genere (Rock, DnB, Dubstep, Techno, Progressive), con archetipi in stile Massive:
   hoover, scream lead, sequenza col Performer, supersaw
 - Volume, pan, riverbero e delay del canale; lo stato del synth e' salvato nel progetto
