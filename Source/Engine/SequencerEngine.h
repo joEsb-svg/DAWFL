@@ -78,6 +78,11 @@ public:
         std::atomic<float> humanize { 0.15f };   // 0 .. 1
 
         std::atomic<int>   soundVersion     { 0 };      // la UI lo incrementa quando cambia pitch/decay/tone/drive
+
+        // Campione dell'utente al posto della sintesi (nullptr = sintesi). Il puntatore resta valido:
+        // i campioni vivono nel SampleStore per tutta la sessione.
+        std::atomic<const SampleData*> sample { nullptr };
+        juce::String sampleName;                        // usato solo dal thread della UI (salvataggio)
         std::atomic<bool>  previewRequested { false };
         std::atomic<float> activity         { 0.0f };   // per far "lampeggiare" la UI quando suona
         std::atomic<int>   triggerCount     { 0 };      // colpi suonati in totale (diagnostica e test)
@@ -130,6 +135,8 @@ public:
         ch.reverb.store (0.0f);
         ch.delay.store (0.0f);
         ch.humanize.store (0.15f);
+        ch.sample.store (nullptr);
+        ch.sampleName.clear();
         ch.touchSound();
     }
 
@@ -348,6 +355,7 @@ public:
         {
             appliedKits[(size_t) c] = -1;           // forza il ricalcolo della ricetta
             appliedVersions[(size_t) c] = -1;
+            appliedSamples[(size_t) c] = nullptr;
             appliedFilter[(size_t) c] = -1.0f;
             voices[(size_t) c].prepare (sr);
             channelFilters[(size_t) c].reset();
@@ -439,14 +447,17 @@ private:
             auto& ch = channels[(size_t) c];
             const int kit = ch.kit.load();
             const int version = ch.soundVersion.load();
+            const auto* smp = ch.sample.load();
 
-            if (kit != appliedKits[(size_t) c] || version != appliedVersions[(size_t) c])
+            if (kit != appliedKits[(size_t) c] || version != appliedVersions[(size_t) c] || smp != appliedSamples[(size_t) c])
             {
                 appliedKits[(size_t) c] = kit;
                 appliedVersions[(size_t) c] = version;
+                appliedSamples[(size_t) c] = smp;
 
                 SoundShape shape { ch.pitch.load(), ch.decay.load(), ch.tone.load(), ch.drive.load() };
                 voices[(size_t) c].setParams (shapeParams (SoundLibrary::get (c, kit), shape), shape.tone);
+                voices[(size_t) c].setSample (smp, shape);
             }
 
             const float f = ch.filter.load();
@@ -691,6 +702,7 @@ private:
     std::array<SVFilter, numChannels>     channelFilters;
     std::array<RatchetState, numChannels> ratchets {};
     std::array<int, numChannels>   appliedKits {}, appliedVersions {};
+    std::array<const SampleData*, numChannels> appliedSamples {};
     std::array<float, numChannels> appliedFilter {}, gainL {}, gainR {}, sendRev {}, sendDel {}, humanizeAmt {};
     juce::Random rng;
     int    stepIndex            = -1;

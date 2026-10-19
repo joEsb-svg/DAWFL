@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include "SoundLibrary.h"
+#include "SampleStore.h"
 
 //==============================================================================
 /** Generatore di rumore bianco velocissimo e sicuro per il thread audio. */
@@ -125,6 +126,29 @@ public:
     }
 
     /**
+        Suona un campione invece della sintesi (nullptr = torna alla sintesi).
+        Pitch, decay, tono e drive del canale valgono anche per il campione.
+    */
+    void setSample (const SampleData* newSample, const SoundShape& shape)
+    {
+        if (newSample != sample)
+            active = false;   // il campione vecchio non va piu' letto
+
+        sample = newSample;
+        toneTilt = shape.tone;
+
+        if (sample != nullptr)
+        {
+            sampleStep = sample->sampleRate / sr * std::pow (2.0, shape.pitch / 12.0);
+            sampleFade = shape.decay < 0.999f ? coef (shape.decay * 0.5) : 1.0f;
+            sampleDrive = 1.0f + 3.0f * shape.drive;
+            sampleDriveNorm = 1.0f / std::tanh (sampleDrive);
+        }
+    }
+
+    bool isSampleMode() const noexcept  { return sample != nullptr; }
+
+    /**
         Fa partire un colpo.
         @param velocity   0..1
         @param humanize   0..1, quanta variazione casuale aggiungere
@@ -165,6 +189,9 @@ public:
             lpState = 0.0f;
             return 0.0f;
         }
+
+        if (sample != nullptr)
+            return renderSample();
 
         const auto& p = params;
         float sig = 0.0f;
@@ -241,6 +268,41 @@ public:
     }
 
 private:
+    float renderSample() noexcept
+    {
+        const auto& audio = sample->audio;
+        const int len = audio.getNumSamples();
+        const auto pos = (int) samplePos;
+
+        if (pos >= len - 1 || sampleEnv < 0.0003f)
+        {
+            active = false;
+            return 0.0f;
+        }
+
+        // Lettura con interpolazione lineare (per pitch diversi da quello originale)
+        const float* data = audio.getReadPointer (0);
+        const float frac = (float) (samplePos - pos);
+        const float x = data[pos] + frac * (data[pos + 1] - data[pos]);
+        samplePos += sampleStep * detuneRatio;
+
+        float out = x * sampleEnv * level * chokeGain;
+        sampleEnv *= sampleFade;
+
+        if (choking)
+        {
+            chokeGain *= cChoke;
+            if (chokeGain < 0.0005f)
+                active = false;
+        }
+
+        if (sampleDrive > 1.001f)
+            out = std::tanh (out * sampleDrive * driveGain) * sampleDriveNorm;
+
+        lpState += lpCoef * (out - lpState);
+        return lpState;
+    }
+
     void start() noexcept
     {
         pendingDelay = -1;
@@ -257,6 +319,8 @@ private:
         lpCoef = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * cutoff / sr));
 
         sampleCount = 0;
+        samplePos   = 0.0;
+        sampleEnv   = 1.0f;
         phase       = 0.0;
         pitchEnv    = 1.0f;
         // Gli ingredienti non usati partono gia' "spenti", cosi' la voce sa quando ha finito.
@@ -314,6 +378,11 @@ private:
 
     // Coefficienti di decadimento precalcolati (exp() e' costoso da fare a ogni campione)
     float cPitch = 0.0f, cTone = 0.0f, cClick = 0.0f, cNoise = 0.0f, cBurst = 0.0f, cChoke = 0.0f;
+
+    // Modalita' campione
+    const SampleData* sample = nullptr;
+    double samplePos = 0.0, sampleStep = 1.0;
+    float  sampleEnv = 1.0f, sampleFade = 1.0f, sampleDrive = 1.0f, sampleDriveNorm = 1.0f;
 
     FastNoise noise, random { 0x9e3779b9u };
     SVFilter  clickFilter, hpFilter, bpFilter;

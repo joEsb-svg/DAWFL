@@ -12,7 +12,7 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.6)
+## Stato attuale (v0.7)
 
 **Suono e mix**
 - 6 strumenti sintetizzati, 6 kit per strumento (Classic, Rock, Drum & Bass, Dubstep, Techno, Progressive)
@@ -20,6 +20,11 @@ Gli aggiornamenti si installano sopra la versione precedente.
   humanize, volume, pan, filtro, riverbero, delay
 - Uscita stereo, velocity che cambia anche il timbro, humanize (variazioni naturali a ogni colpo)
 - Master: riverbero e delay a tempo condivisi, limiter con look-ahead, meter
+
+**Campioni**
+- Importa i tuoi suoni dal telefono (WAV, AIFF, FLAC, OGG, MP3): menu ▾ di un canale > Suono > Importa campione
+- I campioni vengono copiati nell'app e normalizzati; pitch, decay, tono, drive ed effetti valgono anche per loro
+- I progetti ricordano il campione di ogni canale
 
 **Sequencer**
 - 8 pattern da 16 o 32 step; il cambio pattern mentre suona avviene a fine giro

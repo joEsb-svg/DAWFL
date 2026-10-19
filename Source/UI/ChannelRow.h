@@ -47,6 +47,13 @@ public:
     int getVisibleSteps() const     { return visibleSteps; }
 
     std::function<void (int channel)> onOpenEditor;
+
+    /** Menu dei suoni (libreria + campioni), fornito dalla schermata principale. ID da 100 a 999. */
+    std::function<juce::PopupMenu (int channel)> buildSoundMenu;
+    std::function<void (int channel, int result)> handleSoundMenu;
+
+    /** Nome da mostrare sotto quello dello strumento: kit o campione. */
+    static juce::String getSoundLabel (SequencerEngine&, int channel);
     std::function<void()> onTap;              // per la vibrazione
 
 private:
@@ -72,6 +79,7 @@ private:
     int      lastColumn = -1;
     bool     pressOnName = false;
     int      shownKit = -1;
+    const void* shownSample = nullptr;
     int      shownPattern = -1;
 
     /** Appunti condivisi tra le righe per "Copia riga" / "Incolla riga". */

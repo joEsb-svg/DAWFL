@@ -4,6 +4,7 @@
 #include <functional>
 #include "../Engine/SequencerEngine.h"
 #include "Theme.h"
+#include "ChannelRow.h"
 
 //==============================================================================
 /** Manopola con etichetta sopra e valore sotto (il valore si aggiorna mentre giri). */
@@ -101,6 +102,8 @@ public:
     }
 
     std::function<void()> onClose;
+    std::function<juce::PopupMenu (int channel)> buildSoundMenu;
+    std::function<void (int channel, int result)> handleSoundMenu;
 
     void setChannel (int newChannel)
     {
@@ -130,7 +133,7 @@ public:
         filter.setValue (c.filter.load());
         reverb.setValue (c.reverb.load());
         delay.setValue (c.delay.load());
-        kitButton.setButtonText (SoundLibrary::getKitName (engine.getChannelKit (channel)) + juce::String (juce::CharPointer_UTF8 ("  \xe2\x96\xbe")));
+        kitButton.setButtonText (ChannelRow::getSoundLabel (engine, channel) + juce::String (juce::CharPointer_UTF8 ("  \xe2\x96\xbe")));
     }
 
     void paint (juce::Graphics& g) override
@@ -210,19 +213,16 @@ private:
 
     void showKitMenu()
     {
-        juce::PopupMenu menu;
-        menu.addSectionHeader ("Libreria suoni");
-        const int sel = engine.getChannelKit (channel);
-        for (int k = 0; k < SoundLibrary::numKits; ++k)
-            menu.addItem (k + 1, SoundLibrary::getKitName (k), true, k == sel);
+        if (! buildSoundMenu)
+            return;
 
+        auto menu = buildSoundMenu (channel);
         juce::Component::SafePointer<ChannelEditor> safeThis (this);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&kitButton), [safeThis] (int result)
         {
-            if (safeThis == nullptr || result <= 0)
+            if (safeThis == nullptr || result <= 0 || ! safeThis->handleSoundMenu)
                 return;
-            safeThis->engine.setChannelKit (safeThis->channel, result - 1);
-            safeThis->engine.previewChannel (safeThis->channel);
+            safeThis->handleSoundMenu (safeThis->channel, result);
             safeThis->refreshFromEngine();
         });
     }

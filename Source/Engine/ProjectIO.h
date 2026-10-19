@@ -92,6 +92,8 @@ namespace ProjectIO
             o->setProperty ("reverb", ch.reverb.load());
             o->setProperty ("delay", ch.delay.load());
             o->setProperty ("humanize", ch.humanize.load());
+            if (ch.sampleName.isNotEmpty())
+                o->setProperty ("sample", ch.sampleName);
             channels.add (juce::var (o));
         }
         root->setProperty ("channels", channels);
@@ -156,6 +158,7 @@ namespace ProjectIO
                 ch.reverb.store   (get ("reverb",   0.0f, 0.0f, 1.0f));
                 ch.delay.store    (get ("delay",    0.0f, 0.0f, 1.0f));
                 ch.humanize.store (get ("humanize", 0.15f, 0.0f, 1.0f));
+                ch.sampleName = o.getProperty ("sample", {}).toString();   // il campione lo carica la UI (SampleStore)
                 ch.touchSound();
             }
         }

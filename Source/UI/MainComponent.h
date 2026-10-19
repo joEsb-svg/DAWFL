@@ -50,6 +50,15 @@ private:
     void layoutPortrait (juce::Rectangle<int> area);
     void layoutRack (juce::Rectangle<int> rack, bool portrait);
 
+    // Campioni dell'utente
+    SampleStore sampleStore;
+    std::unique_ptr<juce::FileChooser> chooser;
+    juce::PopupMenu buildSoundMenu (int channel);
+    void handleSoundMenu (int channel, int result);
+    void assignSample (int channel, const juce::String& fileName);
+    void importSample (int channel);
+    void resolveSamples();
+
     // Impostazioni dell'app (vibrazione, buffer audio), salvate a parte rispetto ai progetti
     std::unique_ptr<juce::PropertiesFile> settings;
     void loadSettings();

@@ -97,10 +97,14 @@ MainComponent::MainComponent()
         auto* row = rows.add (new ChannelRow (engine, c));
         row->onOpenEditor = [this] (int ch) { Haptics::tick (this); openEditor (ch); };
         row->onTap = [this] { Haptics::tick (this); };
+        row->buildSoundMenu  = [this] (int ch) { return buildSoundMenu (ch); };
+        row->handleSoundMenu = [this] (int ch, int result) { handleSoundMenu (ch, result); };
         addAndMakeVisible (row);
     }
 
     editor.onClose = [this] { editor.setVisible (false); };
+    editor.buildSoundMenu  = [this] (int ch) { return buildSoundMenu (ch); };
+    editor.handleSoundMenu = [this] (int ch, int result) { handleSoundMenu (ch, result); };
     addChildComponent (editor);
 
     ruler.getColumnBounds = [this] (int i)
@@ -117,6 +121,7 @@ MainComponent::MainComponent()
         const auto json = juce::JSON::parse (ProjectIO::getAutosaveFile().loadFileAsString());
         projectName = json.getProperty ("projectName", untitled).toString();
     }
+    resolveSamples();
     syncControlsFromEngine();
     lastSnapshot = takeSnapshot();
 
@@ -572,6 +577,7 @@ void MainComponent::openProject (const juce::String& name)
 {
     if (ProjectIO::loadFromFile (engine, ProjectIO::getProjectFile (name)))
     {
+        resolveSamples();
         projectName = name;
         pageSwitch.setSelected (0);
         undoStack.clear(); redoStack.clear(); lastSnapshot = takeSnapshot();
@@ -749,6 +755,7 @@ void MainComponent::applySnapshot (const juce::String& snapshot)
 {
     const int pattern = engine.getCurrentPattern();
     ProjectIO::fromJson (engine, juce::JSON::parse (snapshot));
+    resolveSamples();
     engine.selectPattern (pattern);
     lastSnapshot = snapshot;
     syncControlsFromEngine();
@@ -860,4 +867,123 @@ juce::PopupMenu MainComponent::createSettingsMenu()
     menu.addItem (5000, "Vibrazione al tocco", true, Haptics::enabled());
     menu.addSubMenu ("Buffer audio (latenza)", buffers, buffers.getNumItems() > 0);
     return menu;
+}
+
+//==============================================================================
+// Libreria suoni e campioni
+
+juce::PopupMenu MainComponent::buildSoundMenu (int channel)
+{
+    auto& ch = engine.getChannel (channel);
+    const bool usingSample = ch.sample.load() != nullptr;
+    const int kit = engine.getChannelKit (channel);
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("Sintesi");
+    for (int k = 0; k < SoundLibrary::numKits; ++k)
+        menu.addItem (100 + k, SoundLibrary::getKitName (k), true, ! usingSample && k == kit);
+
+    menu.addSectionHeader ("Campioni personali");
+    menu.addItem (300, "Importa campione (WAV, AIFF, FLAC, OGG, MP3)...");
+
+    const auto samples = sampleStore.listSamples();
+    for (int i = 0; i < juce::jmin (samples.size(), 500); ++i)
+        menu.addItem (400 + i, SampleStore::displayName (samples[i]), true, usingSample && samples[i] == ch.sampleName);
+
+    return menu;
+}
+
+void MainComponent::handleSoundMenu (int channel, int result)
+{
+    auto& ch = engine.getChannel (channel);
+
+    if (result >= 100 && result < 100 + SoundLibrary::numKits)
+    {
+        ch.sample.store (nullptr);
+        ch.sampleName.clear();
+        engine.setChannelKit (channel, result - 100);
+        engine.previewChannel (channel);
+    }
+    else if (result == 300)
+    {
+        importSample (channel);
+    }
+    else if (result >= 400)
+    {
+        const auto samples = sampleStore.listSamples();
+        if (result - 400 < samples.size())
+            assignSample (channel, samples[result - 400]);
+    }
+
+    if (editor.isVisible())
+        editor.refreshFromEngine();
+}
+
+void MainComponent::assignSample (int channel, const juce::String& fileName)
+{
+    if (auto* data = sampleStore.load (fileName))
+    {
+        auto& ch = engine.getChannel (channel);
+        ch.sampleName = fileName;
+        ch.sample.store (data);
+        engine.previewChannel (channel);
+
+        if (editor.isVisible())
+            editor.refreshFromEngine();
+    }
+    else
+    {
+        showMessage ("Campione", "Non riesco ad aprire \"" + SampleStore::displayName (fileName) + "\".");
+    }
+}
+
+void MainComponent::importSample (int channel)
+{
+    chooser = std::make_unique<juce::FileChooser> ("Scegli un campione audio", juce::File(),
+                                                   "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3");
+
+    juce::Component::SafePointer<MainComponent> safeThis (this);
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                          [safeThis, channel] (const juce::FileChooser& fc)
+                          {
+                              if (safeThis == nullptr)
+                                  return;
+
+                              const auto url = fc.getURLResult();
+                              if (url.isEmpty())
+                                  return;
+
+                              juce::String error;
+                              const auto name = safeThis->sampleStore.importFromUrl (url, error);
+
+                              if (name.isEmpty())
+                                  safeThis->showMessage ("Campione", error);
+                              else
+                                  safeThis->assignSample (channel, name);
+                          });
+}
+
+void MainComponent::resolveSamples()
+{
+    // Dopo un caricamento i nomi dei campioni ci sono, i puntatori no: li ricolleghiamo
+    juce::StringArray missing;
+
+    for (int c = 0; c < SequencerEngine::numChannels; ++c)
+    {
+        auto& ch = engine.getChannel (c);
+        if (ch.sampleName.isEmpty())
+        {
+            ch.sample.store (nullptr);
+            continue;
+        }
+
+        auto* data = sampleStore.load (ch.sampleName);
+        ch.sample.store (data);
+        if (data == nullptr)
+            missing.add (SampleStore::displayName (ch.sampleName));
+    }
+
+    if (! missing.isEmpty())
+        showMessage ("Campioni mancanti", "Questi campioni non si trovano piu': " + missing.joinIntoString (", ")
+                                            + ". Quei canali useranno la sintesi.");
 }

@@ -142,7 +142,7 @@ void ChannelRow::paint (juce::Graphics& g)
 
         g.setColour (Theme::textDim);
         g.setFont (Theme::font (juce::jmax (10.5f, nameH * 0.8f)));
-        g.drawFittedText (SoundLibrary::getKitName (engine.getChannelKit (channel)), textArea.toNearestInt(),
+        g.drawFittedText (getSoundLabel (engine, channel), textArea.toNearestInt(),
                           juce::Justification::topLeft, 1);
 
         g.setColour (Theme::border.withAlpha (0.8f));
@@ -398,6 +398,12 @@ void ChannelRow::refresh (int currentStep)
         needsRepaint = true;
     }
 
+    if (const void* smp = engine.getChannel (channel).sample.load(); smp != shownSample)
+    {
+        shownSample = smp;
+        needsRepaint = true;
+    }
+
     if (const int pat = engine.getCurrentPattern() * 16 + engine.getPlayingPattern(); pat != shownPattern)
     {
         shownPattern = pat;
@@ -423,9 +429,8 @@ void ChannelRow::showRowMenu()
 {
     juce::PopupMenu library, fill;
 
-    const int selectedKit = engine.getChannelKit (channel);
-    for (int k = 0; k < SoundLibrary::numKits; ++k)
-        library.addItem (100 + k, SoundLibrary::getKitName (k), true, k == selectedKit);
+    if (buildSoundMenu)
+        library = buildSoundMenu (channel);
 
     fill.addItem (201, "Ogni step");
     fill.addItem (202, "Ogni 2 step (ottavi)");
@@ -436,7 +441,7 @@ void ChannelRow::showRowMenu()
     juce::PopupMenu menu;
     menu.addSectionHeader (SequencerEngine::getChannelInfo (channel).name);
     menu.addItem (1, "Modifica suono...");
-    menu.addSubMenu ("Libreria suoni", library);
+    menu.addSubMenu ("Suono", library);
     menu.addSeparator();
     menu.addItem (2, juce::String (juce::CharPointer_UTF8 ("Sposta a sinistra  \xe2\x97\x80")));
     menu.addItem (3, juce::String (juce::CharPointer_UTF8 ("Sposta a destra  \xe2\x96\xb6")));
@@ -486,12 +491,21 @@ void ChannelRow::showRowMenu()
                             else if (result == 7)   e.clearRow (c);
                             else if (result == 210) e.fillRow (c, 4, 2);
                             else if (result > 200)  e.fillRow (c, result - 200);
-                            else if (result >= 100)
+                            else if (result >= 100 && result < 1000)
                             {
-                                e.setChannelKit (c, result - 100);
-                                e.previewChannel (c);
+                                if (self.handleSoundMenu)
+                                    self.handleSoundMenu (c, result);
                             }
 
                             self.repaint();
                         });
+}
+
+juce::String ChannelRow::getSoundLabel (SequencerEngine& engine, int channel)
+{
+    auto& ch = engine.getChannel (channel);
+    if (ch.sample.load() != nullptr)
+        return juce::String (juce::CharPointer_UTF8 ("\xe2\x99\xaa ")) + SampleStore::displayName (ch.sampleName);
+
+    return SoundLibrary::getKitName (engine.getChannelKit (channel));
 }
