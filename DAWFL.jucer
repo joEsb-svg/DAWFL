@@ -11,6 +11,7 @@
               file="Source/Engine/SequencerEngine.h"/>
         <FILE id="Fi0006" name="DrumVoice.h" compile="0" resource="0" file="Source/Engine/DrumVoice.h"/>
         <FILE id="Fi0011" name="SoundLibrary.h" compile="0" resource="0" file="Source/Engine/SoundLibrary.h"/>
+        <FILE id="Fi0012" name="ProjectIO.h" compile="0" resource="0" file="Source/Engine/ProjectIO.h"/>
       </GROUP>
       <GROUP id="{1A2B3C4D-0000-0000-0000-000000000003}" name="UI">
         <FILE id="Fi0002" name="Theme.h" compile="0" resource="0" file="Source/UI/Theme.h"/>

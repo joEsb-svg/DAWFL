@@ -12,58 +12,69 @@ ChannelRow::ChannelRow (SequencerEngine& e, int channelIndex)
     volumeKnob.setValue (engine.getChannel (channel).volume.load(), juce::dontSendNotification);
     volumeKnob.setDoubleClickReturnValue (true, 0.8);
     volumeKnob.setMouseDragSensitivity (160);
-    volumeKnob.setColour (juce::Slider::rotarySliderFillColourId, colour);
+    volumeKnob.setColour (juce::Slider::rotarySliderFillColourId, Theme::text.darker (0.25f));
     volumeKnob.onValueChange = [this] { engine.getChannel (channel).volume.store ((float) volumeKnob.getValue()); };
     addAndMakeVisible (volumeKnob);
 }
 
 //==============================================================================
+float ChannelRow::getHeaderWidth (float rowWidth)
+{
+    return juce::jlimit (170.0f, 240.0f, rowWidth * 0.25f);
+}
+
 void ChannelRow::resized()
 {
-    auto r = getLocalBounds().toFloat().reduced (3.0f);
+    auto r = getLocalBounds().toFloat();
     const float h = r.getHeight();
-    const float leftWidth = juce::jlimit (150.0f, 230.0f, r.getWidth() * 0.24f);
-    auto left = r.removeFromLeft (leftWidth);
+    auto left = r.removeFromLeft (getHeaderWidth (r.getWidth()));
 
-    muteArea = left.removeFromLeft (juce::jmin (32.0f, h * 0.8f));
+    muteArea = left.removeFromLeft (juce::jmin (26.0f, h * 0.7f));
+    volumeKnob.setBounds (left.removeFromLeft (h).reduced (1.0f).toNearestInt());
     left.removeFromLeft (4.0f);
-    volumeKnob.setBounds (left.removeFromRight (h).toNearestInt());
-    left.removeFromRight (4.0f);
-    nameArea  = left;
-    soundArea = left.removeFromRight (juce::jmin (34.0f, left.getWidth() * 0.3f));
+    nameArea  = left.reduced (0.0f, 1.0f);
+    soundArea = nameArea.withLeft (nameArea.getRight() - juce::jmin (30.0f, nameArea.getWidth() * 0.28f));
 }
 
 juce::Rectangle<float> ChannelRow::getPadsArea() const
 {
-    auto r = getLocalBounds().toFloat().reduced (3.0f);
-    const float leftWidth = juce::jlimit (150.0f, 230.0f, r.getWidth() * 0.24f);
-    r.removeFromLeft (leftWidth + 8.0f);
-    return r;
+    auto r = getLocalBounds().toFloat();
+    r.removeFromLeft (getHeaderWidth (r.getWidth()) + 8.0f);
+    return r.reduced (0.0f, 1.0f);
 }
 
-juce::Rectangle<float> ChannelRow::getPadBounds (int index) const
+juce::Rectangle<float> ChannelRow::getPadBounds (int column) const
 {
     auto area = getPadsArea();
-    const float groupGap = 7.0f;
-    const float padGap   = 3.0f;
-    const int numSteps   = SequencerEngine::numSteps;
-    const int numGroups  = numSteps / 4;
+    const float groupGap = 6.0f;
+    const float padGap   = 2.0f;
+    const int numGroups  = visibleSteps / 4;
 
     const float padWidth = (area.getWidth() - groupGap * (float) (numGroups - 1)
-                                            - padGap * (float) (numSteps - numGroups)) / (float) numSteps;
-    const int group = index / 4;
-    const float x = area.getX() + (float) index * padWidth + (float) group * groupGap + (float) (index - group) * padGap;
+                                            - padGap * (float) (visibleSteps - numGroups)) / (float) visibleSteps;
+    const int group = column / 4;
+    const float x = area.getX() + (float) column * padWidth + (float) group * groupGap + (float) (column - group) * padGap;
 
     return { x, area.getY(), padWidth, area.getHeight() };
 }
 
-int ChannelRow::padIndexAt (juce::Point<float> p) const
+int ChannelRow::columnAt (juce::Point<float> p) const
 {
-    for (int i = 0; i < SequencerEngine::numSteps; ++i)
-        if (getPadBounds (i).expanded (2.0f, 0.0f).contains (p))
+    for (int i = 0; i < visibleSteps; ++i)
+        if (getPadBounds (i).expanded (1.5f, 4.0f).contains (p))
             return i;
 
     return -1;
+}
+
+void ChannelRow::setView (int firstStepToShow, bool velocityModeOn)
+{
+    if (firstStepToShow != firstStep || velocityModeOn != velocityMode)
+    {
+        firstStep = firstStepToShow;
+        velocityMode = velocityModeOn;
+        repaint();
+    }
 }
 
 //==============================================================================
@@ -71,100 +82,109 @@ void ChannelRow::paint (juce::Graphics& g)
 {
     auto& ch = engine.getChannel (channel);
     const bool muted = ch.muted.load();
+    const int length = engine.getPatternLength();
 
-    // Sfondo della riga
-    auto bg = getLocalBounds().toFloat();
-    g.setColour (Theme::panel.withAlpha (0.85f));
-    g.fillRoundedRectangle (bg, 8.0f);
-
-    // LED di mute (verde = canale attivo, come su FL)
+    // LED di mute (verde = canale attivo)
     {
-        const float d = juce::jmin (muteArea.getWidth(), muteArea.getHeight()) * 0.55f;
+        const float d = juce::jmin (muteArea.getWidth(), muteArea.getHeight()) * 0.42f;
         auto led = juce::Rectangle<float> (d, d).withCentre (muteArea.getCentre());
 
         if (! muted)
         {
-            g.setColour (Theme::lcdText.withAlpha (0.25f));
-            g.fillEllipse (led.expanded (d * 0.25f));
+            g.setColour (Theme::led.withAlpha (0.18f));
+            g.fillEllipse (led.expanded (d * 0.35f));
         }
 
-        g.setColour (muted ? Theme::bgBottom : Theme::lcdText);
+        g.setColour (muted ? Theme::raised : Theme::led);
         g.fillEllipse (led);
-        g.setColour (Theme::outline);
+        g.setColour (Theme::border);
         g.drawEllipse (led, 1.0f);
     }
 
-    // Tasto con il nome: si illumina quando lo strumento suona
+    // Pulsante del canale: nome + suono scelto; si illumina quando lo strumento suona
     {
         auto r = nameArea;
-        const float corner = 6.0f;
-        auto base = Theme::panelHi.interpolatedWith (colour, 0.12f + 0.45f * flash);
+        Theme::drawRaised (g, r, Theme::raised.interpolatedWith (Theme::raisedHi, flash));
 
-        g.setGradientFill (juce::ColourGradient (base.brighter (0.15f), r.getTopLeft(),
-                                                 base.darker (0.2f), r.getBottomLeft(), false));
-        g.fillRoundedRectangle (r, corner);
+        // Filo colorato a sinistra: unico tocco di colore del canale
+        g.setColour (colour.withAlpha (muted ? 0.3f : 0.9f));
+        g.fillRect (r.withWidth (3.0f).reduced (0.0f, 3.0f).translated (3.0f, 0.0f));
 
-        // Striscia colorata a sinistra
-        g.setColour (colour.withAlpha (muted ? 0.35f : 1.0f));
-        g.fillRoundedRectangle (r.withWidth (4.0f), 2.0f);
+        auto textArea = r.withTrimmedLeft (11.0f).withRight (soundArea.getX());
+        const float nameH = juce::jlimit (12.0f, 15.0f, r.getHeight() * 0.36f);
+        auto nameLine = textArea.removeFromTop (textArea.getHeight() * 0.55f);
 
-        // Nome dello strumento + suono scelto dalla libreria
-        auto textArea = r.withTrimmedLeft (10.0f).withRight (soundArea.getX());
-        const float nameH = juce::jlimit (12.0f, 17.0f, r.getHeight() * 0.34f);
-        auto nameLine = textArea.removeFromTop (textArea.getHeight() * 0.56f);
-
-        g.setColour (muted ? Theme::textDim : Theme::text);
+        g.setColour (muted ? Theme::textDim : Theme::textBright);
         g.setFont (Theme::font (nameH, true));
-        g.drawFittedText (SequencerEngine::getChannelInfo (channel).name,
-                          nameLine.toNearestInt(), juce::Justification::bottomLeft, 1);
+        g.drawFittedText (SequencerEngine::getChannelInfo (channel).name, nameLine.toNearestInt(),
+                          juce::Justification::bottomLeft, 1);
 
-        g.setColour (colour.withAlpha (muted ? 0.4f : 0.9f).brighter (0.3f));
-        g.setFont (Theme::font (juce::jmax (11.0f, nameH * 0.8f)));
-        g.drawFittedText (SoundLibrary::getKitName (engine.getChannelKit (channel)),
-                          textArea.toNearestInt(), juce::Justification::topLeft, 1);
+        g.setColour (Theme::textDim);
+        g.setFont (Theme::font (juce::jmax (10.5f, nameH * 0.8f)));
+        g.drawFittedText (SoundLibrary::getKitName (engine.getChannelKit (channel)), textArea.toNearestInt(),
+                          juce::Justification::topLeft, 1);
 
-        // Freccia: apre la libreria dei suoni
-        auto arrow = soundArea.reduced (soundArea.getWidth() * 0.3f, soundArea.getHeight() * 0.38f);
+        // Separatore e freccia della libreria suoni
+        g.setColour (Theme::border.withAlpha (0.8f));
+        g.drawVerticalLine ((int) soundArea.getX(), soundArea.getY() + 5.0f, soundArea.getBottom() - 5.0f);
+
+        const float a = juce::jmin (soundArea.getWidth(), soundArea.getHeight()) * 0.16f;
+        auto c = soundArea.getCentre();
         juce::Path tri;
-        tri.addTriangle (arrow.getX(), arrow.getY(), arrow.getRight(), arrow.getY(), arrow.getCentreX(), arrow.getBottom());
-        g.setColour (Theme::bgBottom.withAlpha (0.35f));
-        g.fillRoundedRectangle (soundArea.reduced (3.0f), 5.0f);
-        g.setColour (Theme::text.withAlpha (0.8f));
+        tri.addTriangle (c.x - a, c.y - a * 0.5f, c.x + a, c.y - a * 0.5f, c.x, c.y + a * 0.7f);
+        g.setColour (Theme::textDim);
         g.fillPath (tri);
     }
 
-    // Pad
-    for (int i = 0; i < SequencerEngine::numSteps; ++i)
+    // Step
+    for (int col = 0; col < visibleSteps; ++col)
     {
-        auto pad = getPadBounds (i);
-        const bool on = engine.isStepOn (channel, i);
-        const bool isCurrent = i == current;
-        const float corner = juce::jmin (6.0f, pad.getWidth() * 0.2f);
-        auto c = muted ? colour.withSaturation (0.15f).darker (0.3f) : colour;
+        const int step = firstStep + col;
+        auto pad = getPadBounds (col);
+        const bool outside = step >= length;                       // oltre la lunghezza del pattern
+        const int vel = outside ? 0 : engine.getStepVelocity (channel, step);
+        const bool isCurrent = step == current;
+        auto off = (col / 4) % 2 == 0 ? Theme::stepOffA : Theme::stepOffB;
 
-        if (on)
+        if (outside)
         {
-            // Alone luminoso + gradiente
-            g.setColour (c.withAlpha (isCurrent ? 0.55f : 0.28f));
-            g.fillRoundedRectangle (pad.expanded (isCurrent ? 3.0f : 1.5f), corner + 2.0f);
+            g.setColour (Theme::panel);
+            g.fillRoundedRectangle (pad, 2.0f);
+            continue;
+        }
 
-            auto top = isCurrent ? c.brighter (0.8f) : c.brighter (0.3f);
-            g.setGradientFill (juce::ColourGradient (top, pad.getTopLeft(), c.darker (0.25f), pad.getBottomLeft(), false));
-            g.fillRoundedRectangle (pad, corner);
+        if (isCurrent)
+            off = off.brighter (0.25f);
 
-            g.setColour (juce::Colours::white.withAlpha (0.28f));
-            g.fillRoundedRectangle (pad.reduced (3.0f).withHeight (juce::jmax (2.0f, pad.getHeight() * 0.12f)), 2.0f);
+        if (velocityMode)
+        {
+            // Sfondo dello step + barra verticale proporzionale alla velocity
+            Theme::drawSunken (g, pad, off.darker (0.35f), 2.0f);
+
+            if (vel > 0)
+            {
+                auto bar = pad.reduced (3.0f);
+                bar = bar.removeFromBottom (bar.getHeight() * (float) vel / 127.0f);
+                g.setColour ((isCurrent ? Theme::stepOnHi : Theme::stepOn).withAlpha (muted ? 0.4f : 1.0f));
+                g.fillRect (bar);
+                g.setColour (Theme::accent);
+                g.fillRect (bar.removeFromTop (2.0f));
+            }
+            continue;
+        }
+
+        if (vel > 0)
+        {
+            // Acceso: piu' chiaro quanto piu' e' forte
+            auto on = off.interpolatedWith (isCurrent ? Theme::stepOnHi : Theme::stepOn, 0.45f + 0.55f * (float) vel / 127.0f);
+            if (muted)
+                on = on.interpolatedWith (off, 0.6f);
+
+            Theme::drawRaised (g, pad, on, 2.0f);
         }
         else
         {
-            auto off = (i / 4) % 2 == 0 ? Theme::padOffA : Theme::padOffB;
-            if (isCurrent)
-                off = off.brighter (0.45f);
-
-            g.setGradientFill (juce::ColourGradient (off.brighter (0.08f), pad.getTopLeft(), off.darker (0.15f), pad.getBottomLeft(), false));
-            g.fillRoundedRectangle (pad, corner);
-            g.setColour (juce::Colours::black.withAlpha (0.25f));
-            g.drawRoundedRectangle (pad.reduced (0.5f), corner, 1.0f);
+            Theme::drawRaised (g, pad, off, 2.0f);
         }
     }
 }
@@ -172,9 +192,9 @@ void ChannelRow::paint (juce::Graphics& g)
 //==============================================================================
 void ChannelRow::mouseDown (const juce::MouseEvent& e)
 {
-    lastPaintedPad = -1;
+    lastColumn = -1;
 
-    if (muteArea.expanded (4.0f).contains (e.position))
+    if (muteArea.expanded (2.0f).contains (e.position))
     {
         auto& m = engine.getChannel (channel).muted;
         m.store (! m.load());
@@ -194,28 +214,59 @@ void ChannelRow::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
-    const int pad = padIndexAt (e.position);
-    if (pad >= 0)
+    const int col = columnAt (e.position);
+    if (col < 0 || firstStep + col >= engine.getPatternLength())
+        return;
+
+    lastColumn = col;
+
+    if (velocityMode)
     {
-        paintValue = ! engine.isStepOn (channel, pad);
-        engine.setStep (channel, pad, paintValue);
-        lastPaintedPad = pad;
-        repaint();
+        applyVelocityAt (e.position);
+        return;
     }
+
+    const int step = firstStep + col;
+    paintValue = ! engine.isStepOn (channel, step);
+    engine.setStepVelocity (channel, step, paintValue ? SequencerEngine::defaultVelocity : 0);
+    repaint();
 }
 
 void ChannelRow::mouseDrag (const juce::MouseEvent& e)
 {
-    if (lastPaintedPad < 0)
+    if (lastColumn < 0)
         return;
 
-    const int pad = padIndexAt (e.position);
-    if (pad >= 0 && pad != lastPaintedPad)
+    if (velocityMode)
     {
-        engine.setStep (channel, pad, paintValue);
-        lastPaintedPad = pad;
+        applyVelocityAt (e.position);
+        return;
+    }
+
+    const int col = columnAt ({ e.position.x, getPadsArea().getCentreY() });
+    if (col >= 0 && col != lastColumn && firstStep + col < engine.getPatternLength())
+    {
+        engine.setStepVelocity (channel, firstStep + col, paintValue ? SequencerEngine::defaultVelocity : 0);
+        lastColumn = col;
         repaint();
     }
+}
+
+void ChannelRow::applyVelocityAt (juce::Point<float> p)
+{
+    // In modalita' VEL il dito puo' scorrere sugli step: conta la colonna sotto il dito
+    // e l'altezza del dito dentro la riga.
+    const int col = columnAt ({ p.x, getPadsArea().getCentreY() });
+    if (col < 0 || firstStep + col >= engine.getPatternLength())
+        return;
+
+    auto pad = getPadBounds (col).reduced (3.0f);
+    const float norm = 1.0f - (p.y - pad.getY()) / juce::jmax (1.0f, pad.getHeight());
+    const int vel = juce::jlimit (1, 127, juce::roundToInt (norm * 127.0f));
+
+    engine.setStepVelocity (channel, firstStep + col, vel);
+    lastColumn = col;
+    repaint();
 }
 
 //==============================================================================
@@ -233,7 +284,7 @@ void ChannelRow::refresh (int currentStep)
 
     if (flash > 0.01f)
     {
-        flash *= 0.82f;
+        flash *= 0.8f;
         needsRepaint = true;
     }
     else if (flash > 0.0f)
@@ -242,11 +293,22 @@ void ChannelRow::refresh (int currentStep)
         needsRepaint = true;
     }
 
+    // Cambiamenti fatti altrove (kit globale, cambio pattern, caricamento progetto)
     if (const int kit = engine.getChannelKit (channel); kit != shownKit)
     {
         shownKit = kit;
         needsRepaint = true;
     }
+
+    if (const int pat = engine.getCurrentPattern(); pat != shownPattern)
+    {
+        shownPattern = pat;
+        needsRepaint = true;
+    }
+
+    if (std::abs (volumeKnob.getValue() - engine.getChannel (channel).volume.load()) > 0.0001
+         && ! volumeKnob.isMouseButtonDown())
+        volumeKnob.setValue (engine.getChannel (channel).volume.load(), juce::dontSendNotification);
 
     if (currentStep != current)
     {
@@ -262,7 +324,7 @@ void ChannelRow::refresh (int currentStep)
 void ChannelRow::showSoundMenu()
 {
     juce::PopupMenu menu;
-    menu.addSectionHeader (juce::String (SequencerEngine::getChannelInfo (channel).name) + " - libreria suoni");
+    menu.addSectionHeader (juce::String (SequencerEngine::getChannelInfo (channel).name) + "  -  libreria suoni");
 
     const int selectedKit = engine.getChannelKit (channel);
     for (int k = 0; k < SoundLibrary::numKits; ++k)

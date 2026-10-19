@@ -1,11 +1,33 @@
 #include "MainComponent.h"
 #include "Theme.h"
+#include "../Engine/ProjectIO.h"
 
+namespace
+{
+    const juce::String untitled = "Senza titolo";
+
+    void setupKnob (juce::Slider& s, double min, double max, double resetValue)
+    {
+        s.setSliderStyle (juce::Slider::RotaryVerticalDrag);
+        s.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        s.setRange (min, max);
+        s.setDoubleClickReturnValue (true, resetValue);
+        s.setMouseDragSensitivity (160);
+    }
+}
+
+//==============================================================================
 MainComponent::MainComponent()
 {
     setLookAndFeel (&lookAndFeel);
+    juce::LookAndFeel::setDefaultLookAndFeel (&lookAndFeel);   // anche per finestre e menu
 
-    // Trasporto
+    // --- Menu file
+    fileButton.setButtonText ("FILE");
+    fileButton.onClick = [this] { showFileMenu(); };
+    addAndMakeVisible (fileButton);
+
+    // --- Trasporto
     playButton.onClick = [this]
     {
         engine.setPlaying (! engine.isPlaying());
@@ -13,48 +35,74 @@ MainComponent::MainComponent()
     };
     addAndMakeVisible (playButton);
 
-    bpmDisplay.getBpm = [this] { return engine.getBpm(); };
-    bpmDisplay.setBpm = [this] (double v) { engine.setBpm (v); };
+    bpmDisplay.caption = "Tempo";
+    bpmDisplay.getText = [this] { return juce::String (juce::roundToInt (engine.getBpm())); };
+    bpmDisplay.onStep  = [this] (int d) { engine.setBpm (std::round (engine.getBpm()) + d); };
+    bpmDisplay.onDrag  = [this] (double d) { engine.setBpm (engine.getBpm() + d); };
     addAndMakeVisible (bpmDisplay);
 
-    // Kit: cambia il suono di tutti gli strumenti insieme
+    // --- Pattern
+    patternDisplay.caption = "Pattern";
+    patternDisplay.getText = [this] { return juce::String (engine.getCurrentPattern() + 1).paddedLeft ('0', 2); };
+    patternDisplay.onStep  = [this] (int d)
+    {
+        engine.selectPattern ((engine.getCurrentPattern() + d + SequencerEngine::numPatterns) % SequencerEngine::numPatterns);
+        updateViews();
+    };
+    patternDisplay.onCentreTap = [this] { showPatternMenu(); };
+    addAndMakeVisible (patternDisplay);
+
+    // --- Modalita' di modifica, lunghezza e pagina
+    modeSwitch.onChange   = [this] (int) { updateViews(); };
+    lengthSwitch.onChange = [this] (int i)
+    {
+        engine.setPatternLength (i == 1 ? 32 : 16);
+        if (i == 0)
+            pageSwitch.setSelected (0);
+        updateViews();
+    };
+    pageSwitch.onChange   = [this] (int) { updateViews(); };
+    addAndMakeVisible (modeSwitch);
+    addAndMakeVisible (lengthSwitch);
+    addAndMakeVisible (pageSwitch);
+
+    // --- Swing, kit, master
+    setupKnob (swingKnob, 0.0, 1.0, 0.0);
+    swingKnob.onValueChange = [this] { engine.setSwing ((float) swingKnob.getValue()); };
+    addAndMakeVisible (swingKnob);
+
     kitButton.onClick = [this] { showKitMenu(); };
     addAndMakeVisible (kitButton);
-    updateKitButton();
 
-    // Volume master
-    masterKnob.setSliderStyle (juce::Slider::RotaryVerticalDrag);
-    masterKnob.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-    masterKnob.setRange (0.0, 1.5);
-    masterKnob.setValue (engine.getMasterVolume(), juce::dontSendNotification);
-    masterKnob.setDoubleClickReturnValue (true, 1.0);
-    masterKnob.setMouseDragSensitivity (160);
+    setupKnob (masterKnob, 0.0, 1.5, 1.0);
     masterKnob.onValueChange = [this] { engine.setMasterVolume ((float) masterKnob.getValue()); };
     addAndMakeVisible (masterKnob);
 
     addAndMakeVisible (meter);
 
-    // Channel rack
+    // --- Channel rack
     for (int c = 0; c < SequencerEngine::numChannels; ++c)
         addAndMakeVisible (rows.add (new ChannelRow (engine, c)));
 
-    stepLeds.getColumnBounds = [this] (int i)
+    ruler.getColumnBounds = [this] (int i)
     {
         auto* row = rows.getFirst();
-        auto r = row->getPadBounds (i).translated ((float) row->getX(), 0.0f);
-        return r.translated (-(float) stepLeds.getX(), 0.0f);
+        return row->getPadBounds (i).translated ((float) (row->getX() - ruler.getX()), 0.0f);
     };
-    addAndMakeVisible (stepLeds);
+    addAndMakeVisible (ruler);
 
-    infoLabel.setColour (juce::Label::textColourId, Theme::textDim);
-    infoLabel.setJustificationType (juce::Justification::centredLeft);
-    infoLabel.setFont (Theme::font (13.0f));
-    addAndMakeVisible (infoLabel);
+    // --- Ripristina l'ultima sessione
+    projectName = untitled;
+    if (ProjectIO::loadFromFile (engine, ProjectIO::getAutosaveFile()))
+    {
+        const auto json = juce::JSON::parse (ProjectIO::getAutosaveFile().loadFileAsString());
+        projectName = json.getProperty ("projectName", untitled).toString();
+    }
+    syncControlsFromEngine();
 
-    // Avvio dell'audio: 0 ingressi, 2 uscite (stereo).
+    // --- Audio: 0 ingressi, 2 uscite (stereo)
     audioError = deviceManager.initialiseWithDefaultDevices (0, 2);
     deviceManager.addAudioCallback (&engine);
-    updateInfoLabel();
 
     startTimerHz (40);
     setSize (900, 440);
@@ -63,8 +111,10 @@ MainComponent::MainComponent()
 MainComponent::~MainComponent()
 {
     stopTimer();
+    saveSession();
     deviceManager.removeAudioCallback (&engine);
     deviceManager.closeAudioDevice();
+    juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
     setLookAndFeel (nullptr);
 }
 
@@ -77,146 +127,390 @@ juce::Rectangle<int> MainComponent::getContentArea() const
     if (auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (getScreenBounds()))
         area = display->safeAreaInsets.subtractedFrom (area);
 
-    return area.reduced (10, 8);
+    return area.reduced (8, 6);
 }
 
 void MainComponent::paint (juce::Graphics& g)
 {
-    g.setGradientFill (juce::ColourGradient (Theme::bgTop, 0.0f, 0.0f, Theme::bgBottom, 0.0f, (float) getHeight(), false));
-    g.fillAll();
+    g.fillAll (Theme::bg);
 
     // Barra superiore
-    g.setColour (Theme::panel.withAlpha (0.9f));
-    g.fillRoundedRectangle (headerArea, 10.0f);
-    g.setColour (Theme::outline.withAlpha (0.6f));
-    g.drawRoundedRectangle (headerArea, 10.0f, 1.0f);
+    g.setColour (Theme::panel);
+    g.fillRect (headerArea);
+    g.setColour (Theme::border);
+    g.drawHorizontalLine ((int) headerArea.getBottom(), headerArea.getX(), headerArea.getRight());
 
-    // Logo con gradiente
+    // Pannello del channel rack
+    g.setColour (Theme::panel);
+    g.fillRoundedRectangle (rackArea, Theme::corner);
+    g.setColour (Theme::border);
+    g.drawRoundedRectangle (rackArea, Theme::corner, 1.0f);
+
+    // Logo e nome del progetto
     {
-        juce::GlyphArrangement glyphs;
-        glyphs.addFittedText (Theme::font (logoArea.getHeight() * 0.62f, true), "DAWFL",
-                              logoArea.getX(), logoArea.getY(), logoArea.getWidth(), logoArea.getHeight(),
-                              juce::Justification::centredLeft, 1);
-        juce::Path p;
-        glyphs.createPath (p);
+        auto r = logoArea;
+        auto top = r.removeFromTop (r.getHeight() * 0.58f);
+        juce::AttributedString logo;
+        logo.append ("DAW", Theme::font (top.getHeight() * 0.78f, true), Theme::textBright);
+        logo.append ("FL",  Theme::font (top.getHeight() * 0.78f, true), Theme::accent);
+        logo.setJustification (juce::Justification::bottomLeft);
+        logo.draw (g, top);
 
-        auto b = p.getBounds();
-        g.setColour (Theme::accent.withAlpha (0.25f));
-        g.strokePath (p, juce::PathStrokeType (3.0f));
-        g.setGradientFill (juce::ColourGradient (Theme::accent2, b.getX(), b.getY(), Theme::accent, b.getRight(), b.getBottom(), false));
-        g.fillPath (p);
+        g.setColour (Theme::textDim);
+        g.setFont (Theme::font (11.5f));
+        g.drawFittedText (projectName, r.toNearestInt(), juce::Justification::topLeft, 1);
     }
 
-    g.setColour (Theme::textDim);
-    g.setFont (Theme::font (11.0f, true));
-    g.drawText ("MASTER", masterLabelArea, juce::Justification::centred);
-    g.drawText ("KIT", kitLabelArea, juce::Justification::centredRight);
+    Theme::drawCaption (g, "Swing",  swingCaption);
+    Theme::drawCaption (g, "Kit",    kitCaption);
+    Theme::drawCaption (g, "Master", masterCaption);
 }
 
 void MainComponent::resized()
 {
-    auto area = getContentArea();
+    auto full = getContentArea();
 
-    // --- Barra superiore
-    const int headerH = juce::jlimit (48, 68, area.getHeight() / 6);
-    auto header = area.removeFromTop (headerH);
-    headerArea = header.toFloat();
-    header.reduce (10, 6);
+    // --- Barra superiore (a tutta larghezza)
+    const int headerH = juce::jlimit (46, 60, full.getHeight() / 7);
+    headerArea = getLocalBounds().removeFromTop (full.getY() + headerH).toFloat();
+    auto header = full.removeFromTop (headerH).reduced (0, 5);
+    const int h = header.getHeight();
 
-    logoArea = header.removeFromLeft (juce::roundToInt (headerH * 2.6)).toFloat();
-    header.removeFromLeft (8);
-
-    const int ctlH = header.getHeight();
-    playButton.setBounds (header.removeFromLeft (juce::roundToInt (ctlH * 1.5)));
-    header.removeFromLeft (10);
-    bpmDisplay.setBounds (header.removeFromLeft (juce::roundToInt (ctlH * 2.6)));
-    header.removeFromLeft (10);
-    kitLabelArea = header.removeFromLeft (28).toFloat();
+    logoArea = header.removeFromLeft (92).toFloat();
     header.removeFromLeft (6);
-    kitButton.setBounds (header.removeFromLeft (juce::roundToInt (ctlH * 3.0)).reduced (0, ctlH / 8));
+    fileButton.setBounds (header.removeFromLeft (54));
+    header.removeFromLeft (10);
+    playButton.setBounds (header.removeFromLeft (juce::roundToInt (h * 1.25)));
+    header.removeFromLeft (6);
+    bpmDisplay.setBounds (header.removeFromLeft (104));
+    header.removeFromLeft (6);
+    patternDisplay.setBounds (header.removeFromLeft (104));
+    header.removeFromLeft (10);
+    modeSwitch.setBounds (header.removeFromLeft (92).reduced (0, h / 6));
 
-    meter.setBounds (header.removeFromRight (14));
-    header.removeFromRight (8);
-    masterKnob.setBounds (header.removeFromRight (ctlH));
-    masterLabelArea = header.removeFromRight (52).toFloat();
+    meter.setBounds (header.removeFromRight (8));
+    header.removeFromRight (6);
 
-    // --- Riga in basso con le info audio
-    area.removeFromTop (6);
-    infoLabel.setBounds (area.removeFromBottom (18));
+    auto knobWithCaption = [&header, h] (juce::Slider& knob, juce::Rectangle<float>& caption, int width)
+    {
+        auto area = header.removeFromRight (width);
+        caption = area.removeFromBottom (12).toFloat();
+        knob.setBounds (area.withSizeKeepingCentre (h - 12, h - 12));
+        header.removeFromRight (4);
+    };
 
-    // --- LED dei passi + righe del channel rack
-    stepLeds.setBounds (area.removeFromTop (20));
-    area.removeFromTop (2);
+    knobWithCaption (masterKnob, masterCaption, 48);
+    {
+        auto area = header.removeFromRight (104);
+        kitCaption = area.removeFromBottom (12).toFloat();
+        kitButton.setBounds (area.reduced (0, 1));
+        header.removeFromRight (6);
+    }
+    knobWithCaption (swingKnob, swingCaption, 44);
 
-    const int gap = 5;
-    const int rowH = (area.getHeight() - gap * (SequencerEngine::numChannels - 1)) / SequencerEngine::numChannels;
+    // --- Channel rack
+    full.removeFromTop (6);
+    rackArea = full.toFloat();
+    auto rack = full.reduced (6, 4);
+
+    // Barra sopra le righe: lunghezza e pagina a sinistra, righello allineato agli step a destra
+    auto bar = rack.removeFromTop (26);
+    const int headerW = (int) ChannelRow::getHeaderWidth ((float) rack.getWidth());
+    auto barLeft = bar.removeFromLeft (headerW);
+    lengthSwitch.setBounds (barLeft.removeFromLeft (64).reduced (0, 2));
+    barLeft.removeFromLeft (6);
+    pageSwitch.setBounds (barLeft.removeFromLeft (juce::jmin (100, barLeft.getWidth())).reduced (0, 2));
+    rack.removeFromTop (4);
+
+    const int gap = 4;
+    const int rowH = (rack.getHeight() - gap * (SequencerEngine::numChannels - 1)) / SequencerEngine::numChannels;
 
     for (auto* row : rows)
     {
-        row->setBounds (area.removeFromTop (rowH));
-        area.removeFromTop (gap);
+        row->setBounds (rack.removeFromTop (rowH));
+        rack.removeFromTop (gap);
     }
 
-    stepLeds.repaint();
+    ruler.setBounds (rows.getFirst()->getX(), bar.getY(), rows.getFirst()->getWidth(), bar.getHeight());
+    ruler.toBack();
+    updateViews();
+}
+
+//==============================================================================
+void MainComponent::updateViews()
+{
+    const bool is32 = engine.getPatternLength() > 16;
+    lengthSwitch.setSelected (is32 ? 1 : 0);
+    pageSwitch.setEnabled (is32);
+    pageSwitch.setAlpha (is32 ? 1.0f : 0.35f);
+
+    if (! is32)
+        pageSwitch.setSelected (0);
+
+    const int firstStep = pageSwitch.getSelected() * 16;
+    const bool velocity = modeSwitch.getSelected() == 1;
+
+    for (auto* row : rows)
+        row->setView (firstStep, velocity);
+
+    patternDisplay.repaint();
+    repaint (headerArea.toNearestInt());
+}
+
+void MainComponent::syncControlsFromEngine()
+{
+    swingKnob.setValue (engine.getSwing(), juce::dontSendNotification);
+    masterKnob.setValue (engine.getMasterVolume(), juce::dontSendNotification);
+    kitButton.setButtonText (getKitLabel());
+    bpmDisplay.repaint();
+    updateViews();
+}
+
+juce::String MainComponent::getKitLabel() const
+{
+    // Se tutti gli strumenti usano lo stesso kit ne mostra il nome, altrimenti "Misto".
+    const int first = engine.getChannelKit (0);
+    for (int c = 1; c < SequencerEngine::numChannels; ++c)
+        if (engine.getChannelKit (c) != first)
+            return "Misto";
+
+    return SoundLibrary::getKitName (first);
 }
 
 //==============================================================================
 void MainComponent::timerCallback()
 {
     const int step = engine.getCurrentStep();
+    const int firstStep = pageSwitch.getSelected() * 16;
 
     for (auto* row : rows)
         row->refresh (step);
 
-    stepLeds.setCurrentStep (step);
+    const int column = (step >= firstStep && step < firstStep + 16) ? step - firstStep : -1;
+    ruler.setState (column, firstStep);
     meter.setLevel (engine.takeOutputPeak());
-
-    updateKitButton();
 
     if (playButton.getToggleState() != engine.isPlaying())
         playButton.setToggleState (engine.isPlaying(), juce::dontSendNotification);
-}
 
-void MainComponent::updateInfoLabel()
-{
-    if (audioError.isNotEmpty())
+    if (const auto label = getKitLabel(); kitButton.getButtonText() != label)
+        kitButton.setButtonText (label);
+
+    // Autosalvataggio ogni ~15 secondi (solo se qualcosa e' cambiato)
+    if (++autosaveCounter >= 40 * 15)
     {
-        infoLabel.setColour (juce::Label::textColourId, juce::Colours::red);
-        infoLabel.setText ("Errore audio: " + audioError, juce::dontSendNotification);
-        return;
+        autosaveCounter = 0;
+        saveSession();
     }
-
-    auto* device = deviceManager.getCurrentAudioDevice();
-
-    if (device == nullptr)
-    {
-        infoLabel.setText ("Nessun dispositivo audio attivo", juce::dontSendNotification);
-        return;
-    }
-
-    const double sr = device->getCurrentSampleRate();
-    const int buffer = device->getCurrentBufferSizeSamples();
-    const double ms = sr > 0.0 ? 1000.0 * buffer / sr : 0.0;
-
-    infoLabel.setText (device->getTypeName() + "  |  " + juce::String (juce::roundToInt (sr)) + " Hz  |  buffer "
-                         + juce::String (buffer) + " campioni (" + juce::String (ms, 1) + " ms)",
-                       juce::dontSendNotification);
 }
 
 //==============================================================================
-void MainComponent::updateKitButton()
+void MainComponent::saveSession()
 {
-    // Se tutti gli strumenti usano lo stesso kit ne mostra il nome, altrimenti "Misto".
-    const int first = engine.getChannelKit (0);
-    bool allSame = true;
+    auto json = ProjectIO::toJson (engine);
+    if (auto* obj = json.getDynamicObject())
+        obj->setProperty ("projectName", projectName);
 
-    for (int c = 1; c < SequencerEngine::numChannels; ++c)
-        allSame = allSame && engine.getChannelKit (c) == first;
+    const auto text = juce::JSON::toString (json);
+    if (text == lastSavedJson)
+        return;
 
-    const juce::String text = allSame ? juce::String (SoundLibrary::getKitName (first)) : juce::String ("Misto");
+    auto file = ProjectIO::getAutosaveFile();
+    file.getParentDirectory().createDirectory();
+    if (file.replaceWithText (text))
+        lastSavedJson = text;
+}
 
-    if (kitButton.getButtonText() != text)
-        kitButton.setButtonText (text);
+//==============================================================================
+void MainComponent::showFileMenu()
+{
+    juce::PopupMenu openMenu, deleteMenu;
+    const auto projects = ProjectIO::listProjects();
+
+    for (int i = 0; i < projects.size(); ++i)
+    {
+        openMenu.addItem (1000 + i, projects[i]);
+        deleteMenu.addItem (2000 + i, projects[i]);
+    }
+
+    if (projects.isEmpty())
+        openMenu.addItem (-1, "(nessun progetto salvato)", false);
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("Progetto: " + projectName);
+    menu.addItem (1, "Nuovo progetto");
+    menu.addSubMenu ("Apri", openMenu);
+    menu.addItem (2, "Salva", true);
+    menu.addItem (3, "Salva con nome...");
+    menu.addSubMenu ("Elimina", deleteMenu, ! projects.isEmpty());
+    menu.addSeparator();
+    menu.addItem (4, "Info audio");
+
+    juce::Component::SafePointer<MainComponent> safeThis (this);
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&fileButton),
+                        [safeThis, projects] (int result)
+                        {
+                            if (safeThis == nullptr || result <= 0)
+                                return;
+
+                            auto& self = *safeThis;
+
+                            if (result == 1)
+                                self.newProject();
+                            else if (result == 2)
+                            {
+                                if (self.projectName == untitled)
+                                    self.askProjectName ("Salva progetto", [safeThis] (juce::String n) { if (safeThis) safeThis->saveProjectAs (n, true); });
+                                else
+                                    self.saveProjectAs (self.projectName, false);
+                            }
+                            else if (result == 3)
+                                self.askProjectName ("Salva con nome", [safeThis] (juce::String n) { if (safeThis) safeThis->saveProjectAs (n, true); });
+                            else if (result == 4)
+                                self.showAudioInfo();
+                            else if (result >= 2000)
+                                self.deleteProject (projects[result - 2000]);
+                            else if (result >= 1000)
+                                self.openProject (projects[result - 1000]);
+                        });
+}
+
+void MainComponent::askProjectName (const juce::String& title, std::function<void (juce::String)> onName)
+{
+    auto* window = new juce::AlertWindow (title, "Nome del progetto:", juce::MessageBoxIconType::NoIcon, this);
+    window->setLookAndFeel (&lookAndFeel);
+    window->addTextEditor ("name", projectName == untitled ? juce::String() : projectName);
+    window->addButton ("Salva", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    window->addButton ("Annulla", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+
+    if (auto* editor = window->getTextEditor ("name"))
+        editor->setFont (Theme::font (18.0f));
+
+    window->enterModalState (true, juce::ModalCallbackFunction::create ([window, onName] (int result)
+    {
+        const auto name = window->getTextEditorContents ("name").trim();
+        if (result == 1 && name.isNotEmpty())
+            onName (name);
+    }), true);
+}
+
+void MainComponent::saveProjectAs (const juce::String& name, bool confirmOverwrite)
+{
+    const auto file = ProjectIO::getProjectFile (name);
+
+    if (confirmOverwrite && file.existsAsFile() && name != projectName)
+    {
+        juce::Component::SafePointer<MainComponent> safeThis (this);
+        auto options = juce::MessageBoxOptions::makeOptionsOkCancel (juce::MessageBoxIconType::NoIcon, "Sovrascrivere?",
+                                                                     "Esiste gia' un progetto \"" + name + "\". Vuoi sostituirlo?",
+                                                                     "Sostituisci", "Annulla", this);
+        juce::AlertWindow::showAsync (options, [safeThis, name] (int result)
+        {
+            if (safeThis != nullptr && result == 1)
+                safeThis->saveProjectAs (name, false);
+        });
+        return;
+    }
+
+    if (ProjectIO::saveToFile (engine, file))
+    {
+        projectName = file.getFileNameWithoutExtension();
+        saveSession();
+        repaint (logoArea.toNearestInt());
+    }
+    else
+    {
+        showMessage ("Errore", "Non sono riuscito a salvare il progetto.");
+    }
+}
+
+void MainComponent::openProject (const juce::String& name)
+{
+    if (ProjectIO::loadFromFile (engine, ProjectIO::getProjectFile (name)))
+    {
+        projectName = name;
+        pageSwitch.setSelected (0);
+        syncControlsFromEngine();
+        saveSession();
+    }
+    else
+    {
+        showMessage ("Errore", "Il progetto \"" + name + "\" non si apre: il file sembra danneggiato.");
+    }
+}
+
+void MainComponent::deleteProject (const juce::String& name)
+{
+    juce::Component::SafePointer<MainComponent> safeThis (this);
+    auto options = juce::MessageBoxOptions::makeOptionsOkCancel (juce::MessageBoxIconType::NoIcon, "Eliminare?",
+                                                                 "Il progetto \"" + name + "\" verra' eliminato definitivamente.",
+                                                                 "Elimina", "Annulla", this);
+    juce::AlertWindow::showAsync (options, [safeThis, name] (int result)
+    {
+        if (safeThis == nullptr || result != 1)
+            return;
+
+        ProjectIO::getProjectFile (name).deleteFile();
+
+        if (safeThis->projectName == name)
+        {
+            safeThis->projectName = untitled;
+            safeThis->repaint();
+        }
+    });
+}
+
+void MainComponent::newProject()
+{
+    engine.setPlaying (false);
+    engine.resetProject();
+    projectName = untitled;
+    pageSwitch.setSelected (0);
+    modeSwitch.setSelected (0);
+    syncControlsFromEngine();
+    saveSession();
+    repaint();
+}
+
+void MainComponent::showPatternMenu()
+{
+    const int cur = engine.getCurrentPattern();
+    juce::PopupMenu select, copyTo;
+
+    for (int p = 0; p < SequencerEngine::numPatterns; ++p)
+    {
+        // Il pallino indica i pattern che contengono note
+        const auto label = "Pattern " + juce::String (p + 1)
+                         + (engine.isPatternEmpty (p) ? juce::String() : juce::String (juce::CharPointer_UTF8 ("   \xe2\x97\x8f")));
+        select.addItem (100 + p, label, true, p == cur);
+
+        if (p != cur)
+            copyTo.addItem (200 + p, "Pattern " + juce::String (p + 1));
+    }
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("Pattern " + juce::String (cur + 1));
+    menu.addSubMenu ("Vai a", select);
+    menu.addSubMenu ("Copia in", copyTo);
+    menu.addItem (1, "Svuota questo pattern", ! engine.isPatternEmpty (cur));
+
+    juce::Component::SafePointer<MainComponent> safeThis (this);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&patternDisplay),
+                        [safeThis, cur] (int result)
+                        {
+                            if (safeThis == nullptr || result <= 0)
+                                return;
+
+                            auto& e = safeThis->engine;
+                            if (result == 1)               e.clearPattern (cur);
+                            else if (result >= 200)        { e.copyPattern (cur, result - 200); e.selectPattern (result - 200); }
+                            else if (result >= 100)        e.selectPattern (result - 100);
+
+                            safeThis->updateViews();
+                            for (auto* row : safeThis->rows)
+                                row->repaint();
+                        });
 }
 
 void MainComponent::showKitMenu()
@@ -228,7 +522,6 @@ void MainComponent::showKitMenu()
         menu.addItem (k + 1, SoundLibrary::getKitName (k));
 
     juce::Component::SafePointer<MainComponent> safeThis (this);
-
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&kitButton),
                         [safeThis] (int result)
                         {
@@ -237,6 +530,34 @@ void MainComponent::showKitMenu()
 
                             safeThis->engine.setAllKits (result - 1);
                             safeThis->engine.previewChannel (0);
-                            safeThis->updateKitButton();
+                            safeThis->kitButton.setButtonText (safeThis->getKitLabel());
                         });
+}
+
+void MainComponent::showAudioInfo()
+{
+    juce::String info;
+
+    if (audioError.isNotEmpty())
+        info = "Errore audio: " + audioError;
+    else if (auto* device = deviceManager.getCurrentAudioDevice())
+    {
+        const double sr = device->getCurrentSampleRate();
+        const int buffer = device->getCurrentBufferSizeSamples();
+        info << "Driver: " << device->getTypeName() << "\n"
+             << "Frequenza: " << juce::roundToInt (sr) << " Hz\n"
+             << "Buffer: " << buffer << " campioni (" << juce::String (1000.0 * buffer / sr, 1) << " ms)\n"
+             << "Latenza d'uscita: " << juce::String (1000.0 * device->getOutputLatencyInSamples() / sr, 1) << " ms";
+    }
+    else
+        info = "Nessun dispositivo audio attivo.";
+
+    showMessage ("Info audio", info);
+}
+
+void MainComponent::showMessage (const juce::String& title, const juce::String& message)
+{
+    juce::AlertWindow::showAsync (juce::MessageBoxOptions().withTitle (title).withMessage (message)
+                                                           .withButton ("OK").withAssociatedComponent (this),
+                                  nullptr);
 }

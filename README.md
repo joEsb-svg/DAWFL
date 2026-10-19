@@ -12,23 +12,23 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.3)
+## Stato attuale (v0.4)
 
 - Motore audio a bassa latenza (Oboe, tramite JUCE)
 - Channel rack con 6 strumenti sintetizzati: Kick, Snare, Clap, Hi-Hat, Open Hat, Tom
-- Libreria suoni: ogni strumento ha 6 varianti (Classic, Rock, Drum & Bass, Dubstep, Techno, Progressive),
-  scegli dalla freccia accanto al nome oppure cambia tutto insieme dal pulsante KIT
-- Pad a 16 step "dipingibili" (tocca e trascina), mute e volume per canale
-- Tocca il nome di un canale per sentirne il suono
-- BPM: tocca - / + oppure trascina su/giu' sul display
-- Volume master con saturazione morbida e meter d'uscita
+- Libreria suoni: 6 kit per strumento (Classic, Rock, Drum & Bass, Dubstep, Techno, Progressive)
+- 8 pattern per progetto, lunghezza 16 o 32 step; copia, svuota, cambio al volo
+- Modalita' STEP (accendi/spegni, trascina per dipingere) e VEL (forza di ogni colpo)
+- Swing globale, BPM, volume master con saturazione morbida, meter
+- Progetti: nuovo, apri, salva, salva con nome, elimina (menu FILE)
+- Autosalvataggio: alla riapertura ritrovi il lavoro esattamente com'era
 
 ## Struttura
 
 ```
 DAWFL.jucer                  progetto JUCE (Projucer)
 Source/Main.cpp              avvio dell'app e finestra
-Source/Engine/               motore audio (thread real-time)
+Source/Engine/               motore audio (thread real-time), libreria suoni, salvataggio
 Source/UI/                   interfaccia
 .github/workflows/           compilazione automatica dell'APK
 ci/debug.keystore            chiave di firma di sviluppo (password "android")

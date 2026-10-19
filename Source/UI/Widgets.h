@@ -5,7 +5,7 @@
 #include "Theme.h"
 
 //==============================================================================
-/** Pulsante Play/Stop disegnato a mano: triangolo o quadrato, con alone quando suona. */
+/** Pulsante Play/Stop: triangolo quando fermo, quadrato (e LED verde) quando suona. */
 class PlayButton : public juce::Button
 {
 public:
@@ -13,152 +13,207 @@ public:
 
     void paintButton (juce::Graphics& g, bool isHighlighted, bool isDown) override
     {
-        auto r = getLocalBounds().toFloat().reduced (2.0f);
+        auto r = getLocalBounds().toFloat();
         const bool playing = getToggleState();
-        const auto colour = playing ? Theme::lcdText : Theme::accent;
-        const float corner = r.getHeight() * 0.25f;
 
-        if (playing)
-        {
-            g.setColour (colour.withAlpha (0.18f));
-            g.fillRoundedRectangle (r.expanded (2.0f), corner + 2.0f);
-        }
+        auto base = Theme::raised;
+        if (isDown)             base = base.darker (0.25f);
+        else if (isHighlighted) base = base.brighter (0.06f);
+        Theme::drawRaised (g, r, base);
 
-        auto top = Theme::panelHi.brighter (isHighlighted ? 0.12f : 0.06f);
-        auto bottom = Theme::panel.darker (0.2f);
-        if (isDown) { top = top.darker (0.2f); bottom = bottom.darker (0.2f); }
-
-        g.setGradientFill (juce::ColourGradient (top, r.getTopLeft(), bottom, r.getBottomLeft(), false));
-        g.fillRoundedRectangle (r, corner);
-        g.setColour (playing ? colour : Theme::outline);
-        g.drawRoundedRectangle (r, corner, playing ? 2.0f : 1.0f);
-
-        const float s = r.getHeight() * 0.42f;
+        const float s = juce::jmin (r.getHeight(), r.getWidth()) * 0.36f;
         auto icon = juce::Rectangle<float> (s, s).withCentre (r.getCentre());
         juce::Path p;
 
         if (playing)
-            p.addRoundedRectangle (icon.reduced (s * 0.06f), s * 0.12f);
+            p.addRectangle (icon.reduced (s * 0.08f));
         else
-            p.addTriangle (icon.getX() + s * 0.12f, icon.getY(), icon.getX() + s * 0.12f, icon.getBottom(),
-                           icon.getRight() + s * 0.05f, icon.getCentreY());
+            p.addTriangle (icon.getX() + s * 0.1f, icon.getY(), icon.getX() + s * 0.1f, icon.getBottom(),
+                           icon.getRight(), icon.getCentreY());
 
-        g.setColour (colour);
+        g.setColour (playing ? Theme::led : Theme::textBright);
         g.fillPath (p);
+
+        if (playing)
+        {
+            g.setColour (Theme::led);
+            g.fillRect (r.reduced (5.0f, 0.0f).removeFromBottom (2.0f));
+        }
     }
 };
 
 //==============================================================================
-/** Display stile LCD del tempo. Trascina su/giu' per cambiarlo, o tocca - / + ai lati. */
-class BpmDisplay : public juce::Component
+/**
+    Display LCD con frecce ai lati.
+    - BPM: trascina su/giu' sul numero, oppure tocca le frecce
+    - Pattern: tocca le frecce per scorrere, il centro per il menu
+*/
+class LcdSelector : public juce::Component
 {
 public:
-    std::function<double()>     getBpm;
-    std::function<void(double)> setBpm;
+    std::function<juce::String()> getText;
+    std::function<void (int delta)> onStep;          // freccia sinistra/destra
+    std::function<void (double delta)> onDrag;       // trascinamento verticale (unita' per pixel / 4)
+    std::function<void()> onCentreTap;
+    juce::String caption;
 
     void paint (juce::Graphics& g) override
     {
-        auto r = getLocalBounds().toFloat().reduced (1.0f);
-        const float corner = r.getHeight() * 0.22f;
+        auto r = getLocalBounds().toFloat();
+        Theme::drawSunken (g, r);
 
-        g.setColour (Theme::lcdBg);
-        g.fillRoundedRectangle (r, corner);
-        g.setColour (Theme::outline);
-        g.drawRoundedRectangle (r, corner, 1.0f);
+        auto left = getLeftArea().toFloat(), right = getRightArea().toFloat();
+        drawArrow (g, left, true);
+        drawArrow (g, right, false);
 
-        auto minus = getMinusArea().toFloat();
-        auto plus  = getPlusArea().toFloat();
-        g.setColour (Theme::textDim);
-        g.setFont (Theme::font (r.getHeight() * 0.55f, true));
-        g.drawText ("-", minus, juce::Justification::centred);
-        g.drawText ("+", plus,  juce::Justification::centred);
+        auto middle = r.withLeft (left.getRight()).withRight (right.getX());
 
-        auto middle = r.withLeft (minus.getRight()).withRight (plus.getX());
-        const double bpm = getBpm ? getBpm() : 120.0;
-
-        g.setColour (Theme::lcdText.withAlpha (0.12f));
-        g.fillRoundedRectangle (middle.reduced (2.0f, r.getHeight() * 0.14f), 4.0f);
+        if (caption.isNotEmpty())
+            Theme::drawCaption (g, caption, middle.removeFromTop (r.getHeight() * 0.32f).translated (0.0f, 2.0f));
 
         g.setColour (Theme::lcdText);
-        g.setFont (Theme::font (r.getHeight() * 0.5f, true));
-        g.drawText (juce::String (juce::roundToInt (bpm)), middle.removeFromTop (middle.getHeight() * 0.72f),
-                    juce::Justification::centredBottom);
-        g.setColour (Theme::lcdText.withAlpha (0.6f));
-        g.setFont (Theme::font (r.getHeight() * 0.2f, true));
-        g.drawText ("BPM", middle, juce::Justification::centredTop);
+        g.setFont (Theme::font (juce::jmin (22.0f, r.getHeight() * (caption.isNotEmpty() ? 0.46f : 0.55f)), true));
+        g.drawText (getText ? getText() : juce::String(), middle, juce::Justification::centred, false);
     }
 
     void mouseDown (const juce::MouseEvent& e) override
     {
-        dragStartBpm = getBpm ? getBpm() : 120.0;
         dragged = false;
-        downPos = e.getPosition();
+        downY = e.position.y;
+        accumulated = 0.0;
     }
 
     void mouseDrag (const juce::MouseEvent& e) override
     {
-        const int dy = downPos.y - e.getPosition().y;
-        if (std::abs (dy) > 6)
+        if (! onDrag)
+            return;
+
+        const double dy = downY - e.position.y;
+        if (! dragged && std::abs (dy) > 6.0)
             dragged = true;
 
-        if (dragged && setBpm)
+        if (dragged)
         {
-            setBpm (dragStartBpm + dy / 4.0);
+            onDrag ((dy - accumulated) / 4.0);
+            accumulated = dy;
             repaint();
         }
     }
 
     void mouseUp (const juce::MouseEvent& e) override
     {
-        if (dragged || ! setBpm || ! getBpm)
+        if (dragged)
             return;
 
-        if (getMinusArea().contains (e.getPosition()))      setBpm (getBpm() - 1.0);
-        else if (getPlusArea().contains (e.getPosition()))  setBpm (getBpm() + 1.0);
+        const auto p = e.getPosition();
+        if (getLeftArea().contains (p))         { if (onStep) onStep (-1); }
+        else if (getRightArea().contains (p))   { if (onStep) onStep (1); }
+        else if (onCentreTap)                   onCentreTap();
         repaint();
     }
 
 private:
-    juce::Rectangle<int> getMinusArea() const  { return getLocalBounds().removeFromLeft (getWidth() / 4); }
-    juce::Rectangle<int> getPlusArea() const   { return getLocalBounds().removeFromRight (getWidth() / 4); }
+    juce::Rectangle<int> getLeftArea() const   { return getLocalBounds().removeFromLeft (juce::jmin (34, getWidth() / 4)); }
+    juce::Rectangle<int> getRightArea() const  { return getLocalBounds().removeFromRight (juce::jmin (34, getWidth() / 4)); }
 
-    double dragStartBpm = 120.0;
+    static void drawArrow (juce::Graphics& g, juce::Rectangle<float> area, bool pointLeft)
+    {
+        const float s = juce::jmin (area.getWidth(), area.getHeight()) * 0.24f;
+        auto c = area.getCentre();
+        juce::Path p;
+        if (pointLeft) p.addTriangle (c.x + s * 0.5f, c.y - s, c.x + s * 0.5f, c.y + s, c.x - s * 0.6f, c.y);
+        else           p.addTriangle (c.x - s * 0.5f, c.y - s, c.x - s * 0.5f, c.y + s, c.x + s * 0.6f, c.y);
+        g.setColour (Theme::textDim);
+        g.fillPath (p);
+    }
+
     bool dragged = false;
-    juce::Point<int> downPos;
+    float downY = 0.0f;
+    double accumulated = 0.0;
 };
 
 //==============================================================================
-/** Meter verticale a segmenti per il livello d'uscita. */
+/** Selettore a segmenti (es. "16 | 32", "STEP | VEL"). */
+class SegmentedControl : public juce::Component
+{
+public:
+    SegmentedControl (juce::StringArray optionNames) : options (std::move (optionNames)) {}
+
+    std::function<void (int)> onChange;
+
+    void setSelected (int index)
+    {
+        if (index != selected)
+        {
+            selected = index;
+            repaint();
+        }
+    }
+
+    int getSelected() const     { return selected; }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat();
+        Theme::drawSunken (g, r, Theme::panel.darker (0.3f));
+
+        const float w = r.getWidth() / (float) options.size();
+        for (int i = 0; i < options.size(); ++i)
+        {
+            auto seg = juce::Rectangle<float> (r.getX() + w * (float) i, r.getY(), w, r.getHeight());
+
+            if (i == selected)
+                Theme::drawRaised (g, seg.reduced (2.0f), Theme::raisedHi);
+
+            g.setColour (i == selected ? Theme::accent : Theme::textDim);
+            g.setFont (Theme::font (juce::jmin (12.0f, r.getHeight() * 0.5f), true).withExtraKerningFactor (0.05f));
+            g.drawText (options[i], seg, juce::Justification::centred, false);
+        }
+    }
+
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        if (! getLocalBounds().contains (e.getPosition()))
+            return;
+
+        const int i = juce::jlimit (0, options.size() - 1, e.x * options.size() / juce::jmax (1, getWidth()));
+        setSelected (i);
+        if (onChange)
+            onChange (i);
+    }
+
+private:
+    juce::StringArray options;
+    int selected = 0;
+};
+
+//==============================================================================
+/** Meter verticale sottile per il livello d'uscita. */
 class LevelMeter : public juce::Component
 {
 public:
     void setLevel (float newPeak)
     {
-        level = juce::jmax (newPeak, level * 0.86f);
-        repaint();
+        const float newLevel = juce::jmax (newPeak, level * 0.85f);
+        if (std::abs (newLevel - level) > 0.002f)
+        {
+            level = newLevel;
+            repaint();
+        }
     }
 
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds().toFloat();
-        g.setColour (Theme::lcdBg);
-        g.fillRoundedRectangle (r, 3.0f);
+        Theme::drawSunken (g, r, Theme::lcdBg, 2.0f);
 
-        const int segments = 12;
-        const float gap = 2.0f;
-        const float segH = (r.getHeight() - gap * (segments + 1)) / (float) segments;
-        const int lit = juce::roundToInt (juce::jlimit (0.0f, 1.0f, level) * segments);
+        auto inner = r.reduced (2.0f);
+        const float h = inner.getHeight() * juce::jlimit (0.0f, 1.0f, level);
+        auto bar = inner.removeFromBottom (h);
 
-        for (int i = 0; i < segments; ++i)
-        {
-            auto seg = juce::Rectangle<float> (r.getX() + gap, r.getBottom() - gap - (float) (i + 1) * (segH + gap) + gap,
-                                               r.getWidth() - gap * 2.0f, segH);
-            auto c = i >= segments - 1 ? juce::Colour (0xffff4d4d)
-                   : i >= segments - 4 ? Theme::accent2
-                                       : Theme::lcdText;
-            g.setColour (i < lit ? c : c.withAlpha (0.1f));
-            g.fillRoundedRectangle (seg, 1.5f);
-        }
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xffe0483e), inner.getX(), r.getY(),
+                                                 Theme::led.darker (0.2f), inner.getX(), r.getBottom(), false));
+        g.fillRect (bar);
     }
 
 private:
@@ -166,18 +221,19 @@ private:
 };
 
 //==============================================================================
-/** Riga di 16 LED sopra il channel rack: mostra il punto di riproduzione. */
-class StepLeds : public juce::Component
+/** Righello sopra gli step: numeri dei quarti, tacche, e la posizione di riproduzione. */
+class StepRuler : public juce::Component
 {
 public:
-    /** Funzione che dice dove sta ogni colonna (la fornisce il channel rack, cosi' sono allineati). */
+    /** Dove sta la colonna i (0..15 della pagina visibile), fornita dal channel rack. */
     std::function<juce::Rectangle<float> (int)> getColumnBounds;
 
-    void setCurrentStep (int step)
+    void setState (int newPlayingColumn, int newFirstStep)
     {
-        if (step != current)
+        if (newPlayingColumn != playingColumn || newFirstStep != firstStep)
         {
-            current = step;
+            playingColumn = newPlayingColumn;
+            firstStep = newFirstStep;
             repaint();
         }
     }
@@ -187,33 +243,36 @@ public:
         if (! getColumnBounds)
             return;
 
+        const float h = (float) getHeight();
+
         for (int i = 0; i < 16; ++i)
         {
-            auto col = getColumnBounds (i).withY (0.0f).withHeight ((float) getHeight());
-            const float d = juce::jmin (col.getHeight() * 0.5f, col.getWidth() * 0.4f);
-            auto led = juce::Rectangle<float> (d * 1.8f, d * 0.7f).withCentre ({ col.getCentreX(), col.getHeight() * 0.62f });
-            const bool on = i == current;
-            const bool beat = i % 4 == 0;
+            auto col = getColumnBounds (i).withY (0.0f).withHeight (h);
+            const int step = firstStep + i;
+            const bool beat = step % 4 == 0;
 
-            if (on)
+            if (i == playingColumn)
             {
-                g.setColour (Theme::lcdText.withAlpha (0.3f));
-                g.fillRoundedRectangle (led.expanded (3.0f), 4.0f);
+                g.setColour (Theme::accent);
+                g.fillRect (col.removeFromBottom (3.0f));
             }
-
-            g.setColour (on ? Theme::lcdText : (beat ? Theme::outline.brighter (0.3f) : Theme::outline));
-            g.fillRoundedRectangle (led, led.getHeight() * 0.5f);
+            else
+            {
+                g.setColour (beat ? Theme::textDim : Theme::raisedHi);
+                g.fillRect (col.withTop (h - (beat ? 5.0f : 3.0f)).withSizeKeepingCentre (1.0f, beat ? 5.0f : 3.0f));
+            }
 
             if (beat)
             {
-                g.setColour (on ? Theme::lcdText : Theme::textDim);
-                g.setFont (Theme::font (juce::jmin (12.0f, col.getHeight() * 0.42f), true));
-                g.drawText (juce::String (i / 4 + 1), col.withHeight (col.getHeight() * 0.42f).translated (0.0f, -1.0f),
-                            juce::Justification::centredLeft);
+                g.setColour (i == playingColumn ? Theme::accent : Theme::textDim);
+                g.setFont (Theme::font (11.0f, true));
+                g.drawText (juce::String (step / 4 + 1), col.withHeight (h - 5.0f).withTrimmedLeft (2.0f),
+                            juce::Justification::centredLeft, false);
             }
         }
     }
 
 private:
-    int current = -1;
+    int playingColumn = -1;
+    int firstStep = 0;
 };

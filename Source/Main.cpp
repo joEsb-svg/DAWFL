@@ -19,6 +19,14 @@ public:
         mainWindow = nullptr;
     }
 
+    /** Su Android viene chiamato quando l'app va in background: salviamo subito. */
+    void suspended() override
+    {
+        if (mainWindow != nullptr)
+            if (auto* main = dynamic_cast<MainComponent*> (mainWindow->getContentComponent()))
+                main->saveSession();
+    }
+
     void systemRequestedQuit() override
     {
         quit();
@@ -40,7 +48,7 @@ public:
             setResizable (true, true);
 
             // Sul PC: finestra delle dimensioni di un telefono in orizzontale, mai piu' grande dello schermo.
-            auto screen = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()->userArea;
+            auto screen = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()->userBounds.toNearestInt();
             centreWithSize (juce::jmin (900, screen.getWidth()), juce::jmin (440, screen.getHeight()));
            #endif
 
