@@ -15,6 +15,12 @@ public:
 
         if (auto* main = dynamic_cast<MainComponent*> (mainWindow->getContentComponent()))
             main->handleCommandLine (commandLine);
+
+       #if ! (JUCE_ANDROID || JUCE_IOS)
+        // Solo per i test sul PC: "--fill" usa tutto lo schermo (per provare verticale e tablet)
+        if (commandLine.contains ("--fill"))
+            mainWindow->setBounds (juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()->userBounds.toNearestInt());
+       #endif
     }
 
     void shutdown() override

@@ -12,7 +12,7 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.5)
+## Stato attuale (v0.6)
 
 **Suono e mix**
 - 6 strumenti sintetizzati, 6 kit per strumento (Classic, Rock, Drum & Bass, Dubstep, Techno, Progressive)
@@ -26,6 +26,12 @@ Gli aggiornamenti si installano sopra la versione precedente.
 - Modalita' STEP, VEL (forza), PROB (probabilita'), ROLL (ratchet 1-4 colpi per step)
 - Strumenti per riga: sposta, inverti, riempi, copia/incolla, svuota
 - Undo / redo, swing, tap tempo (tocca il numero dei BPM), metronomo
+
+**App**
+- Icona, numero di versione nel menu FILE
+- Vibrazione leggera al tocco (disattivabile in FILE > Impostazioni)
+- Scelta del buffer audio per ridurre la latenza (FILE > Impostazioni)
+- Layout orizzontale, verticale (8 step per pagina) e tablet
 
 **Progetti**
 - Nuovo, apri, salva, salva con nome, elimina; autosalvataggio e ripristino all'avvio

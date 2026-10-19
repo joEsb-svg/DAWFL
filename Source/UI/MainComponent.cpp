@@ -30,6 +30,7 @@ MainComponent::MainComponent()
     // --- Trasporto
     playButton.onClick = [this]
     {
+        Haptics::tick (this);
         engine.setPlaying (! engine.isPlaying());
         playButton.setToggleState (engine.isPlaying(), juce::dontSendNotification);
     };
@@ -94,7 +95,8 @@ MainComponent::MainComponent()
     for (int c = 0; c < SequencerEngine::numChannels; ++c)
     {
         auto* row = rows.add (new ChannelRow (engine, c));
-        row->onOpenEditor = [this] (int ch) { openEditor (ch); };
+        row->onOpenEditor = [this] (int ch) { Haptics::tick (this); openEditor (ch); };
+        row->onTap = [this] { Haptics::tick (this); };
         addAndMakeVisible (row);
     }
 
@@ -121,6 +123,7 @@ MainComponent::MainComponent()
     // --- Audio: 0 ingressi, 2 uscite (stereo)
     audioError = deviceManager.initialiseWithDefaultDevices (0, 2);
     deviceManager.addAudioCallback (&engine);
+    loadSettings();
 
     startTimerHz (40);
     setSize (900, 440);
@@ -187,9 +190,21 @@ void MainComponent::paint (juce::Graphics& g)
 void MainComponent::resized()
 {
     auto full = getContentArea();
+    portraitLayout = full.getWidth() < full.getHeight();
+    patternDisplay.caption = portraitLayout ? "Pat" : "Pattern";
 
+    if (portraitLayout)
+        layoutPortrait (full);
+    else
+        layoutLandscape (full);
+
+    updateViews();
+}
+
+void MainComponent::layoutLandscape (juce::Rectangle<int> full)
+{
     // --- Barra superiore (a tutta larghezza)
-    const int headerH = juce::jlimit (46, 60, full.getHeight() / 7);
+    const int headerH = juce::jlimit (46, 64, full.getHeight() / 7);
     headerArea = getLocalBounds().removeFromTop (full.getY() + headerH).toFloat();
     auto header = full.removeFromTop (headerH).reduced (0, 5);
     const int h = header.getHeight();
@@ -228,52 +243,128 @@ void MainComponent::resized()
     }
     knobWithCaption (swingKnob, swingCaption, 44);
 
-    // --- Channel rack
     full.removeFromTop (6);
+    layoutRack (full, false);
+}
+
+void MainComponent::layoutPortrait (juce::Rectangle<int> full)
+{
+    // Due righe in alto: [logo, file, undo, redo ... meter] e [play, tempo, pattern, swing, kit, master]
+    const int lineH = 44;
+    headerArea = getLocalBounds().removeFromTop (full.getY() + lineH * 2 + 8).toFloat();
+
+    auto line1 = full.removeFromTop (lineH).reduced (0, 4);
+    const int h1 = line1.getHeight();
+    logoArea = line1.removeFromLeft (88).toFloat();
+    meter.setBounds (line1.removeFromRight (8));
+    line1.removeFromRight (8);
+    redoButton.setBounds (line1.removeFromRight (h1));
+    line1.removeFromRight (3);
+    undoButton.setBounds (line1.removeFromRight (h1));
+    line1.removeFromRight (6);
+    fileButton.setBounds (line1.removeFromRight (50));
+
+    full.removeFromTop (4);
+    auto line2 = full.removeFromTop (lineH).reduced (0, 2);
+    const int h2 = line2.getHeight();
+    playButton.setBounds (line2.removeFromLeft (h2));
+    line2.removeFromLeft (4);
+    const int lcdW = juce::jmin (96, (line2.getWidth() - 3 * 40) / 2 - 4);
+    bpmDisplay.setBounds (line2.removeFromLeft (lcdW));
+    line2.removeFromLeft (4);
+    patternDisplay.setBounds (line2.removeFromLeft (lcdW));
+    line2.removeFromLeft (6);
+
+    auto knobCell = [&line2] (juce::Component& c, juce::Rectangle<float>& caption, int width)
+    {
+        auto area = line2.removeFromLeft (width);
+        caption = area.removeFromBottom (11).toFloat();
+        c.setBounds (area.withSizeKeepingCentre (juce::jmin (area.getWidth(), area.getHeight()), area.getHeight()));
+    };
+
+    knobCell (swingKnob, swingCaption, 40);
+    {
+        auto area = line2.removeFromLeft (juce::jmax (40, line2.getWidth() - 50));
+        kitCaption = area.removeFromBottom (11).toFloat();
+        kitButton.setBounds (area.reduced (2, 1));
+    }
+    knobCell (masterKnob, masterCaption, 50);
+
+    full.removeFromTop (8);
+    layoutRack (full, true);
+}
+
+void MainComponent::layoutRack (juce::Rectangle<int> full, bool portrait)
+{
     rackArea = full.toFloat();
     auto rack = full.reduced (6, 4);
 
-    // Barra degli strumenti del sequencer
+    // Barra degli strumenti del sequencer (in verticale va su due righe)
     auto bar = rack.removeFromTop (26);
-    modeSwitch.setBounds (bar.removeFromLeft (220).reduced (0, 1));
-    bar.removeFromLeft (8);
+    modeSwitch.setBounds (bar.removeFromLeft (juce::jmin (220, bar.getWidth() - 110)).reduced (0, 1));
+    bar.removeFromLeft (6);
     lengthSwitch.setBounds (bar.removeFromLeft (64).reduced (0, 1));
-    bar.removeFromLeft (8);
-    pageSwitch.setBounds (bar.removeFromLeft (100).reduced (0, 1));
-    bar.removeFromLeft (8);
-    metroButton.setBounds (bar.removeFromLeft (34));
+    bar.removeFromLeft (6);
+
+    if (portrait)
+    {
+        metroButton.setBounds (bar.removeFromLeft (34));
+        rack.removeFromTop (4);
+        pageSwitch.setBounds (rack.removeFromTop (24).reduced (0, 1));
+    }
+    else
+    {
+        pageSwitch.setBounds (bar.removeFromLeft (100 + (getVisibleSteps() < 16 ? 100 : 0)).reduced (0, 1));
+        bar.removeFromLeft (8);
+        metroButton.setBounds (bar.removeFromLeft (34));
+    }
 
     // Righello allineato agli step, poi le righe
     auto rulerArea = rack.removeFromTop (16);
     rack.removeFromTop (2);
 
     const int gap = 4;
-    const int rowH = (rack.getHeight() - gap * (SequencerEngine::numChannels - 1)) / SequencerEngine::numChannels;
+    const int rowH = juce::jmin (portrait ? 84 : 90,
+                                 (rack.getHeight() - gap * (SequencerEngine::numChannels - 1)) / SequencerEngine::numChannels);
     auto rowsArea = rack;
 
     for (auto* row : rows)
     {
+        row->setLayout (portrait ? 8 : 16, portrait);
         row->setBounds (rack.removeFromTop (rowH));
         rack.removeFromTop (gap);
     }
 
     ruler.setBounds (rows.getFirst()->getX(), rulerArea.getY(), rows.getFirst()->getWidth(), rulerArea.getHeight());
     editor.setBounds (rowsArea.withTop (rulerArea.getY()).expanded (2, 2));
-    updateViews();
+}
+
+int MainComponent::getVisibleSteps() const
+{
+    return rows.isEmpty() ? 16 : rows.getFirst()->getVisibleSteps();
+}
+
+int MainComponent::getFirstVisibleStep() const
+{
+    return pageSwitch.getSelected() * getVisibleSteps();
 }
 
 //==============================================================================
 void MainComponent::updateViews()
 {
-    const bool is32 = engine.getPatternLength() > 16;
-    lengthSwitch.setSelected (is32 ? 1 : 0);
-    pageSwitch.setEnabled (is32);
-    pageSwitch.setAlpha (is32 ? 1.0f : 0.35f);
+    const int length  = engine.getPatternLength();
+    const int visible = getVisibleSteps();
+    lengthSwitch.setSelected (length > 16 ? 1 : 0);
 
-    if (! is32)
-        pageSwitch.setSelected (0);
+    // Una pagina per ogni gruppo di step visibili (es. 32 step a 16 per volta = 2 pagine)
+    juce::StringArray pages;
+    for (int first = 0; first < length; first += visible)
+        pages.add (juce::String (first + 1) + "-" + juce::String (first + visible));
+    pageSwitch.setOptions (pages);
+    pageSwitch.setEnabled (pages.size() > 1);
+    pageSwitch.setAlpha (pages.size() > 1 ? 1.0f : 0.35f);
 
-    const int firstStep = pageSwitch.getSelected() * 16;
+    const int firstStep = getFirstVisibleStep();
     const auto mode = (ChannelRow::EditMode) modeSwitch.getSelected();
 
     for (auto* row : rows)
@@ -313,13 +404,15 @@ juce::String MainComponent::getKitLabel() const
 void MainComponent::timerCallback()
 {
     const int step = engine.getCurrentStep();
-    const int firstStep = pageSwitch.getSelected() * 16;
+    const int firstStep = getFirstVisibleStep();
+    const int visible = getVisibleSteps();
 
     for (auto* row : rows)
         row->refresh (step);
 
-    const int column = (step >= firstStep && step < firstStep + 16) ? step - firstStep : -1;
-    ruler.setState (column, firstStep);
+    const bool playingThis = engine.getPlayingPattern() == engine.getCurrentPattern();
+    const int column = (playingThis && step >= firstStep && step < firstStep + visible) ? step - firstStep : -1;
+    ruler.setState (column, firstStep, visible);
     meter.setLevel (engine.takeOutputPeak());
 
     if (playButton.getToggleState() != engine.isPlaying())
@@ -383,7 +476,10 @@ void MainComponent::showFileMenu()
     menu.addItem (3, "Salva con nome...");
     menu.addSubMenu ("Elimina", deleteMenu, ! projects.isEmpty());
     menu.addSeparator();
+    menu.addSubMenu ("Impostazioni", createSettingsMenu());
     menu.addItem (4, "Info audio");
+    menu.addSeparator();
+    menu.addItem (-1, "DAWFL versione " + juce::String (ProjectInfo::versionString), false);
 
     juce::Component::SafePointer<MainComponent> safeThis (this);
 
@@ -408,6 +504,14 @@ void MainComponent::showFileMenu()
                                 self.askProjectName ("Salva con nome", [safeThis] (juce::String n) { if (safeThis) safeThis->saveProjectAs (n, true); });
                             else if (result == 4)
                                 self.showAudioInfo();
+                            else if (result == 5000)
+                            {
+                                Haptics::enabled() = ! Haptics::enabled();
+                                self.settings->setValue ("haptics", Haptics::enabled());
+                                self.settings->saveIfNeeded();
+                            }
+                            else if (result > 5000 && result < 6000)
+                                self.setBufferSize (result - 5000);
                             else if (result >= 2000)
                                 self.deleteProject (projects[result - 2000]);
                             else if (result >= 1000)
@@ -707,4 +811,53 @@ void MainComponent::handleCommandLine (const juce::String& commandLine)
         modeSwitch.setSelected (juce::jlimit (0, 3, args[i + 1].getIntValue()));
         updateViews();
     }
+}
+
+//==============================================================================
+void MainComponent::loadSettings()
+{
+    juce::PropertiesFile::Options options;
+    options.applicationName = "settings";
+    options.filenameSuffix = ".xml";
+    options.folderName = "DAWFL";
+    options.osxLibrarySubFolder = "Application Support";
+    settings = std::make_unique<juce::PropertiesFile> (ProjectIO::getRootFolder().getChildFile ("settings.xml"), options);
+
+    Haptics::enabled() = settings->getBoolValue ("haptics", true);
+
+    if (const int buffer = settings->getIntValue ("bufferSize", 0); buffer > 0)
+        setBufferSize (buffer);
+}
+
+void MainComponent::setBufferSize (int samples)
+{
+    auto setup = deviceManager.getAudioDeviceSetup();
+    setup.bufferSize = samples;
+
+    if (deviceManager.setAudioDeviceSetup (setup, true).isEmpty())
+    {
+        settings->setValue ("bufferSize", samples);
+        settings->saveIfNeeded();
+    }
+}
+
+juce::PopupMenu MainComponent::createSettingsMenu()
+{
+    juce::PopupMenu menu, buffers;
+
+    if (auto* device = deviceManager.getCurrentAudioDevice())
+    {
+        const int current = device->getCurrentBufferSizeSamples();
+        const double sr = device->getCurrentSampleRate();
+
+        // Solo dimensioni sensate: da ~1 ms a ~50 ms
+        for (int size : device->getAvailableBufferSizes())
+            if (size >= 32 && size <= 2048)
+                buffers.addItem (5000 + size, juce::String (size) + " campioni  (" + juce::String (1000.0 * size / sr, 1) + " ms)",
+                                 true, size == current);
+    }
+
+    menu.addItem (5000, "Vibrazione al tocco", true, Haptics::enabled());
+    menu.addSubMenu ("Buffer audio (latenza)", buffers, buffers.getNumItems() > 0);
+    return menu;
 }

@@ -40,9 +40,11 @@ public:
     juce::Rectangle<float> getPadBounds (int column) const;
 
     /** Larghezza della parte sinistra (LED, volume, nome), uguale per tutte le righe. */
-    static float getHeaderWidth (float rowWidth);
+    float getHeaderWidth() const;
 
-    static constexpr int visibleSteps = 16;
+    /** Quanti step mostrare (16, o 8 in verticale) e se usare la versione compatta (senza manopola). */
+    void setLayout (int stepsToShow, bool compactHeader);
+    int getVisibleSteps() const     { return visibleSteps; }
 
     std::function<void (int channel)> onOpenEditor;
     std::function<void()> onTap;              // per la vibrazione
@@ -61,6 +63,8 @@ private:
     juce::Rectangle<float> muteArea, nameArea, menuArea;
 
     int      firstStep = 0;
+    int      visibleSteps = 16;
+    bool     compact = false;
     EditMode mode = EditMode::step;
     int      current = -1;
     float    flash = 0.0f;

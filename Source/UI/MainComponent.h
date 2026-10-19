@@ -6,6 +6,7 @@
 #include "Widgets.h"
 #include "ChannelRow.h"
 #include "ChannelEditor.h"
+#include "Haptics.h"
 
 //==============================================================================
 /** La schermata principale: barra del trasporto + channel rack. */
@@ -43,6 +44,17 @@ private:
 
     void syncControlsFromEngine();
     void openEditor (int channel);
+    int getVisibleSteps() const;
+    int getFirstVisibleStep() const;
+    void layoutLandscape (juce::Rectangle<int> area);
+    void layoutPortrait (juce::Rectangle<int> area);
+    void layoutRack (juce::Rectangle<int> rack, bool portrait);
+
+    // Impostazioni dell'app (vibrazione, buffer audio), salvate a parte rispetto ai progetti
+    std::unique_ptr<juce::PropertiesFile> settings;
+    void loadSettings();
+    void setBufferSize (int samples);
+    juce::PopupMenu createSettingsMenu();
     void tapTempo();
 
     // Undo / redo: istantanee del progetto prese automaticamente dopo ogni modifica
@@ -81,7 +93,8 @@ private:
     StepRuler ruler;
     juce::OwnedArray<ChannelRow> rows;
 
-    juce::Rectangle<float> headerArea, logoArea, swingCaption, masterCaption, kitCaption, rackArea, toolbarCaption;
+    juce::Rectangle<float> headerArea, logoArea, swingCaption, masterCaption, kitCaption, rackArea;
+    bool portraitLayout = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };

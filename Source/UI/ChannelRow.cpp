@@ -20,20 +20,39 @@ ChannelRow::ChannelRow (SequencerEngine& e, int channelIndex)
 }
 
 //==============================================================================
-float ChannelRow::getHeaderWidth (float rowWidth)
+float ChannelRow::getHeaderWidth() const
 {
-    return juce::jlimit (170.0f, 240.0f, rowWidth * 0.25f);
+    if (compact)
+        return juce::jlimit (110.0f, 150.0f, (float) getWidth() * 0.33f);
+
+    return juce::jlimit (170.0f, 240.0f, (float) getWidth() * 0.25f);
+}
+
+void ChannelRow::setLayout (int stepsToShow, bool compactHeader)
+{
+    if (stepsToShow != visibleSteps || compactHeader != compact)
+    {
+        visibleSteps = stepsToShow;
+        compact = compactHeader;
+        volumeKnob.setVisible (! compact);   // in verticale il volume si regola dall'editor del canale
+        resized();
+        repaint();
+    }
 }
 
 void ChannelRow::resized()
 {
     auto r = getLocalBounds().toFloat();
     const float h = r.getHeight();
-    auto left = r.removeFromLeft (getHeaderWidth (r.getWidth()));
+    auto left = r.removeFromLeft (getHeaderWidth());
 
     muteArea = left.removeFromLeft (juce::jmin (26.0f, h * 0.7f));
-    volumeKnob.setBounds (left.removeFromLeft (h).reduced (1.0f).toNearestInt());
-    left.removeFromLeft (4.0f);
+    if (! compact)
+    {
+        const float knob = juce::jmin (h, 46.0f);
+        volumeKnob.setBounds (left.removeFromLeft (knob).withSizeKeepingCentre (knob, knob).reduced (1.0f).toNearestInt());
+        left.removeFromLeft (4.0f);
+    }
     nameArea = left.reduced (0.0f, 1.0f);
     menuArea = nameArea.withLeft (nameArea.getRight() - juce::jmin (30.0f, nameArea.getWidth() * 0.28f));
 }
@@ -41,7 +60,7 @@ void ChannelRow::resized()
 juce::Rectangle<float> ChannelRow::getPadsArea() const
 {
     auto r = getLocalBounds().toFloat();
-    r.removeFromLeft (getHeaderWidth (r.getWidth()) + 8.0f);
+    r.removeFromLeft (getHeaderWidth() + 8.0f);
     return r.reduced (0.0f, 1.0f);
 }
 
@@ -152,7 +171,7 @@ void ChannelRow::paint (juce::Graphics& g)
 
         const int vel  = engine.getStepVelocity (channel, step);
         const bool isCurrent = showPlayhead && step == current;
-        auto off = (col / 4) % 2 == 0 ? Theme::stepOffA : Theme::stepOffB;
+        auto off = (step / 4) % 2 == 0 ? Theme::stepOffA : Theme::stepOffB;
         if (isCurrent)
             off = off.brighter (0.25f);
 

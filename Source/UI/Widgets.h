@@ -151,6 +151,17 @@ public:
     }
 
     int getSelected() const     { return selected; }
+    int getNumOptions() const   { return options.size(); }
+
+    void setOptions (const juce::StringArray& newOptions)
+    {
+        if (newOptions != options)
+        {
+            options = newOptions;
+            selected = juce::jlimit (0, juce::jmax (0, options.size() - 1), selected);
+            repaint();
+        }
+    }
 
     void paint (juce::Graphics& g) override
     {
@@ -225,15 +236,16 @@ private:
 class StepRuler : public juce::Component
 {
 public:
-    /** Dove sta la colonna i (0..15 della pagina visibile), fornita dal channel rack. */
+    /** Dove sta la colonna i della pagina visibile, fornita dal channel rack. */
     std::function<juce::Rectangle<float> (int)> getColumnBounds;
 
-    void setState (int newPlayingColumn, int newFirstStep)
+    void setState (int newPlayingColumn, int newFirstStep, int newNumColumns)
     {
-        if (newPlayingColumn != playingColumn || newFirstStep != firstStep)
+        if (newPlayingColumn != playingColumn || newFirstStep != firstStep || newNumColumns != numColumns)
         {
             playingColumn = newPlayingColumn;
             firstStep = newFirstStep;
+            numColumns = newNumColumns;
             repaint();
         }
     }
@@ -245,7 +257,7 @@ public:
 
         const float h = (float) getHeight();
 
-        for (int i = 0; i < 16; ++i)
+        for (int i = 0; i < numColumns; ++i)
         {
             auto col = getColumnBounds (i).withY (0.0f).withHeight (h);
             const int step = firstStep + i;
@@ -275,6 +287,7 @@ public:
 private:
     int playingColumn = -1;
     int firstStep = 0;
+    int numColumns = 16;
 };
 
 //==============================================================================
