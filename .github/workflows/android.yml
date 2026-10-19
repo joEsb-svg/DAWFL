@@ -97,13 +97,20 @@ jobs:
           path: DAWFL.apk
 
       # Pubblica l'APK sempre allo stesso link: .../releases/download/latest-build/DAWFL.apk
+      # (solo se questo commit e' ancora l'ultimo di main: una build vecchia arrivata in ritardo non sovrascrive quella nuova)
       - name: Pubblica release "latest-build"
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          LATEST=$(git ls-remote origin refs/heads/main | cut -f1)
+          BUILT=$(git rev-parse HEAD)
+          if [ "$LATEST" != "$BUILT" ]; then
+            echo "Questo commit ($BUILT) non e' piu' l'ultimo ($LATEST): non pubblico."
+            exit 0
+          fi
           gh release delete latest-build --yes --cleanup-tag || true
           gh release create latest-build DAWFL.apk \
-            --target "$GITHUB_SHA" \
+            --target "$BUILT" \
             --prerelease \
-            --title "DAWFL - ultima build (${GITHUB_SHA::7})" \
-            --notes "APK compilato automaticamente dal commit ${GITHUB_SHA::7}. Scarica DAWFL.apk e installalo sul telefono."
+            --title "DAWFL - ultima build (${BUILT::7})" \
+            --notes "APK compilato automaticamente dal commit ${BUILT::7}. Scarica DAWFL.apk e installalo sul telefono."
