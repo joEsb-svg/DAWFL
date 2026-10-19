@@ -114,7 +114,7 @@ public:
         for (auto* k : soundKnobs)
             k->setColour (colour);
 
-        // Per il synth il suono si modella dentro BassForge: qui restano solo mix ed effetti
+        // Per gli strumenti il suono si modella dentro il synth: qui restano solo mix ed effetti
         const bool synth = engine.isSynth (channel);
         for (auto* k : { &pitch, &decay, &tone, &drive, &humanize })
             k->setVisible (! synth);
@@ -162,7 +162,7 @@ public:
         g.drawText (engine.getChannel (channel).name, title, juce::Justification::centredLeft, false);
 
         // Separatori delle sezioni
-        Theme::drawCaption (g, engine.isSynth (channel) ? "Suono: apri BassForge dal menu del canale" : "Suono",
+        Theme::drawCaption (g, engine.isSynth (channel) ? "Suono: apri il synth dal menu del canale" : "Suono",
                             soundCaption, juce::Justification::centredLeft);
         Theme::drawCaption (g, "Mix ed effetti", mixCaption, juce::Justification::centredLeft);
         g.setColour (Theme::border);

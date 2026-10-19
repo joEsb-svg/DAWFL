@@ -22,30 +22,20 @@ MainComponent::MainComponent()
     setLookAndFeel (&lookAndFeel);
     juce::LookAndFeel::setDefaultLookAndFeel (&lookAndFeel);   // anche per finestre e menu
 
-    // --- Synth BassForge: creato prima di tutto, cosi' i progetti caricati ne ripristinano lo stato
-    bassForge = std::make_unique<BassForgeAudioProcessor>();
-    engine.setSynth (bassForge.get());
+    // --- Strumenti (BassForge, PolyForge...): uno per ogni canale strumento
+    instruments = std::make_unique<Instruments::Host> (engine);
 
-    synthPanel = std::make_unique<SynthPanel> (*bassForge);
+    synthPanel = std::make_unique<SynthPanel> (engine);
     synthPanel->onClose   = [this] { synthPanel->closeAll(); synthPanel->setVisible (false); };
-    synthPanel->onPreview = [this] { engine.previewChannel (engine.getSynthChannel()); };
     synthPanel->onOpenMix = [this]
     {
+        const int c = synthPanel->getChannel();
         synthPanel->closeAll();
         synthPanel->setVisible (false);
-        if (const int sc = engine.getSynthChannel(); sc >= 0)
-            openEditor (sc);
+        if (engine.isSynth (c))
+            openEditor (c);
     };
-    synthPanel->onShowPresets = [this] (juce::Component& target)
-    {
-        auto menu = buildSoundMenu (engine.getSynthChannel());
-        juce::Component::SafePointer<MainComponent> safeThis (this);
-        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&target), [safeThis] (int result)
-        {
-            if (safeThis != nullptr && result > 0)
-                safeThis->handleSoundMenu (safeThis->engine.getSynthChannel(), result);
-        });
-    };
+    synthPanel->onShowPresets = [this] (juce::Component& target) { showPresetMenu (synthPanel->getChannel(), target); };
     addChildComponent (*synthPanel);
 
     // --- Menu file
@@ -151,7 +141,6 @@ MainComponent::MainComponent()
 
     exportPanel.onClose = [this] { exportPanel.setVisible (false); };
     exportPanel.getProjectJson = [this] { return ProjectIO::toJson (engine); };
-    exportPanel.createSynth = [] { return std::unique_ptr<juce::AudioProcessor> (new BassForgeAudioProcessor()); };
     exportPanel.getProjectName = [this] { return projectName; };
     addChildComponent (exportPanel);
 
@@ -712,7 +701,9 @@ void MainComponent::openProject (const juce::String& name)
 {
     if (ProjectIO::loadFromFile (engine, ProjectIO::getProjectFile (name)))
     {
+        synthPanel->onClose();
         resolveSamples();
+        instruments->resolve();
         projectName = name;
         pageSwitch.setSelected (0);
         undoStack.clear(); redoStack.clear(); lastSnapshot = takeSnapshot();
@@ -749,9 +740,9 @@ void MainComponent::deleteProject (const juce::String& name)
 void MainComponent::newProject()
 {
     engine.setPlaying (false);
+    synthPanel->onClose();
     engine.resetProject();
-    bassForge->getPresets().loadFactory (0);   // BassForge torna al preset "Init"
-    synthPanel->refreshPresetName();
+    instruments->resolve();      // strumenti nuovi, al preset "Init"
     projectName = untitled;
     pageSwitch.setSelected (0);
     modeSwitch.setSelected (0);
@@ -856,12 +847,16 @@ void MainComponent::showMessage (const juce::String& title, const juce::String& 
 }
 
 //==============================================================================
-void MainComponent::openSynthPanel()
+void MainComponent::openSynthPanel (int channel)
 {
+    if (! engine.isSynth (channel))
+        return;
+
+    instruments->resolve();
     editor.setVisible (false);
     pianoRoll.setVisible (false);
     synthPanel->setBounds (getContentArea());
-    synthPanel->open();
+    synthPanel->open (channel);
     synthPanel->setVisible (true);
     synthPanel->toFront (false);
 }
@@ -925,6 +920,7 @@ void MainComponent::applySnapshot (const juce::String& snapshot)
     ProjectIO::fromJson (engine, juce::JSON::parse (snapshot));
     engine.setSongMode (song);
     resolveSamples();
+    instruments->resolve();      // riusa gli strumenti che c'erano (stesso id): l'undo non tocca i loro suoni
     engine.selectPattern (pattern);
     lastSnapshot = snapshot;
     syncControlsFromEngine();
@@ -989,21 +985,21 @@ void MainComponent::handleCommandLine (const juce::String& commandLine)
         openEditor (juce::jlimit (0, engine.getNumChannels() - 1, args[i + 1].getIntValue()));
 
     if (args.contains ("--synth"))
-        openSynthPanel();
+        openSynthPanel (engine.getSynthChannel());
 
     if (const int i = args.indexOf ("--synth-tab"); i >= 0)   // test: pagina, sezione (e vista per i modulatori)
     {
-        openSynthPanel();
+        openSynthPanel (engine.getSynthChannel());
         synthPanel->showTab (args[i + 1].getIntValue(), args[i + 2].getIntValue(), args[i + 3].getIntValue());
     }
 
     if (args.contains ("--synth-reopen"))   // test: apri, chiudi, riapri
     {
-        openSynthPanel();
+        openSynthPanel (engine.getSynthChannel());
         synthPanel->onClose();
-        openSynthPanel();
+        openSynthPanel (engine.getSynthChannel());
         synthPanel->onClose();
-        openSynthPanel();
+        openSynthPanel (engine.getSynthChannel());
     }
 
     if (const int i = args.indexOf ("--roll"); i >= 0)
@@ -1032,6 +1028,25 @@ void MainComponent::handleCommandLine (const juce::String& commandLine)
         openBrowser (args[i + 1].getIntValue());
         if (args.size() > i + 3)
             browser.showTabForTest (args[i + 2].getIntValue(), args[i + 3].getIntValue());
+    }
+
+    if (const int i = args.indexOf ("--add-instrument"); i >= 0)   // test: aggiunge uno strumento
+        if (auto* info = Instruments::find (args[i + 1]))
+        {
+            SoundChoice c;
+            c.kind = SoundChoice::instrument;
+            c.id = info->id;
+            c.name = info->name;
+            c.colour = info->colour;
+            applySoundChoice (-1, c);
+        }
+
+    if (const int i = args.indexOf ("--open-synth"); i >= 0)       // test: pannello di uno strumento (canale, scheda)
+    {
+        openSynthPanel (args[i + 1].getIntValue());
+        if (args.size() > i + 2)
+            if (auto* pfEditor = dynamic_cast<PolyForgeEditor*> (synthPanel->getEditorForTest()))
+                pfEditor->showTab (args[i + 2].getIntValue());
     }
 
     if (const int i = args.indexOf ("--rowmenu"); i >= 0)       // test: menu del canale
@@ -1120,45 +1135,82 @@ juce::PopupMenu MainComponent::createSettingsMenu()
 //==============================================================================
 // Libreria suoni e campioni
 
-juce::PopupMenu MainComponent::buildSoundMenu (int)
+juce::PopupMenu MainComponent::buildSoundMenu (int channel)
 {
-    // Preset di BassForge (gli altri canali scelgono il suono dal browser)
+    // Preset dello strumento del canale (gli altri canali scelgono il suono dal browser)
+    auto* proc = engine.getInstrument (channel);
     juce::PopupMenu menu;
-    menu.addItem (650, "Apri BassForge...");
+    menu.addItem (650, "Apri " + engine.getChannel (channel).name + "...");
     menu.addSectionHeader ("Preset di fabbrica");
-    const auto current = bassForge->getPresets().currentName();
-    for (int i = 0; i < bf::PresetManager::numFactory(); ++i)
-        menu.addItem (600 + i, bf::PresetManager::factoryName (i), true, bf::PresetManager::factoryName (i) == current);
+    const auto current = Instruments::presetName (proc);
+    const auto factory = Instruments::factoryPresets (proc);
+    for (int i = 0; i < juce::jmin (factory.size(), 50); ++i)
+        menu.addItem (600 + i, factory[i], true, factory[i] == current);
 
-    const auto user = bassForge->getPresets().userPresets();
+    const auto user = Instruments::userPresets (proc);
     if (! user.isEmpty())
     {
         menu.addSectionHeader ("Preset utente");
         for (int i = 0; i < juce::jmin (user.size(), 200); ++i)
             menu.addItem (700 + i, user[i].getFileNameWithoutExtension(), true, user[i].getFileNameWithoutExtension() == current);
     }
+    menu.addSeparator();
+    menu.addItem (660, "Salva come preset utente...");
     return menu;
 }
 
 void MainComponent::handleSoundMenu (int channel, int result)
 {
+    auto* proc = engine.getInstrument (channel);
+    if (proc == nullptr)
+        return;
+
     if (result == 650)
-        openSynthPanel();
-    else if (result >= 600 && result < 600 + bf::PresetManager::numFactory())
-        bassForge->getPresets().loadFactory (result - 600);
+        openSynthPanel (channel);
+    else if (result == 660)
+    {
+        juce::Component::SafePointer<MainComponent> safeThis (this);
+        askText ("Salva preset", Instruments::presetName (proc), [safeThis, channel] (juce::String name)
+        {
+            if (safeThis == nullptr)
+                return;
+            if (! Instruments::saveUser (safeThis->engine.getInstrument (channel), name))
+                safeThis->showMessage ("Preset", "Non riesco a salvare il preset.");
+            safeThis->synthPanel->refreshPresetName();
+        });
+        return;
+    }
+    else if (result >= 600 && result < 650)
+        Instruments::loadFactory (proc, result - 600);
     else if (result >= 700)
     {
-        const auto user = bassForge->getPresets().userPresets();
+        const auto user = Instruments::userPresets (proc);
         if (result - 700 < user.size())
-            bassForge->getPresets().load (user[result - 700]);
+            Instruments::loadUser (proc, user[result - 700]);
     }
 
-    if (result != 650 && channel >= 0)
+    if (result != 650)
         engine.previewChannel (channel);
 
     synthPanel->refreshPresetName();
+    if (auto* row = rows[channel])
+        row->repaint();
     if (editor.isVisible())
         editor.refreshFromEngine();
+}
+
+void MainComponent::showPresetMenu (int channel, juce::Component& target)
+{
+    if (engine.getInstrument (channel) == nullptr)
+        return;
+
+    auto menu = buildSoundMenu (channel);
+    juce::Component::SafePointer<MainComponent> safeThis (this);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&target), [safeThis, channel] (int result)
+    {
+        if (safeThis != nullptr && result > 0)
+            safeThis->handleSoundMenu (channel, result);
+    });
 }
 
 void MainComponent::assignSample (int channel, const juce::String& fileName)
@@ -1243,6 +1295,7 @@ void MainComponent::resolveSamples()
 
 void MainComponent::rebuildRows()
 {
+    instruments->resolve();      // strumenti per i canali nuovi, clonati o caricati
     shownStructure = engine.getStructureVersion();
     rows.clear();
 
@@ -1252,7 +1305,7 @@ void MainComponent::rebuildRows()
         row->onOpenEditor = [this] (int ch)
         {
             Haptics::tick (this);
-            if (engine.isSynth (ch)) openSynthPanel(); else openEditor (ch);
+            if (engine.isSynth (ch)) openSynthPanel (ch); else openEditor (ch);
         };
         row->onTap = [this] { Haptics::tick (this); };
         row->onLongPress = [this] { Haptics::tick (this); };
@@ -1340,12 +1393,8 @@ void MainComponent::handleChannelCommand (int channel, int command)
         case ChannelRow::changeSound:
             if (engine.isSynth (channel))
             {
-                auto menu = buildSoundMenu (channel);
-                menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (rows[channel]), [safeThis, channel] (int result)
-                {
-                    if (safeThis != nullptr && result > 0)
-                        safeThis->handleSoundMenu (channel, result);
-                });
+                if (auto* row = rows[channel])
+                    showPresetMenu (channel, *row);
             }
             else
             {
@@ -1354,7 +1403,7 @@ void MainComponent::handleChannelCommand (int channel, int command)
             break;
 
         case ChannelRow::editSound:
-            if (engine.isSynth (channel)) openSynthPanel(); else openEditor (channel);
+            if (engine.isSynth (channel)) openSynthPanel (channel); else openEditor (channel);
             break;
 
         case ChannelRow::openPianoRoll:
@@ -1456,15 +1505,21 @@ void MainComponent::applySoundChoice (int channel, const SoundChoice& choice)
 
     auto& ch = engine.getChannel (channel);
 
-    if (choice.kind == SoundChoice::bassForge)
+    if (choice.kind == SoundChoice::instrument)
     {
-        if (const int sc = engine.getSynthChannel(); sc >= 0 && sc != channel)
-        {
-            if (isNew) engine.removeChannel (channel);
-            showMessage ("BassForge", "BassForge e' gia' nel progetto (si puo' usare un solo BassForge).");
-            return;
-        }
-        engine.makeSynthChannel (channel);
+        // Nome con un numero se c'e' gia' lo stesso strumento ("PolyForge 2")
+        auto name = choice.name;
+        int count = 0;
+        for (int c = 0; c < engine.getNumChannels(); ++c)
+            if (c != channel && engine.isSynth (c) && engine.getChannel (c).instrumentKind == choice.id)
+                ++count;
+        if (count > 0)
+            name << " " << (count + 1);
+
+        engine.makeInstrumentChannel (channel, choice.id, name, choice.colour);
+        instruments->resolve();          // crea lo strumento
+        if (! ch.customName)
+            ch.name = name;
     }
     else if (choice.kind == SoundChoice::drumSynth)
     {

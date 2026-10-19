@@ -39,7 +39,6 @@ public:
 
     std::function<void()> onClose;
     std::function<juce::var()> getProjectJson;                           // copia del progetto
-    std::function<std::unique_ptr<juce::AudioProcessor>()> createSynth;  // secondo BassForge per l'esportazione
     std::function<juce::String()> getProjectName;
 
     void open()
@@ -183,7 +182,7 @@ private:
             return;
         }
 
-        if (! getProjectJson || ! createSynth)
+        if (! getProjectJson)
             return;
 
         const auto s = currentSettings();
@@ -194,7 +193,7 @@ private:
         auto folder = ProjectIO::getRootFolder().getChildFile ("Exports");
         auto file = folder.getChildFile (name + (s.format == AudioExporter::Format::wav ? ".wav" : ".ogg"));
 
-        exporter = std::make_unique<AudioExporter> (getProjectJson(), createSynth(), samples, s, file);
+        exporter = std::make_unique<AudioExporter> (getProjectJson(), samples, s, file);
         exporter->startThread (juce::Thread::Priority::normal);
         lastFile = juce::File();
         status = "Esportazione in corso...";

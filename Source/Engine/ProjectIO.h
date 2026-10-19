@@ -12,7 +12,7 @@
 */
 namespace ProjectIO
 {
-    static constexpr int formatVersion = 3;   // 3: canali variabili (tipo, nome, colore, libreria)
+    static constexpr int formatVersion = 4;   // 3: canali variabili; 4: uno strumento (synth) per canale
     static constexpr const char* extension = ".dawfl";
 
     inline juce::File getRootFolder()
@@ -86,6 +86,24 @@ namespace ProjectIO
             if (ch.customName)
                 o->setProperty ("customName", true);
             o->setProperty ("type", ch.type.load() == SequencerEngine::synth ? "synth" : "drum");
+            if (ch.type.load() == SequencerEngine::synth)
+            {
+                o->setProperty ("instrument", ch.instrumentKind.isEmpty() ? juce::String ("bassforge") : ch.instrumentKind);
+                o->setProperty ("instrumentId", ch.instrumentId);
+
+                // Stato completo dello strumento (parametri, preset...), in base64
+                if (includeSynthState)
+                {
+                    if (auto* inst = ch.instrument.load())
+                    {
+                        juce::MemoryBlock state;
+                        inst->getStateInformation (state);
+                        o->setProperty ("state", state.toBase64Encoding());
+                    }
+                    else if (ch.pendingState.isNotEmpty())
+                        o->setProperty ("state", ch.pendingState);
+                }
+            }
             o->setProperty ("drumType", ch.drumType.load());
             o->setProperty ("colour", juce::String::toHexString ((juce::int64) ch.colour.load()));
             if (ch.solo.load())
@@ -153,15 +171,6 @@ namespace ProjectIO
         if (engine.isSongMode())
             root->setProperty ("songMode", true);
 
-        // Stato completo di BassForge (tutti i parametri + pattern dei Performer), in base64
-        if (includeSynthState)
-            if (auto* synth = engine.getSynth())
-            {
-                juce::MemoryBlock state;
-                synth->getStateInformation (state);
-                root->setProperty ("bassforge", state.toBase64Encoding());
-            }
-
         return juce::var (root);
     }
 
@@ -197,7 +206,13 @@ namespace ProjectIO
                 const int drumType = version >= 3 ? (int) o.getProperty ("drumType", 0) : juce::jmin (c, SequencerEngine::numDrumTypes - 1);
                 ch.customName = false;
                 if (isSynthChannel)
-                    engine.makeSynthChannel (c);
+                {
+                    const auto kind = o.getProperty ("instrument", "bassforge").toString();
+                    engine.makeInstrumentChannel (c, kind, kind == "polyforge" ? "PolyForge" : "BassForge",
+                                                  kind == "polyforge" ? 0xffb07cffu : SequencerEngine::synthColour);
+                    ch.instrumentId = (int) o.getProperty ("instrumentId", 0);
+                    ch.pendingState = o.getProperty ("state", {}).toString();   // lo applica la UI (Instruments::Host)
+                }
                 else
                     engine.makeDrumChannel (c, drumType);
 
@@ -281,13 +296,14 @@ namespace ProjectIO
         }
         engine.setSongMode ((bool) json.getProperty ("songMode", false));
 
-        if (auto* synth = engine.getSynth())
-        {
-            const auto encoded = json.getProperty ("bassforge", {}).toString();
-            juce::MemoryBlock state;
-            if (encoded.isNotEmpty() && state.fromBase64Encoding (encoded))
-                synth->setStateInformation (state.getData(), (int) state.getSize());
-        }
+        // Progetti v1-v3: un solo BassForge, con lo stato nella radice del file
+        if (const auto legacy = json.getProperty ("bassforge", {}).toString(); legacy.isNotEmpty())
+            for (int c = 0; c < engine.getNumChannels(); ++c)
+                if (engine.isSynth (c))
+                {
+                    engine.getChannel (c).pendingState = legacy;
+                    break;
+                }
 
         return true;
     }

@@ -5,6 +5,7 @@
 #include <vector>
 #include "../Engine/SequencerEngine.h"
 #include "../Engine/SampleStore.h"
+#include "../Instruments/Instruments.h"
 #include "Theme.h"
 #include "Widgets.h"
 
@@ -12,7 +13,7 @@
 /** Il suono scelto nel browser. */
 struct SoundChoice
 {
-    enum Kind { none, library, userSample, importFile, drumSynth, bassForge };
+    enum Kind { none, library, userSample, importFile, drumSynth, instrument };
 
     Kind kind = none;
     juce::String id;            // libreria: id; campione: nome del file
@@ -140,7 +141,7 @@ private:
 
     - Strumenti:   pianoforti, chitarre, bassi, archi, fiati, voci, percussioni, batteria acustica...
     - Elettronica: EDM, House, Techno, Electro, Drum and Bass, Dubstep, Trap, synth, effetti
-    - Sintesi:     la batteria sintetizzata di JLoop (kit per genere) e il synth BassForge
+    - Sintesi:     i synth (BassForge, PolyForge) e la batteria sintetizzata di JLoop (kit per genere)
     - Campioni:    i file importati dall'utente
 
     Tocca un suono per ascoltarlo; "Aggiungi" (o "Usa questo suono") per confermare.
@@ -193,7 +194,7 @@ public:
             auto& ch = engine.getChannel (channel);
             if (engine.isSynth (channel))
             {
-                tab = 2; category = SoundLibrary::numKits;
+                tab = 2; category = 0;
             }
             else if (auto* entry = SampleStore::findLibraryEntry (ch.sampleName); entry != nullptr && SampleStore::isLibrary (ch.sampleName))
             {
@@ -206,7 +207,7 @@ public:
             }
             else
             {
-                tab = 2; category = engine.getChannelKit (channel);
+                tab = 2; category = engine.getChannelKit (channel) + 1;
             }
         }
 
@@ -301,9 +302,9 @@ private:
         }
         else if (tab == 2)
         {
+            cats.push_back ({ "Synth", {}, juce::Colour (0xffb07cff), true });
             for (int k = 0; k < SoundLibrary::numKits; ++k)
                 cats.push_back ({ juce::String ("Batteria ") + SoundLibrary::getKitName (k), {}, Theme::textDim, true });
-            cats.push_back ({ "Synth BassForge", {}, juce::Colour (SequencerEngine::synthColour), true });
         }
         else
         {
@@ -341,8 +342,9 @@ private:
                 tiles.push_back ({ c.name, {}, juce::Colour (e.colour), true });
             }
         }
-        else if (tab == 2 && index < SoundLibrary::numKits)
+        else if (tab == 2 && index > 0)
         {
+            index -= 1;   // 0 = Synth, poi i kit
             for (int t = 0; t < SequencerEngine::numDrumTypes; ++t)
             {
                 SoundChoice c;
@@ -357,16 +359,16 @@ private:
         }
         else if (tab == 2)
         {
-            // Un solo BassForge per progetto
-            const int synthChannel = engine.getSynthChannel();
-            const bool available = synthChannel < 0 || synthChannel == targetChannel;
-            SoundChoice c;
-            c.kind = SoundChoice::bassForge;
-            c.name = "BassForge";
-            c.colour = SequencerEngine::synthColour;
-            choices.push_back (c);
-            tiles.push_back ({ "BassForge", available ? "Synth wavetable" : juce::String (juce::CharPointer_UTF8 ("Gi\xc3\xa0 nel progetto")),
-                               juce::Colour (c.colour), available });
+            for (auto& info : Instruments::list())
+            {
+                SoundChoice c;
+                c.kind = SoundChoice::instrument;
+                c.id = info.id;
+                c.name = info.name;
+                c.colour = info.colour;
+                choices.push_back (c);
+                tiles.push_back ({ info.name, juce::String (juce::CharPointer_UTF8 (info.detail)), juce::Colour (info.colour), true });
+            }
         }
         else
         {
@@ -411,7 +413,7 @@ private:
             case SoundChoice::userSample: return ch.sampleName == c.id;
             case SoundChoice::drumSynth:  return engine.isDrumSynthChannel (targetChannel) && ! engine.isSynth (targetChannel)
                                                  && ch.drumType.load() == c.drumType && ch.kit.load() == c.kit;
-            case SoundChoice::bassForge:  return engine.isSynth (targetChannel);
+            case SoundChoice::instrument: return engine.isSynth (targetChannel) && ch.instrumentKind == c.id;
             default: return false;
         }
     }
@@ -453,10 +455,15 @@ private:
         {
             engine.previewDrum (c.drumType, c.kit);
         }
-        else if (c.kind == SoundChoice::bassForge)
+        else if (c.kind == SoundChoice::instrument)
         {
-            if (const int sc = engine.getSynthChannel(); sc >= 0)
-                engine.previewChannel (sc);
+            // Anteprima: se nel progetto c'e' gia' uno strumento di questo tipo, fa sentire quello
+            for (int ch = 0; ch < engine.getNumChannels(); ++ch)
+                if (engine.isSynth (ch) && engine.getChannel (ch).instrumentKind == c.id)
+                {
+                    engine.previewChannel (ch);
+                    break;
+                }
         }
     }
 

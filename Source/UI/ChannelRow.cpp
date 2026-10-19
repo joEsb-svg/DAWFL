@@ -1,6 +1,6 @@
 #include "ChannelRow.h"
 #include "Theme.h"
-#include "PluginProcessor.h"
+#include "../Instruments/Instruments.h"
 
 ChannelRow::RowClipboard ChannelRow::clipboard;
 
@@ -547,15 +547,16 @@ void ChannelRow::showRowMenu()
 
     juce::PopupMenu menu;
     menu.addSectionHeader (chan.name);
-    menu.addItem (changeSound, synth ? "Preset di BassForge..." : "Cambia suono...");
-    menu.addItem (editSound, synth ? "Apri BassForge..." : "Modifica suono e mix...");
+    menu.addItem (changeSound, synth ? "Preset..." : "Cambia suono...");
+    const auto* info = Instruments::find (chan.instrumentKind);
+    menu.addItem (editSound, synth ? "Apri " + juce::String (info != nullptr ? info->name : "il synth") + "..."
+                                   : juce::String ("Modifica suono e mix..."));
     menu.addItem (openPianoRoll, "Piano roll...");
     menu.addSeparator();
     menu.addItem (15, "Muto", true, chan.muted.load());
     menu.addItem (solo, "Solo (ascolta solo questo)", true, chan.solo.load());
     menu.addSeparator();
-    menu.addItem (clone, synth ? "Clona canale (BassForge e' uno solo)" : "Clona canale",
-                  ! synth && numChannels < SequencerEngine::maxChannels);
+    menu.addItem (clone, "Clona canale", numChannels < SequencerEngine::maxChannels);
     menu.addItem (rename, "Rinomina...");
     menu.addSubMenu ("Colore", colours);
     menu.addItem (moveUp, juce::String (juce::CharPointer_UTF8 ("Sposta su  \xe2\x96\xb2")), channel > 0);
@@ -644,9 +645,7 @@ juce::String ChannelRow::getSoundLabel (SequencerEngine& engine, int channel)
 {
     if (engine.isSynth (channel))
     {
-        if (auto* bf = dynamic_cast<BassForgeAudioProcessor*> (engine.getSynth()))
-            return bf->getPresets().currentName();
-        return "Synth";
+        return Instruments::presetName (engine.getInstrument (channel));
     }
 
     auto& ch = engine.getChannel (channel);

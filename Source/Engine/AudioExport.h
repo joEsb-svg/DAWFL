@@ -4,12 +4,13 @@
 #include "SequencerEngine.h"
 #include "ProjectIO.h"
 #include "SampleStore.h"
+#include "../Instruments/Instruments.h"
 
 //==============================================================================
 /**
     Esporta il progetto in un file audio (WAV o OGG), in un thread a parte.
 
-    Il progetto viene copiato (JSON) in un secondo motore, con un secondo BassForge:
+    Il progetto viene copiato (JSON) in un secondo motore, con una copia di ogni strumento:
     l'audio dal vivo non viene toccato e si puo' continuare a usare l'app.
     Il calcolo e' "offline": piu' veloce del tempo reale, sempre identico, senza scatti.
 */
@@ -28,13 +29,13 @@ public:
     };
 
     /** Da creare sul thread della UI: prepara la copia del progetto. */
-    AudioExporter (const juce::var& projectJson, std::unique_ptr<juce::AudioProcessor> synthCopy,
-                   SampleStore& store, const Settings& s, const juce::File& destination)
-        : juce::Thread ("JLoop export"), settings (s), file (destination), synth (std::move (synthCopy))
+    AudioExporter (const juce::var& projectJson, SampleStore& store, const Settings& s, const juce::File& destination)
+        : juce::Thread ("JLoop export"), settings (s), file (destination)
     {
         engine = std::make_unique<SequencerEngine>();
-        engine->setSynth (synth.get());
         ProjectIO::fromJson (*engine, projectJson);
+        instruments = std::make_unique<Instruments::Host> (*engine);
+        instruments->resolve();   // copie degli strumenti con lo stesso stato (preset, parametri)
 
         // I campioni (libreria e utente) si caricano qui, sul thread della UI
         for (int c = 0; c < engine->getNumChannels(); ++c)
@@ -158,8 +159,8 @@ private:
 
     Settings settings;
     juce::File file;
-    std::unique_ptr<juce::AudioProcessor> synth;
     std::unique_ptr<SequencerEngine> engine;
+    std::unique_ptr<Instruments::Host> instruments;   // distrutto prima del motore
     std::atomic<float> progress { 0.0f };
     std::atomic<bool> finished { false };
     juce::CriticalSection lock;

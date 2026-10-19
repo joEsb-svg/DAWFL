@@ -100,10 +100,11 @@ private:
     juce::String getKitLabel() const;
 
     SequencerEngine engine;
-    std::unique_ptr<BassForgeAudioProcessor> bassForge;   // il synth ospitato (prima del pannello: viene distrutto dopo)
+    std::unique_ptr<Instruments::Host> instruments;      // gli strumenti dei canali (distrutti dopo il pannello)
     std::unique_ptr<SynthPanel> synthPanel;
     std::unique_ptr<JLoopSplash> splash;
-    void openSynthPanel();
+    void openSynthPanel (int channel);
+    void showPresetMenu (int channel, juce::Component& target);
     juce::AudioDeviceManager deviceManager;
     juce::String audioError;
     juce::String projectName;
