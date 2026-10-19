@@ -14,7 +14,7 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.15)
+## Stato attuale (v0.16)
 
 **Canali (channel rack)**
 - Fino a 32 canali: "+ Strumento" aggiunge un canale scegliendo il suono dal browser
@@ -58,6 +58,18 @@ Gli aggiornamenti si installano sopra la versione precedente.
 - Tocca per aggiungere o cancellare, trascina per spostare, trascina il bordo destro per allungare
 - Griglia 1/4, 1/8, 1/16, 1/32 e terzine; zoom; il canale con note mostra l'anteprima al posto degli step
 - Funziona con tutti gli strumenti, sintetizzati o campioni (es. linee di basso con un 808)
+
+**Playlist (canzone)**
+- Interruttore PAT / SONG accanto al play: PAT ripete il pattern selezionato, SONG suona la playlist
+- 12 tracce, fino a 256 battute: tocca per mettere il pattern scelto (pennello), tocca una clip per toglierla,
+  trascinala per spostarla, tienila premuta per il menu (modifica pattern, cambia, duplica, elimina)
+- Piu' pattern possono suonare insieme; tocca il righello per far partire la canzone da una battuta
+- La playlist e' salvata nel progetto
+
+**Esporta audio**
+- FILE > Esporta audio: pattern selezionato (1-8 ripetizioni) o canzone intera, in WAV (qualita' CD) o OGG
+- Calcolo offline in un thread a parte (piu' veloce del tempo reale), con la coda di riverbero e delay
+- Poi "Condividi" (WhatsApp, Drive, mail...) o "Salva nel telefono"
 
 **Sequencer**
 - 8 pattern da 16 o 32 step; il cambio pattern mentre suona avviene a fine giro

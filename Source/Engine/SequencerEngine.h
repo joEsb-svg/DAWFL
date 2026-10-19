@@ -45,7 +45,11 @@ public:
     static constexpr int maxRatchet       = 4;
     static constexpr int ticksPerStep     = 12;    // risoluzione del piano roll: 1/12 di sedicesimo
     static constexpr int maxNotes         = 256;   // note per canale e per pattern
-    static constexpr int rootNote         = 60;    // la nota che suona lo strumento alla sua altezza originale (C5)
+    static constexpr int rootNote         = 60;
+    static constexpr int stepsPerBar      = 16;
+    static constexpr int numTracks        = 12;    // tracce della playlist
+    static constexpr int maxClips         = 512;   // pattern piazzati nella playlist
+    static constexpr int maxBars          = 256;   // lunghezza massima della canzone (battute)    // la nota che suona lo strumento alla sua altezza originale (C5)
 
     /** Una nota del piano roll (tempi in tick). */
     struct NoteData
@@ -149,6 +153,23 @@ public:
         return { (int) (v >> 23) & 511, (int) (v >> 14) & 511, (int) (v >> 7) & 127, (int) v & 127 };
     }
 
+    /** Un pattern piazzato nella playlist: traccia, battuta d'inizio, quale pattern. */
+    struct Clip
+    {
+        int track = 0, bar = 0, pattern = 0;
+        bool operator== (const Clip& o) const { return track == o.track && bar == o.bar && pattern == o.pattern; }
+    };
+
+    static uint32_t packClip (const Clip& c)
+    {
+        return 0x80000000u
+             | (uint32_t) juce::jlimit (0, numTracks - 1, c.track) << 20
+             | (uint32_t) juce::jlimit (0, maxBars - 1, c.bar) << 8
+             | (uint32_t) juce::jlimit (0, numPatterns - 1, c.pattern);
+    }
+
+    static Clip unpackClip (uint32_t v)     { return { (int) (v >> 20) & 0x7ff, (int) (v >> 8) & 0xfff, (int) v & 0xff }; }
+
     SequencerEngine()   { resetProject(); }
 
     //==============================================================================
@@ -173,6 +194,9 @@ public:
         swing.store (0.0f);
         masterVolume.store (1.0f);
         currentPattern.store (0);
+        setClips ({});
+        songMode.store (false);
+        songStartBar.store (0);
     }
 
     void resetChannel (int c, float vol = 0.8f)
@@ -346,6 +370,67 @@ public:
 
         playing.store (shouldPlay);
     }
+
+    //==============================================================================
+    // Playlist (modalita' canzone)
+
+    /** PAT = ripete il pattern selezionato; SONG = suona la playlist. */
+    void setSongMode (bool shouldUseSong)
+    {
+        if (shouldUseSong != songMode.load())
+        {
+            songMode.store (shouldUseSong);
+            restartRequested.store (true);
+        }
+    }
+
+    bool isSongMode() const                     { return songMode.load(); }
+
+    std::vector<Clip> getClips() const
+    {
+        std::vector<Clip> result;
+        for (auto& slot : clips)
+            if (const auto v = slot.load(); v != 0)
+                result.push_back (unpackClip (v));
+        return result;
+    }
+
+    /** Sostituisce tutta la playlist (le clip oltre maxClips vengono ignorate). */
+    void setClips (const std::vector<Clip>& newClips)
+    {
+        int count = 0;
+        for (auto& c : newClips)
+            if (count < maxClips)
+                clips[(size_t) count++].store (packClip (c));
+        for (int i = count; i < maxClips; ++i)
+            clips[(size_t) i].store (0);
+    }
+
+    /** Lunghezza della canzone in step (fine dell'ultima clip). */
+    int getSongLengthSteps() const
+    {
+        int end = 0;
+        for (auto& slot : clips)
+            if (const auto v = slot.load(); v != 0)
+            {
+                const auto c = unpackClip (v);
+                end = juce::jmax (end, c.bar * stepsPerBar + patterns[(size_t) c.pattern].length.load());
+            }
+        return end;
+    }
+
+    /** Da quale battuta parte la canzone (tocco sul righello della playlist). Se sta suonando, salta li'. */
+    void setSongPosition (int bar)
+    {
+        songStartBar.store (juce::jlimit (0, maxBars - 1, bar));
+        if (playing.load() && songMode.load())
+            restartRequested.store (true);
+    }
+
+    int getSongStartBar() const                 { return songStartBar.load(); }
+
+    /** Step della canzone che sta suonando (-1 se fermo o in modalita' pattern). */
+    int getSongStep() const                     { return playing.load() && songMode.load() ? currentSongStep.load() : -1; }
 
     bool isPlaying() const                      { return playing.load(); }
 
@@ -638,8 +723,13 @@ public:
 
     void audioDeviceAboutToStart (juce::AudioIODevice* device) override
     {
+        prepare (device->getCurrentSampleRate());
+    }
+
+    /** Prepara il motore a una frequenza di campionamento (audio dal vivo o esportazione). */
+    void prepare (double sr)
+    {
         const juce::SpinLock::ScopedLockType lock (structureLock);
-        const double sr = device->getCurrentSampleRate();
         sampleRate.store (sr);
         restartRequested.store (true);
 
@@ -688,6 +778,12 @@ public:
                                            int numSamples,
                                            const juce::AudioIODeviceCallbackContext&) override
     {
+        process (outputChannelData, numOutputChannels, numSamples);
+    }
+
+    /** Calcola il prossimo blocco audio (stereo: canali pari = sinistra, dispari = destra). */
+    void process (float* const* outputChannelData, int numOutputChannels, int numSamples)
+    {
         // Se la UI sta riordinando i canali (pochi microsecondi), questo blocco resta in silenzio
         const juce::SpinLock::ScopedTryLockType lock (structureLock);
         if (! lock.isLocked())
@@ -703,11 +799,18 @@ public:
         if (structureChanged.exchange (false))
             resetChannelVoices (sr);
 
+        inSong = songMode.load();
+        if (inSong)
+            songLength = getSongLengthSteps();
+
         if (restartRequested.exchange (false))
         {
             stepIndex = -1;
+            songStep = songStartBar.load() * stepsPerBar - 1;
+            if (songStep + 1 >= songLength) songStep = -1;   // oltre la fine: dall'inizio
             tickInStep = 0;
             samplesUntilNextTick = 0.0;   // il primo step parte subito
+            numActiveClips = 0;
         }
 
         numActive = numActiveChannels.load();
@@ -1176,6 +1279,12 @@ private:
 
     void advanceStep (double samplesPerStep, double swingAmount, bool metroOn)
     {
+        if (inSong)
+        {
+            advanceSongStep (samplesPerStep, swingAmount, metroOn);
+            return;
+        }
+
         auto& playPat = patterns[(size_t) playingPattern.load()];
         const int length = playPat.length.load();
         stepIndex = (stepIndex + 1) % length;
@@ -1192,6 +1301,80 @@ private:
 
         const bool even = (stepIndex % 2) == 0;
         const double stepLength = samplesPerStep * (even ? 1.0 + swingAmount : 1.0 - swingAmount);
+
+        playPatternStep (pattern, stepIndex, stepLength);
+        metronomeAt (metroOn, stepIndex);
+        currentStepLength = stepLength;
+    }
+
+    /** Canzone: avanza di uno step e suona tutte le clip della playlist che coprono questo step. */
+    void advanceSongStep (double samplesPerStep, double swingAmount, bool metroOn)
+    {
+        ++songStep;
+        if (songStep >= songLength)
+            songStep = 0;                      // fine della canzone: ricomincia (giro)
+
+        currentSongStep.store (songStep);
+
+        const bool even = (songStep % 2) == 0;
+        const double stepLength = samplesPerStep * (even ? 1.0 + swingAmount : 1.0 - swingAmount);
+
+        numActiveClips = 0;
+        int shownStep = -1;
+        const int edited = currentPattern.load();
+
+        if (songLength > 0)
+        {
+            for (auto& slot : clips)
+            {
+                const auto v = slot.load();
+                if (v == 0)
+                    continue;
+
+                const auto clip = unpackClip (v);
+                auto& pattern = patterns[(size_t) clip.pattern];
+                const int local = songStep - clip.bar * stepsPerBar;
+                if (local < 0 || local >= pattern.length.load())
+                    continue;
+
+                // la stessa clip doppia (stesso pattern e battuta su due tracce) suona una volta sola
+                bool duplicate = false;
+                for (int i = 0; i < numActiveClips; ++i)
+                    duplicate = duplicate || (activeClips[(size_t) i].pattern == clip.pattern && activeClips[(size_t) i].localStep == local);
+                if (duplicate || numActiveClips >= (int) activeClips.size())
+                    continue;
+
+                activeClips[(size_t) numActiveClips++] = { clip.pattern, local };
+                playPatternStep (pattern, local, stepLength);
+
+                if (clip.pattern == edited)
+                    shownStep = local;
+            }
+        }
+
+        // Il channel rack mostra il playhead se il pattern che si sta modificando sta suonando
+        stepIndex = shownStep;
+        currentStep.store (shownStep);
+        playingPattern.store (edited);
+        metronomeAt (metroOn, songStep % stepsPerBar);
+        currentStepLength = stepLength;
+    }
+
+    void metronomeAt (bool metroOn, int step)
+    {
+        if (metroOn && step % 4 == 0)
+        {
+            metroFreq = step == 0 ? 1760.0 : 1320.0;   // primo quarto piu' acuto
+            metroEnv = 1.0f;
+            metroPhase = 0.0;
+            metroDecay = (float) std::exp (-1.0 / (0.012 * sampleRate.load()));
+        }
+    }
+
+    /** Suona gli step di un pattern (i canali che usano il piano roll vengono saltati). */
+    void playPatternStep (Pattern& pattern, int step, double stepLength)
+    {
+        const int stepIndex = step;   // (nasconde il membro: qui conta lo step del pattern)
 
         for (int c = 0; c < numActive; ++c)
         {
@@ -1216,25 +1399,14 @@ private:
             r.countdown = r.interval;
             r.velocity = v * 0.85f;
         }
-
-        if (metroOn && stepIndex % 4 == 0)
-        {
-            metroFreq = stepIndex == 0 ? 1760.0 : 1320.0;   // primo quarto piu' acuto
-            metroEnv = 1.0f;
-            metroPhase = 0.0;
-            metroDecay = (float) std::exp (-1.0 / (0.012 * sampleRate.load()));
-        }
-
-        currentStepLength = stepLength;
     }
 
     /** Ogni tick: fa suonare le note del piano roll che iniziano adesso. */
     void processTick()
     {
-        auto& pattern = patterns[(size_t) playingPattern.load()];
         const int tick = stepIndex * ticksPerStep + tickInStep;
-        currentTick.store (tick);
-        playHead.ppq.store ((double) tick / (4.0 * ticksPerStep));
+        currentTick.store (stepIndex >= 0 ? tick : -1);
+        playHead.ppq.store ((double) ((inSong ? songStep : stepIndex) * ticksPerStep + tickInStep) / (4.0 * ticksPerStep));
 
         // Note che finiscono a questo tick (prima delle nuove, cosi' una nota ripetuta riparte pulita)
         for (int note = 0; note < 128; ++note)
@@ -1244,6 +1416,21 @@ private:
         for (int c = 0; c < numActive; ++c)
             samplers[(size_t) c].tick();
 
+        if (inSong)
+        {
+            for (int i = 0; i < numActiveClips; ++i)
+                playPatternNotes (patterns[(size_t) activeClips[(size_t) i].pattern],
+                                  activeClips[(size_t) i].localStep * ticksPerStep + tickInStep);
+        }
+        else
+        {
+            playPatternNotes (patterns[(size_t) playingPattern.load()], tick);
+        }
+    }
+
+    /** Fa partire le note del piano roll di un pattern che iniziano a questo tick. */
+    void playPatternNotes (Pattern& pattern, int tick)
+    {
         for (int c = 0; c < numActive; ++c)
         {
             if (pattern.noteCount[(size_t) c].load() <= 0)
@@ -1377,6 +1564,10 @@ private:
     std::atomic<float>  masterVolume     { 1.0f };
     std::atomic<int>    currentStep      { -1 };
     std::atomic<int>    currentTick      { -1 };
+    std::array<std::atomic<uint32_t>, maxClips> clips {};
+    std::atomic<bool>   songMode         { false };
+    std::atomic<int>    songStartBar     { 0 };
+    std::atomic<int>    currentSongStep  { -1 };
     std::atomic<float>  outputPeak       { 0.0f };
     std::atomic<float>  limiterReduction { 0.0f };
     std::atomic<double> sampleRate       { 48000.0 };
@@ -1401,6 +1592,11 @@ private:
     int    numActive            = defaultChannels;
     int    synthIndex           = -1;
     int    stepIndex            = -1;
+    int    songStep             = -1, songLength = 0;
+    bool   inSong               = false;
+    struct ActiveClip { int pattern = 0, localStep = 0; };
+    std::array<ActiveClip, 64> activeClips {};
+    int    numActiveClips       = 0;
     int    tickInStep           = 0;
     int    currentSample        = 0;      // posizione nel blocco corrente (per gli eventi MIDI)
     bool   wasPlaying           = false;

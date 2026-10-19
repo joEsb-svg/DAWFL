@@ -129,6 +129,32 @@ MainComponent::MainComponent()
     addButton.onClick = [this] { Haptics::tick (this); openBrowser (-1); };
     addAndMakeVisible (addButton);
 
+    // --- Playlist (modalita' canzone) ed esportazione
+    songSwitch.onChange = [this] (int i)
+    {
+        Haptics::tick (this);
+        engine.setSongMode (i == 1);
+        if (i == 1) openPlaylist(); else playlist.setVisible (false);
+    };
+    addAndMakeVisible (songSwitch);
+
+    playlist.onClose = [this] { playlist.setVisible (false); };
+    playlist.getGrid().onEdit = [this] { Haptics::tick (this); };
+    playlist.getGrid().onEditPattern = [this] (int pattern)
+    {
+        engine.selectPattern (pattern);
+        playlist.setVisible (false);
+        updateViews();
+        for (auto* row : rows) row->repaint();
+    };
+    addChildComponent (playlist);
+
+    exportPanel.onClose = [this] { exportPanel.setVisible (false); };
+    exportPanel.getProjectJson = [this] { return ProjectIO::toJson (engine); };
+    exportPanel.createSynth = [] { return std::unique_ptr<juce::AudioProcessor> (new BassForgeAudioProcessor()); };
+    exportPanel.getProjectName = [this] { return projectName; };
+    addChildComponent (exportPanel);
+
     browser.onClose  = [this] { browser.setVisible (false); };
     browser.onTap    = [this] { Haptics::tick (this); };
     browser.onChoose = [this] (int channel, const SoundChoice& choice) { applySoundChoice (channel, choice); };
@@ -283,6 +309,8 @@ void MainComponent::layoutLandscape (juce::Rectangle<int> full)
     bpmDisplay.setBounds (header.removeFromLeft (100));
     header.removeFromLeft (6);
     patternDisplay.setBounds (header.removeFromLeft (100));
+    header.removeFromLeft (6);
+    songSwitch.setBounds (header.removeFromLeft (92).withSizeKeepingCentre (92, juce::jmin (h, 30)));
 
     meter.setBounds (header.removeFromRight (8));
     header.removeFromRight (6);
@@ -324,6 +352,11 @@ void MainComponent::layoutPortrait (juce::Rectangle<int> full)
     undoButton.setBounds (line1.removeFromRight (h1));
     line1.removeFromRight (6);
     fileButton.setBounds (line1.removeFromRight (50));
+    line1.removeFromRight (8);
+    {
+        const int sw = juce::jmin (100, line1.getWidth());
+        songSwitch.setBounds (line1.removeFromRight (sw).withSizeKeepingCentre (sw, 30));
+    }
 
     full.removeFromTop (4);
     auto line2 = full.removeFromTop (lineH).reduced (0, 2);
@@ -410,6 +443,8 @@ void MainComponent::layoutRack (juce::Rectangle<int> full, bool portrait)
     editor.setBounds (rack.withTop (rulerArea.getY()).expanded (2, 2));
     pianoRoll.setBounds (full);   // il piano roll copre tutto il channel rack, barra compresa
     browser.setBounds (full);
+    playlist.setBounds (full);
+    exportPanel.setBounds (full);
     if (synthPanel != nullptr)
         synthPanel->setBounds (getContentArea());   // BassForge usa tutto lo schermo
 }
@@ -505,6 +540,12 @@ void MainComponent::timerCallback()
     if (pianoRoll.isVisible())
         pianoRoll.getGrid().setPlayTick (tick);
 
+    if (playlist.isVisible())
+        playlist.getGrid().refresh();
+
+    if (songSwitch.getSelected() != (engine.isSongMode() ? 1 : 0))   // undo, caricamento progetto
+        songSwitch.setSelected (engine.isSongMode() ? 1 : 0);
+
     const bool playingThis = engine.getPlayingPattern() == engine.getCurrentPattern();
     const int column = (playingThis && step >= firstStep && step < firstStep + visible) ? step - firstStep : -1;
     ruler.setState (column, firstStep, visible);
@@ -571,6 +612,8 @@ void MainComponent::showFileMenu()
     menu.addItem (3, "Salva con nome...");
     menu.addSubMenu ("Elimina", deleteMenu, ! projects.isEmpty());
     menu.addSeparator();
+    menu.addItem (6, "Esporta audio (WAV / OGG)...");
+    menu.addSeparator();
     menu.addSubMenu ("Impostazioni", createSettingsMenu());
     menu.addItem (4, "Info audio");
     menu.addSeparator();
@@ -599,6 +642,8 @@ void MainComponent::showFileMenu()
                                 self.askProjectName ("Salva con nome", [safeThis] (juce::String n) { if (safeThis) safeThis->saveProjectAs (n, true); });
                             else if (result == 4)
                                 self.showAudioInfo();
+                            else if (result == 6)
+                                self.openExport();
                             else if (result == 5000)
                             {
                                 Haptics::enabled() = ! Haptics::enabled();
@@ -824,6 +869,8 @@ void MainComponent::openSynthPanel()
 void MainComponent::openPianoRoll (int channel)
 {
     editor.setVisible (false);
+    playlist.setVisible (false);
+    exportPanel.setVisible (false);
     pianoRoll.setChannel (channel);
     pianoRoll.setVisible (true);
     pianoRoll.toFront (false);
@@ -832,6 +879,8 @@ void MainComponent::openPianoRoll (int channel)
 void MainComponent::openEditor (int channel)
 {
     pianoRoll.setVisible (false);
+    playlist.setVisible (false);
+    exportPanel.setVisible (false);
     editor.setChannel (channel);
     editor.setVisible (true);
     editor.toFront (false);
@@ -862,14 +911,19 @@ juce::String MainComponent::takeSnapshot()
     // Il pattern selezionato non conta come "modifica": lo togliamo dall'istantanea
     auto json = ProjectIO::toJson (engine, false);   // il synth ha i suoi preset: non entra nell'undo
     if (auto* obj = json.getDynamicObject())
+    {
         obj->removeProperty ("currentPattern");
+        obj->removeProperty ("songMode");   // cambiare PAT/SONG non e' una modifica da annullare
+    }
     return juce::JSON::toString (json, true);
 }
 
 void MainComponent::applySnapshot (const juce::String& snapshot)
 {
     const int pattern = engine.getCurrentPattern();
+    const bool song = engine.isSongMode();
     ProjectIO::fromJson (engine, juce::JSON::parse (snapshot));
+    engine.setSongMode (song);
     resolveSamples();
     engine.selectPattern (pattern);
     lastSnapshot = snapshot;
@@ -983,6 +1037,26 @@ void MainComponent::handleCommandLine (const juce::String& commandLine)
     if (const int i = args.indexOf ("--rowmenu"); i >= 0)       // test: menu del canale
         if (auto* row = rows[args[i + 1].getIntValue()])
             row->showRowMenu();
+
+    if (args.contains ("--demo-song"))   // test: una canzone di prova nella playlist
+    {
+        engine.selectPattern (1); engine.copyPattern (0, 1);
+        for (int s = 0; s < 16; s += 2) engine.setStepVelocity (3, s, 0);
+        engine.selectPattern (0);
+        engine.setClips ({ { 0, 0, 0 }, { 0, 1, 0 }, { 0, 2, 1 }, { 0, 3, 1 }, { 1, 2, 2 }, { 1, 3, 2 }, { 2, 4, 3 }, { 0, 4, 0 }, { 0, 5, 1 } });
+        engine.setSongMode (true);
+        openPlaylist();
+        if (args.contains ("--play")) engine.setPlaying (true);
+    }
+
+    if (args.contains ("--playlist"))
+    {
+        engine.setSongMode (true);
+        openPlaylist();
+    }
+
+    if (args.contains ("--export"))
+        openExport();
 
     if (const int i = args.indexOf ("--scroll"); i >= 0)
         rackView.setViewPosition (0, args[i + 1].getIntValue());
@@ -1209,6 +1283,28 @@ void MainComponent::hideOverlays()
     browser.setVisible (false);
 }
 
+void MainComponent::openPlaylist()
+{
+    editor.setVisible (false);
+    pianoRoll.setVisible (false);
+    browser.setVisible (false);
+    exportPanel.setVisible (false);
+    playlist.setBrush (engine.getCurrentPattern());
+    playlist.setVisible (true);
+    playlist.toFront (false);
+}
+
+void MainComponent::openExport()
+{
+    editor.setVisible (false);
+    pianoRoll.setVisible (false);
+    browser.setVisible (false);
+    playlist.setVisible (false);
+    exportPanel.open();
+    exportPanel.setVisible (true);
+    exportPanel.toFront (false);
+}
+
 void MainComponent::scrollToChannel (int channel)
 {
     if (auto* row = rows[channel])
@@ -1329,6 +1425,8 @@ void MainComponent::openBrowser (int channel)
 {
     editor.setVisible (false);
     pianoRoll.setVisible (false);
+    playlist.setVisible (false);
+    exportPanel.setVisible (false);
     browser.openFor (channel);
     browser.setVisible (true);
     browser.toFront (false);

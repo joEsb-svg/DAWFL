@@ -9,6 +9,8 @@
 #include "PianoRoll.h"
 #include "SynthPanel.h"
 #include "SoundBrowser.h"
+#include "Playlist.h"
+#include "ExportPanel.h"
 #include "JLoopSplash.h"
 #include "Haptics.h"
 
@@ -71,6 +73,8 @@ private:
     void applySoundChoice (int channel, const SoundChoice& choice);
     void askText (const juce::String& title, const juce::String& initial, std::function<void (juce::String)> onText);
     void hideOverlays();
+    void openPlaylist();
+    void openExport();
     void scrollToChannel (int channel);
     int shownStructure = -1;
     int scrollStartY = 0;
@@ -126,6 +130,9 @@ private:
     juce::Component rackContent;
     juce::TextButton addButton;
     SoundBrowser browser { engine, sampleStore };
+    Playlist playlist { engine };
+    ExportPanel exportPanel { engine, sampleStore };
+    SegmentedControl songSwitch { { "PAT", "SONG" } };
 
     juce::Rectangle<float> headerArea, logoArea, swingCaption, masterCaption, kitCaption, rackArea;
     bool portraitLayout = false;

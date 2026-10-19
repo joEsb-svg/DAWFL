@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <JUCERPROJECT name="JLoop" projectType="guiapp" bundleIdentifier="com.joesb.dawfl"
-              version="0.15.0" companyName="joEsb" id="DwFl01" useAppConfig="0"
+              version="0.16.0" companyName="joEsb" id="DwFl01" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" cppLanguageStandard="20" defines="JucePlugin_Name=&quot;BassForge&quot;&#10;JUCE_STRICT_REFCOUNTEDPOINTER=1"
               jucerFormatVersion="1">
   <MAINGROUP id="Mg0001" name="JLoop">
@@ -14,6 +14,7 @@
         <FILE id="Fi0015" name="SampleStore.h" compile="0" resource="0" file="Source/Engine/SampleStore.h"/>
         <FILE id="Fi0012" name="ProjectIO.h" compile="0" resource="0" file="Source/Engine/ProjectIO.h"/>
         <FILE id="SmPl01" name="Sampler.h" compile="0" resource="0" file="Source/Engine/Sampler.h"/>
+        <FILE id="AuEx01" name="AudioExport.h" compile="0" resource="0" file="Source/Engine/AudioExport.h"/>
         <FILE id="LbIx01" name="LibraryIndex.h" compile="0" resource="0" file="Source/Engine/LibraryIndex.h"/>
       </GROUP>
       <GROUP id="{1A2B3C4D-0000-0000-0000-000000000003}" name="UI">
@@ -25,6 +26,8 @@
         <FILE id="Fi0017" name="SynthPanel.h" compile="0" resource="0" file="Source/UI/SynthPanel.h"/>
         <FILE id="SpLsh2" name="JLoopSplash.h" compile="0" resource="0" file="Source/UI/JLoopSplash.h"/>
         <FILE id="SnBr01" name="SoundBrowser.h" compile="0" resource="0" file="Source/UI/SoundBrowser.h"/>
+        <FILE id="PlLs01" name="Playlist.h" compile="0" resource="0" file="Source/UI/Playlist.h"/>
+        <FILE id="ExPn01" name="ExportPanel.h" compile="0" resource="0" file="Source/UI/ExportPanel.h"/>
         <FILE id="Fi0016" name="PianoRoll.h" compile="0" resource="0" file="Source/UI/PianoRoll.h"/>
         <FILE id="Fi0013" name="ChannelEditor.h" compile="0" resource="0" file="Source/UI/ChannelEditor.h"/>
         <FILE id="Fi0009" name="ChannelRow.h" compile="0" resource="0" file="Source/UI/ChannelRow.h"/>
@@ -316,8 +319,8 @@
     </GROUP>
   </MAINGROUP>
   <EXPORTFORMATS>
-    <ANDROIDSTUDIO targetFolder="Builds/Android" smallIcon="IcOn01" bigIcon="IcOn01"
-                   androidVersionCode="15" androidMinimumSDK="24" androidScreenOrientation="landscape"
+    <ANDROIDSTUDIO targetFolder="Builds/Android" androidEnableContentSharing="1" smallIcon="IcOn01" bigIcon="IcOn01"
+                   androidVersionCode="16" androidMinimumSDK="24" androidScreenOrientation="landscape"
                    androidInternetNeeded="0" androidExternalWriteNeeded="0" androidPushNotifications="0"
                    androidReadMediaAudioPermission="0" androidReadMediaImagesPermission="0"
                    androidReadMediaVideoPermission="0">

@@ -144,6 +144,15 @@ namespace ProjectIO
         }
         root->setProperty ("patterns", patterns);
 
+        // Playlist: [traccia, battuta, pattern] per ogni clip
+        juce::Array<juce::var> song;
+        for (auto& c : engine.getClips())
+            song.add (juce::Array<juce::var> { c.track, c.bar, c.pattern });
+        if (! song.isEmpty())
+            root->setProperty ("song", song);
+        if (engine.isSongMode())
+            root->setProperty ("songMode", true);
+
         // Stato completo di BassForge (tutti i parametri + pattern dei Performer), in base64
         if (includeSynthState)
             if (auto* synth = engine.getSynth())
@@ -259,6 +268,18 @@ namespace ProjectIO
         }
 
         engine.selectPattern ((int) json.getProperty ("currentPattern", 0));
+
+        if (auto* song = json.getProperty ("song", {}).getArray())
+        {
+            std::vector<SequencerEngine::Clip> clips;
+            for (auto& c : *song)
+                if (auto* f = c.getArray(); f != nullptr && f->size() >= 3)
+                    clips.push_back ({ juce::jlimit (0, SequencerEngine::numTracks - 1, (int) (*f)[0]),
+                                       juce::jlimit (0, SequencerEngine::maxBars - 1, (int) (*f)[1]),
+                                       juce::jlimit (0, SequencerEngine::numPatterns - 1, (int) (*f)[2]) });
+            engine.setClips (clips);
+        }
+        engine.setSongMode ((bool) json.getProperty ("songMode", false));
 
         if (auto* synth = engine.getSynth())
         {
