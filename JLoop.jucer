@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<JUCERPROJECT name="DAWFL" projectType="guiapp" bundleIdentifier="com.joesb.dawfl"
-              version="0.9.0" companyName="joEsb" id="DwFl01" useAppConfig="0"
+<JUCERPROJECT name="JLoop" projectType="guiapp" bundleIdentifier="com.joesb.dawfl"
+              version="0.10.0" companyName="joEsb" id="DwFl01" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" cppLanguageStandard="20" defines="JucePlugin_Name=&quot;BassForge&quot;&#10;JUCE_STRICT_REFCOUNTEDPOINTER=1"
               jucerFormatVersion="1">
-  <MAINGROUP id="Mg0001" name="DAWFL">
+  <MAINGROUP id="Mg0001" name="JLoop">
     <GROUP id="{1A2B3C4D-0000-0000-0000-000000000001}" name="Source">
       <GROUP id="{1A2B3C4D-0000-0000-0000-000000000002}" name="Engine">
         <FILE id="Fi0001" name="SequencerEngine.h" compile="0" resource="0"
@@ -148,7 +148,7 @@
   </MAINGROUP>
   <EXPORTFORMATS>
     <ANDROIDSTUDIO targetFolder="Builds/Android" smallIcon="IcOn01" bigIcon="IcOn01"
-                   androidVersionCode="9" androidMinimumSDK="24" androidScreenOrientation="landscape"
+                   androidVersionCode="10" androidMinimumSDK="24" androidScreenOrientation="landscape"
                    androidInternetNeeded="0" androidExternalWriteNeeded="0" androidPushNotifications="0"
                    androidReadMediaAudioPermission="0" androidReadMediaImagesPermission="0"
                    androidReadMediaVideoPermission="0">

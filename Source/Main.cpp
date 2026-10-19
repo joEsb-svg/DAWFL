@@ -2,7 +2,7 @@
 #include "UI/MainComponent.h"
 
 //==============================================================================
-class DAWFLApplication : public juce::JUCEApplication
+class JLoopApplication : public juce::JUCEApplication
 {
 public:
     const juce::String getApplicationName() override       { return ProjectInfo::projectName; }
@@ -78,4 +78,4 @@ private:
 };
 
 //==============================================================================
-START_JUCE_APPLICATION (DAWFLApplication)
+START_JUCE_APPLICATION (JLoopApplication)

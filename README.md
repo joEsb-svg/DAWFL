@@ -1,4 +1,6 @@
-# DAWFL
+# JLoop
+
+(ex DAWFL)
 
 Un DAW per Android in stile "fruity loops", scritto in C++ con [JUCE](https://juce.com).
 
@@ -7,12 +9,12 @@ Un DAW per Android in stile "fruity loops", scritto in C++ con [JUCE](https://ju
 Ogni modifica sul branch `main` viene compilata automaticamente da GitHub Actions.
 L'ultimo APK è sempre qui:
 
-**https://github.com/joEsb-svg/DAWFL/releases/download/latest-build/DAWFL.apk**
+**https://github.com/joEsb-svg/DAWFL/releases/download/latest-build/JLoop.apk**
 
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.9)
+## Stato attuale (v0.10)
 
 **Suono e mix**
 - 6 strumenti sintetizzati, 6 kit per strumento (Classic, Rock, Drum & Bass, Dubstep, Techno, Progressive)
@@ -31,6 +33,8 @@ Gli aggiornamenti si installano sopra la versione precedente.
 - Suona dagli step (nota C3) o dal piano roll, con note on/off precise al campione; BPM e posizione arrivano
   al synth per LFO e Performer a tempo
 - Interfaccia completa di BassForge a schermo intero (Adatta / Zoom), preset di fabbrica e utente
+- 19 preset di fabbrica per genere (Rock, DnB, Dubstep, Techno, Progressive), con archetipi in stile Massive:
+  hoover, scream lead, sequenza col Performer, supersaw
 - Volume, pan, riverbero e delay del canale; lo stato del synth e' salvato nel progetto
 
 **Piano roll**
@@ -57,7 +61,7 @@ Gli aggiornamenti si installano sopra la versione precedente.
 ## Struttura
 
 ```
-DAWFL.jucer                  progetto JUCE (Projucer)
+JLoop.jucer                  progetto JUCE (Projucer)
 Source/Main.cpp              avvio dell'app e finestra
 Source/Engine/               motore audio (thread real-time), libreria suoni, salvataggio
 Source/UI/                   interfaccia
@@ -69,7 +73,7 @@ ci/debug.keystore            chiave di firma di sviluppo (password "android")
 ## Compilare sul PC (opzionale)
 
 1. Clona JUCE 9.0.4 dentro la cartella del progetto: `git clone --branch 9.0.4 https://github.com/juce-framework/JUCE.git JUCE`
-2. Apri `DAWFL.jucer` con il Projucer e salva: genera i progetti in `Builds/`
+2. Apri `JLoop.jucer` con il Projucer e salva: genera i progetti in `Builds/`
 3. Windows: apri `Builds/VisualStudio2022`; Android: apri `Builds/Android` con Android Studio
 
 ## Licenza JUCE

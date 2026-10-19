@@ -17,6 +17,7 @@ namespace ProjectIO
 
     inline juce::File getRootFolder()
     {
+        // La cartella si chiama ancora "DAWFL" (il vecchio nome dell'app): cosi' chi aggiorna ritrova tutto
         return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("DAWFL");
     }
 
@@ -68,7 +69,7 @@ namespace ProjectIO
     inline juce::var toJson (SequencerEngine& engine, bool includeSynthState = true)
     {
         auto* root = new juce::DynamicObject();
-        root->setProperty ("app", "DAWFL");
+        root->setProperty ("app", "JLoop");
         root->setProperty ("version", formatVersion);
         root->setProperty ("bpm", engine.getBpm());
         root->setProperty ("swing", engine.getSwing());
@@ -150,7 +151,8 @@ namespace ProjectIO
     /** Carica un progetto nel motore. Ritorna false se il file non e' valido (il motore resta com'era). */
     inline bool fromJson (SequencerEngine& engine, const juce::var& json)
     {
-        if (json.getProperty ("app", {}).toString() != "DAWFL")
+        const auto app = json.getProperty ("app", {}).toString();
+        if (app != "JLoop" && app != "DAWFL")   // accetta anche i progetti salvati col vecchio nome
             return false;
 
         engine.resetProject();

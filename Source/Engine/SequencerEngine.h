@@ -11,7 +11,7 @@
 
 //==============================================================================
 /**
-    Il motore audio di DAWFL.
+    Il motore audio di JLoop.
 
     Gira sul thread audio, che e' "real-time": nel callback niente allocazioni,
     niente lock, niente file. La UI comunica con il motore solo tramite
@@ -426,7 +426,7 @@ public:
     static bool isSynth (int channel)           { return channel == synthChannel; }
 
     //==============================================================================
-    // Synth BassForge (un AudioProcessor JUCE ospitato da DAWFL)
+    // Synth BassForge (un AudioProcessor JUCE ospitato da JLoop)
 
     /** Da chiamare una volta, prima di avviare l'audio. Il processore resta di proprieta' del chiamante. */
     void setSynth (juce::AudioProcessor* processor)

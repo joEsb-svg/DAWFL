@@ -210,8 +210,8 @@ void MainComponent::paint (juce::Graphics& g)
         auto r = logoArea;
         auto top = r.removeFromTop (r.getHeight() * 0.58f);
         juce::AttributedString logo;
-        logo.append ("DAW", Theme::font (top.getHeight() * 0.78f, true), Theme::textBright);
-        logo.append ("FL",  Theme::font (top.getHeight() * 0.78f, true), Theme::accent);
+        logo.append ("J",    Theme::font (top.getHeight() * 0.82f, true), Theme::accent);
+        logo.append ("Loop", Theme::font (top.getHeight() * 0.82f, true), Theme::textBright);
         logo.setJustification (juce::Justification::bottomLeft);
         logo.draw (g, top);
 
@@ -530,7 +530,7 @@ void MainComponent::showFileMenu()
     menu.addSubMenu ("Impostazioni", createSettingsMenu());
     menu.addItem (4, "Info audio");
     menu.addSeparator();
-    menu.addItem (-1, "DAWFL versione " + juce::String (ProjectInfo::versionString), false);
+    menu.addItem (-1, "JLoop versione " + juce::String (ProjectInfo::versionString), false);
 
     juce::Component::SafePointer<MainComponent> safeThis (this);
 
@@ -901,7 +901,7 @@ void MainComponent::loadSettings()
     juce::PropertiesFile::Options options;
     options.applicationName = "settings";
     options.filenameSuffix = ".xml";
-    options.folderName = "DAWFL";
+    options.folderName = "DAWFL";   // cartella dati storica: non cambia, cosi' progetti e impostazioni restano
     options.osxLibrarySubFolder = "Application Support";
     settings = std::make_unique<juce::PropertiesFile> (ProjectIO::getRootFolder().getChildFile ("settings.xml"), options);
 
