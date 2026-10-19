@@ -1,144 +1,58 @@
 #include "MainComponent.h"
 #include "Theme.h"
 
-//==============================================================================
-// StepRow
-
-StepRow::StepRow (SequencerEngine& e, juce::String channelName)
-    : engine (e), name (std::move (channelName))
-{
-}
-
-juce::Rectangle<float> StepRow::getPadsArea() const
-{
-    auto area = getLocalBounds().toFloat().reduced (4.0f);
-    area.removeFromLeft (juce::jmin (110.0f, area.getWidth() * 0.18f));   // spazio per il nome
-    return area;
-}
-
-juce::Rectangle<float> StepRow::getPadBounds (int index) const
-{
-    auto area = getPadsArea();
-    const float groupGap = 6.0f;
-    const float padGap   = 3.0f;
-    const int numGroups  = SequencerEngine::numSteps / 4;
-
-    const float padWidth = (area.getWidth() - groupGap * (float) (numGroups - 1)
-                                            - padGap * (float) (SequencerEngine::numSteps - numGroups))
-                           / (float) SequencerEngine::numSteps;
-
-    const int group = index / 4;
-    const float x = area.getX()
-                  + (float) index * padWidth
-                  + (float) group * groupGap
-                  + (float) (index - group) * padGap;
-
-    return { x, area.getY(), padWidth, area.getHeight() };
-}
-
-void StepRow::paint (juce::Graphics& g)
-{
-    auto bounds = getLocalBounds().toFloat();
-
-    g.setColour (Theme::panel);
-    g.fillRoundedRectangle (bounds, 6.0f);
-
-    // Nome del canale
-    auto nameArea = bounds.reduced (4.0f).withRight (getPadsArea().getX() - 6.0f);
-    g.setColour (Theme::panelLight);
-    g.fillRoundedRectangle (nameArea, 4.0f);
-    g.setColour (Theme::text);
-    g.setFont (juce::FontOptions (juce::jlimit (12.0f, 20.0f, nameArea.getHeight() * 0.35f)));
-    g.drawFittedText (name, nameArea.toNearestInt().reduced (4), juce::Justification::centred, 1);
-
-    const int playing = engine.getCurrentStep();
-
-    for (int i = 0; i < SequencerEngine::numSteps; ++i)
-    {
-        auto pad = getPadBounds (i);
-        const bool on = engine.isStepOn (i);
-        const bool groupA = (i / 4) % 2 == 0;
-
-        g.setColour (on ? Theme::padOn : (groupA ? Theme::padOffA : Theme::padOffB));
-        g.fillRoundedRectangle (pad, 4.0f);
-
-        if (i == playing)
-        {
-            g.setColour (Theme::playhead);
-            g.drawRoundedRectangle (pad.reduced (1.5f), 4.0f, 3.0f);
-        }
-    }
-}
-
-void StepRow::mouseDown (const juce::MouseEvent& e)
-{
-    for (int i = 0; i < SequencerEngine::numSteps; ++i)
-    {
-        if (getPadBounds (i).contains (e.position))
-        {
-            engine.toggleStep (i);
-            repaint();
-            return;
-        }
-    }
-}
-
-//==============================================================================
-// MainComponent
-
 MainComponent::MainComponent()
 {
-    auto styleButton = [] (juce::TextButton& b)
-    {
-        b.setColour (juce::TextButton::buttonColourId, Theme::panelLight);
-        b.setColour (juce::TextButton::buttonOnColourId, Theme::accent);
-        b.setColour (juce::TextButton::textColourOffId, Theme::text);
-        b.setColour (juce::TextButton::textColourOnId, Theme::background);
-    };
+    setLookAndFeel (&lookAndFeel);
 
-    styleButton (playButton);
-    styleButton (bpmDownButton);
-    styleButton (bpmUpButton);
-
-    playButton.setClickingTogglesState (false);
+    // Trasporto
     playButton.onClick = [this]
     {
         engine.setPlaying (! engine.isPlaying());
-        updatePlayButton();
+        playButton.setToggleState (engine.isPlaying(), juce::dontSendNotification);
     };
+    addAndMakeVisible (playButton);
 
-    bpmDownButton.setButtonText ("-");
-    bpmUpButton.setButtonText ("+");
-    bpmDownButton.onClick = [this] { engine.setBpm (engine.getBpm() - 1.0); updateBpmLabel(); };
-    bpmUpButton.onClick   = [this] { engine.setBpm (engine.getBpm() + 1.0); updateBpmLabel(); };
-    bpmDownButton.setRepeatSpeed (400, 60);
-    bpmUpButton.setRepeatSpeed (400, 60);
+    bpmDisplay.getBpm = [this] { return engine.getBpm(); };
+    bpmDisplay.setBpm = [this] (double v) { engine.setBpm (v); };
+    addAndMakeVisible (bpmDisplay);
 
-    titleLabel.setText ("DAWFL", juce::dontSendNotification);
-    titleLabel.setColour (juce::Label::textColourId, Theme::accent);
-    titleLabel.setJustificationType (juce::Justification::centredLeft);
+    // Volume master
+    masterKnob.setSliderStyle (juce::Slider::RotaryVerticalDrag);
+    masterKnob.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    masterKnob.setRange (0.0, 1.5);
+    masterKnob.setValue (engine.getMasterVolume(), juce::dontSendNotification);
+    masterKnob.setDoubleClickReturnValue (true, 1.0);
+    masterKnob.setMouseDragSensitivity (160);
+    masterKnob.onValueChange = [this] { engine.setMasterVolume ((float) masterKnob.getValue()); };
+    addAndMakeVisible (masterKnob);
 
-    bpmLabel.setColour (juce::Label::textColourId, Theme::text);
-    bpmLabel.setColour (juce::Label::backgroundColourId, Theme::background);
-    bpmLabel.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (meter);
+
+    // Channel rack
+    for (int c = 0; c < SequencerEngine::numChannels; ++c)
+        addAndMakeVisible (rows.add (new ChannelRow (engine, c)));
+
+    stepLeds.getColumnBounds = [this] (int i)
+    {
+        auto* row = rows.getFirst();
+        auto r = row->getPadBounds (i).translated ((float) row->getX(), 0.0f);
+        return r.translated (-(float) stepLeds.getX(), 0.0f);
+    };
+    addAndMakeVisible (stepLeds);
 
     infoLabel.setColour (juce::Label::textColourId, Theme::textDim);
     infoLabel.setJustificationType (juce::Justification::centredLeft);
-
-    for (auto* c : std::initializer_list<juce::Component*> { &playButton, &bpmDownButton, &bpmUpButton,
-                                                            &titleLabel, &bpmLabel, &infoLabel, &kickRow })
-        addAndMakeVisible (c);
+    infoLabel.setFont (Theme::font (13.0f));
+    addAndMakeVisible (infoLabel);
 
     // Avvio dell'audio: 0 ingressi, 2 uscite (stereo).
     audioError = deviceManager.initialiseWithDefaultDevices (0, 2);
     deviceManager.addAudioCallback (&engine);
-
-    updatePlayButton();
-    updateBpmLabel();
     updateInfoLabel();
 
-    startTimerHz (30);
-    setSize (900, 420);
+    startTimerHz (40);
+    setSize (900, 440);
 }
 
 MainComponent::~MainComponent()
@@ -146,62 +60,109 @@ MainComponent::~MainComponent()
     stopTimer();
     deviceManager.removeAudioCallback (&engine);
     deviceManager.closeAudioDevice();
+    setLookAndFeel (nullptr);
+}
+
+//==============================================================================
+juce::Rectangle<int> MainComponent::getContentArea() const
+{
+    auto area = getLocalBounds();
+
+    // Su Android rispetta notch e barre di sistema.
+    if (auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (getScreenBounds()))
+        area = display->safeAreaInsets.subtractedFrom (area);
+
+    return area.reduced (10, 8);
 }
 
 void MainComponent::paint (juce::Graphics& g)
 {
-    g.fillAll (Theme::background);
+    g.setGradientFill (juce::ColourGradient (Theme::bgTop, 0.0f, 0.0f, Theme::bgBottom, 0.0f, (float) getHeight(), false));
+    g.fillAll();
+
+    // Barra superiore
+    g.setColour (Theme::panel.withAlpha (0.9f));
+    g.fillRoundedRectangle (headerArea, 10.0f);
+    g.setColour (Theme::outline.withAlpha (0.6f));
+    g.drawRoundedRectangle (headerArea, 10.0f, 1.0f);
+
+    // Logo con gradiente
+    {
+        juce::GlyphArrangement glyphs;
+        glyphs.addFittedText (Theme::font (logoArea.getHeight() * 0.62f, true), "DAWFL",
+                              logoArea.getX(), logoArea.getY(), logoArea.getWidth(), logoArea.getHeight(),
+                              juce::Justification::centredLeft, 1);
+        juce::Path p;
+        glyphs.createPath (p);
+
+        auto b = p.getBounds();
+        g.setColour (Theme::accent.withAlpha (0.25f));
+        g.strokePath (p, juce::PathStrokeType (3.0f));
+        g.setGradientFill (juce::ColourGradient (Theme::accent2, b.getX(), b.getY(), Theme::accent, b.getRight(), b.getBottom(), false));
+        g.fillPath (p);
+    }
+
+    g.setColour (Theme::textDim);
+    g.setFont (Theme::font (11.0f, true));
+    g.drawText ("MASTER", masterLabelArea, juce::Justification::centred);
 }
 
 void MainComponent::resized()
 {
-    auto area = getLocalBounds().reduced (12);
+    auto area = getContentArea();
 
-    // Su Android rispetta notch e barre di sistema.
-    if (auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (getScreenBounds()))
-        area = display->safeAreaInsets.subtractedFrom (getLocalBounds()).reduced (12);
+    // --- Barra superiore
+    const int headerH = juce::jlimit (48, 68, area.getHeight() / 6);
+    auto header = area.removeFromTop (headerH);
+    headerArea = header.toFloat();
+    header.reduce (10, 6);
 
-    const int barHeight = juce::jlimit (44, 64, getHeight() / 7);
+    logoArea = header.removeFromLeft (juce::roundToInt (headerH * 2.6)).toFloat();
+    header.removeFromLeft (8);
 
-    auto bar = area.removeFromTop (barHeight);
-    titleLabel.setFont (juce::FontOptions ((float) barHeight * 0.5f, juce::Font::bold));
-    titleLabel.setBounds (bar.removeFromLeft (barHeight * 3));
+    const int ctlH = header.getHeight();
+    playButton.setBounds (header.removeFromLeft (juce::roundToInt (ctlH * 1.5)));
+    header.removeFromLeft (10);
+    bpmDisplay.setBounds (header.removeFromLeft (juce::roundToInt (ctlH * 2.6)));
 
-    playButton.setBounds (bar.removeFromLeft (barHeight * 2).reduced (2));
-    bar.removeFromLeft (16);
-    bpmDownButton.setBounds (bar.removeFromLeft (barHeight).reduced (2));
-    bpmLabel.setFont (juce::FontOptions ((float) barHeight * 0.42f));
-    bpmLabel.setBounds (bar.removeFromLeft (barHeight * 3).reduced (2));
-    bpmUpButton.setBounds (bar.removeFromLeft (barHeight).reduced (2));
+    meter.setBounds (header.removeFromRight (14));
+    header.removeFromRight (8);
+    masterKnob.setBounds (header.removeFromRight (ctlH));
+    masterLabelArea = header.removeFromRight (52).toFloat();
 
-    infoLabel.setFont (juce::FontOptions (14.0f));
-    infoLabel.setBounds (area.removeFromBottom (24));
+    // --- Riga in basso con le info audio
+    area.removeFromTop (6);
+    infoLabel.setBounds (area.removeFromBottom (18));
 
-    area.removeFromTop (16);
-    kickRow.setBounds (area.removeFromTop (juce::jlimit (56, 110, area.getHeight() / 3)));
+    // --- LED dei passi + righe del channel rack
+    stepLeds.setBounds (area.removeFromTop (20));
+    area.removeFromTop (2);
+
+    const int gap = 5;
+    const int rowH = (area.getHeight() - gap * (SequencerEngine::numChannels - 1)) / SequencerEngine::numChannels;
+
+    for (auto* row : rows)
+    {
+        row->setBounds (area.removeFromTop (rowH));
+        area.removeFromTop (gap);
+    }
+
+    stepLeds.repaint();
 }
 
+//==============================================================================
 void MainComponent::timerCallback()
 {
     const int step = engine.getCurrentStep();
 
-    if (step != lastDrawnStep)
-    {
-        lastDrawnStep = step;
-        kickRow.repaint();
-    }
-}
+    for (auto* row : rows)
+        row->refresh (step);
 
-void MainComponent::updatePlayButton()
-{
-    const bool on = engine.isPlaying();
-    playButton.setButtonText (on ? "STOP" : "PLAY");
-    playButton.setToggleState (on, juce::dontSendNotification);
-}
+    stepLeds.setCurrentStep (step);
+    meter.setLevel (engine.takeOutputPeak());
 
-void MainComponent::updateBpmLabel()
-{
-    bpmLabel.setText (juce::String (juce::roundToInt (engine.getBpm())) + " BPM", juce::dontSendNotification);
+    if (playButton.getToggleState() != engine.isPlaying())
+        playButton.setToggleState (engine.isPlaying(), juce::dontSendNotification);
 }
 
 void MainComponent::updateInfoLabel()

@@ -12,12 +12,14 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.1)
+## Stato attuale (v0.2)
 
 - Motore audio a bassa latenza (Oboe, tramite JUCE)
-- Trasporto: Play/Stop, BPM regolabile (40-240)
-- Channel rack con una riga **Kick** a 16 step
-- Info audio in basso: sample rate e buffer (latenza)
+- Channel rack con 6 strumenti sintetizzati: Kick, Snare, Clap, Hi-Hat, Open Hat, Tom
+- Pad a 16 step "dipingibili" (tocca e trascina), mute e volume per canale
+- Tocca il nome di un canale per sentirne il suono
+- BPM: tocca - / + oppure trascina su/giu' sul display
+- Volume master con saturazione morbida e meter d'uscita
 
 ## Struttura
 
