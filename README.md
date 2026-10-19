@@ -14,26 +14,40 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.11)
+## Stato attuale (v0.15)
+
+**Canali (channel rack)**
+- Fino a 32 canali: "+ Strumento" aggiunge un canale scegliendo il suono dal browser
+- Tieni premuto il nome di un canale (o menu ▾) per il menu: cambia suono, modifica suono e mix, piano roll,
+  muto, solo, clona, rinomina, colore, sposta su/giu', strumenti per gli step, elimina
+- Tocca il nome per ascoltare; trascina in verticale sul nome per scorrere la lista
+
+**Libreria suoni (162 suoni, generati da zero con tools/soundgen)**
+- Strumenti: pianoforti e tastiere, chitarre, bassi, archi, fiati e ottoni, voci e cori,
+  percussioni melodiche, batteria acustica, percussioni
+- Elettronica: EDM, House, Techno, Electro, Drum and Bass, Dubstep, Trap, synth e pad, effetti (FX)
+- Browser con anteprima: tocca un suono per sentirlo, poi "Aggiungi" o "Usa questo suono"
+- Campionatore polifonico (accordi nel piano roll); gli strumenti "tenuti" (archi, organo, pad...) sfumano
+  alla fine della nota; ogni suono sa la sua nota, cosi' il piano roll suona intonato
 
 **Suono e mix**
-- 6 strumenti sintetizzati, 6 kit per strumento (Classic, Rock, Drum & Bass, Dubstep, Techno, Progressive)
-- Editor del canale (tieni premuto il nome, o menu ▾ > Modifica suono): pitch, decay, tono, drive,
+- Batteria sintetizzata: 6 strumenti, 6 kit (Classic, Rock, Drum & Bass, Dubstep, Techno, Progressive)
+- Editor del canale (menu del canale > Modifica suono e mix): pitch, decay, tono, drive,
   humanize, volume, pan, filtro, riverbero, delay
 - Uscita stereo, velocity che cambia anche il timbro, humanize (variazioni naturali a ogni colpo)
 - Master: riverbero e delay a tempo condivisi, limiter con look-ahead, meter
 
 **Campioni**
-- Importa i tuoi suoni dal telefono (WAV, AIFF, FLAC, OGG, MP3): menu ▾ di un canale > Suono > Importa campione
+- Importa i tuoi suoni dal telefono (WAV, AIFF, FLAC, OGG, MP3): browser dei suoni > Campioni > Importa
 - I campioni vengono copiati nell'app e normalizzati; pitch, decay, tono, drive ed effetti valgono anche per loro
 - I progetti ricordano il campione di ogni canale
 
 **Synth BassForge**
-- Il synth BassForge (repository VST-, ramo bassforge-initial) e' compilato dentro l'app come settimo canale
+- Il synth BassForge (repository VST-, ramo bassforge-initial) e' compilato dentro l'app (un canale per progetto)
 - Suona dagli step (nota C3) o dal piano roll, con note on/off precise al campione; BPM e posizione arrivano
   al synth per LFO e Performer a tempo
-- Interfaccia di BassForge pensata per il telefono: schede OSC, FILTRI, ENV, LFO, MOD, MACRO, FX con
-  manopole grandi, interruttori e menu; l'interfaccia originale resta disponibile con "Avanzato" (Adatta / Zoom)
+- Interfaccia originale di BassForge adattata al telefono: una sezione alla volta (OSC 1/2/3, Sub/Noise,
+  Sample, Filtri, Env/LFO/Macro/Matrice/Performer, FX)
 - Preset di fabbrica e utente
 - 19 preset di fabbrica per genere (Rock, DnB, Dubstep, Techno, Progressive), con archetipi in stile Massive:
   hoover, scream lead, sequenza col Performer, supersaw
@@ -65,7 +79,9 @@ Gli aggiornamenti si installano sopra la versione precedente.
 ```
 JLoop.jucer                  progetto JUCE (Projucer)
 Source/Main.cpp              avvio dell'app e finestra
-Source/Engine/               motore audio (thread real-time), libreria suoni, salvataggio
+Source/Engine/               motore audio (thread real-time), campionatore, libreria suoni, salvataggio
+Resources/Library/           i suoni della libreria (Ogg Vorbis, generati da tools/soundgen)
+tools/soundgen/              script Python che sintetizza la libreria (python3 tools/soundgen/generate.py)
 Source/UI/                   interfaccia
 BassForge/Source/            sorgenti del synth BassForge (JUCE AudioProcessor ospitato dal motore)
 .github/workflows/           compilazione automatica dell'APK

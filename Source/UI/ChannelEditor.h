@@ -80,8 +80,8 @@ public:
         for (auto* b : { &prevButton, &nextButton, &kitButton, &previewButton, &resetButton, &closeButton })
             addAndMakeVisible (b);
 
-        prevButton.onClick    = [this] { setChannel ((channel + SequencerEngine::numChannels - 1) % SequencerEngine::numChannels); };
-        nextButton.onClick    = [this] { setChannel ((channel + 1) % SequencerEngine::numChannels); };
+        prevButton.onClick    = [this] { const int n = engine.getNumChannels(); setChannel ((channel + n - 1) % n); };
+        nextButton.onClick    = [this] { setChannel ((channel + 1) % engine.getNumChannels()); };
         previewButton.onClick = [this] { engine.previewChannel (channel); };
         resetButton.onClick   = [this]
         {
@@ -104,17 +104,18 @@ public:
     std::function<void()> onClose;
     std::function<juce::PopupMenu (int channel)> buildSoundMenu;
     std::function<void (int channel, int result)> handleSoundMenu;
+    std::function<void (int channel)> onChangeSound;      // apre il browser dei suoni
 
     void setChannel (int newChannel)
     {
-        channel = newChannel;
-        const auto colour = juce::Colour (SequencerEngine::getChannelInfo (channel).colour);
+        channel = juce::jlimit (0, engine.getNumChannels() - 1, newChannel);
+        const auto colour = juce::Colour (ch().colour.load());
 
         for (auto* k : soundKnobs)
             k->setColour (colour);
 
         // Per il synth il suono si modella dentro BassForge: qui restano solo mix ed effetti
-        const bool synth = SequencerEngine::isSynth (channel);
+        const bool synth = engine.isSynth (channel);
         for (auto* k : { &pitch, &decay, &tone, &drive, &humanize })
             k->setVisible (! synth);
         resetButton.setVisible (! synth);
@@ -153,15 +154,15 @@ public:
 
         // Intestazione: colore e nome del canale
         auto title = titleArea;
-        g.setColour (juce::Colour (SequencerEngine::getChannelInfo (channel).colour));
+        g.setColour (juce::Colour (engine.getChannel (channel).colour.load()));
         g.fillRect (title.removeFromLeft (4.0f).reduced (0.0f, 4.0f));
         title.removeFromLeft (8.0f);
         g.setColour (Theme::textBright);
         g.setFont (Theme::font (17.0f, true));
-        g.drawText (SequencerEngine::getChannelInfo (channel).name, title, juce::Justification::centredLeft, false);
+        g.drawText (engine.getChannel (channel).name, title, juce::Justification::centredLeft, false);
 
         // Separatori delle sezioni
-        Theme::drawCaption (g, SequencerEngine::isSynth (channel) ? "Suono: apri BassForge dal menu del canale" : "Suono",
+        Theme::drawCaption (g, engine.isSynth (channel) ? "Suono: apri BassForge dal menu del canale" : "Suono",
                             soundCaption, juce::Justification::centredLeft);
         Theme::drawCaption (g, "Mix ed effetti", mixCaption, juce::Justification::centredLeft);
         g.setColour (Theme::border);
@@ -221,6 +222,13 @@ private:
 
     void showKitMenu()
     {
+        if (! engine.isSynth (channel))
+        {
+            if (onChangeSound)
+                onChangeSound (channel);
+            return;
+        }
+
         if (! buildSoundMenu)
             return;
 

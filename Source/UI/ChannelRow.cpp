@@ -6,8 +6,7 @@ ChannelRow::RowClipboard ChannelRow::clipboard;
 
 ChannelRow::ChannelRow (SequencerEngine& e, int channelIndex)
     : engine (e),
-      channel (channelIndex),
-      colour (juce::Colour (SequencerEngine::getChannelInfo (channelIndex).colour))
+      channel (channelIndex)
 {
     volumeKnob.setSliderStyle (juce::Slider::RotaryVerticalDrag);
     volumeKnob.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
@@ -129,6 +128,8 @@ void ChannelRow::paint (juce::Graphics& g)
         auto r = nameArea;
         Theme::drawRaised (g, r, Theme::raised.interpolatedWith (Theme::raisedHi, flash));
 
+        const auto colour = getColour();
+        const bool soloed = ch.solo.load();
         g.setColour (colour.withAlpha (muted ? 0.3f : 0.9f));
         g.fillRect (r.withWidth (3.0f).reduced (0.0f, 3.0f).translated (3.0f, 0.0f));
 
@@ -138,8 +139,17 @@ void ChannelRow::paint (juce::Graphics& g)
 
         g.setColour (muted ? Theme::textDim : Theme::textBright);
         g.setFont (Theme::font (nameH, true));
-        g.drawFittedText (SequencerEngine::getChannelInfo (channel).name, nameLine.toNearestInt(),
-                          juce::Justification::bottomLeft, 1);
+        g.drawFittedText (ch.name, nameLine.toNearestInt(), juce::Justification::bottomLeft, 1);
+
+        if (soloed)   // "S" del solo, in alto a destra nel pulsante
+        {
+            auto badge = juce::Rectangle<float> (15.0f, 13.0f).withPosition (menuArea.getX() - 18.0f, r.getY() + 4.0f);
+            g.setColour (Theme::accent);
+            g.fillRoundedRectangle (badge, 3.0f);
+            g.setColour (Theme::bg);
+            g.setFont (Theme::font (10.5f, true));
+            g.drawText ("S", badge, juce::Justification::centred, false);
+        }
 
         g.setColour (Theme::textDim);
         g.setFont (Theme::font (juce::jmax (10.5f, nameH * 0.8f)));
@@ -264,8 +274,11 @@ void ChannelRow::mouseDown (const juce::MouseEvent& e)
 
     if (nameArea.contains (e.position))
     {
-        engine.previewChannel (channel);
-        pressOnName = true;   // se resta premuto a lungo, al rilascio apre l'editor
+        // Tocco breve = ascolta; pressione lunga = menu del canale; trascinamento = scorre la lista
+        pressOnName = true;
+        nameDragging = false;
+        longPressDone = false;
+        startTimer (450);
         return;
     }
 
@@ -316,6 +329,20 @@ void ChannelRow::mouseDown (const juce::MouseEvent& e)
 
 void ChannelRow::mouseDrag (const juce::MouseEvent& e)
 {
+    if (pressOnName)
+    {
+        if (! nameDragging && ! longPressDone && std::abs (e.getDistanceFromDragStartY()) > 8)
+        {
+            nameDragging = true;
+            stopTimer();
+            if (onScrollDrag) onScrollDrag (0.0f, true);
+        }
+
+        if (nameDragging && onScrollDrag)
+            onScrollDrag ((float) e.getDistanceFromDragStartY(), false);
+        return;
+    }
+
     if (lastColumn < 0)
         return;
 
@@ -344,12 +371,35 @@ void ChannelRow::mouseDrag (const juce::MouseEvent& e)
     }
 }
 
-void ChannelRow::mouseUp (const juce::MouseEvent& e)
+void ChannelRow::mouseUp (const juce::MouseEvent&)
 {
-    if (pressOnName && e.getLengthOfMousePress() > 450 && onOpenEditor)
-        onOpenEditor (channel);
+    stopTimer();
+    const bool wasName = pressOnName, dragged = nameDragging, longPress = longPressDone;
+    pressOnName = nameDragging = longPressDone = false;
 
-    pressOnName = false;
+    if (! wasName || dragged)
+        return;
+
+    if (longPress)
+    {
+        showRowMenu();   // il menu si apre al rilascio: cosi' il dito non sceglie una voce per sbaglio
+        return;
+    }
+
+    engine.previewChannel (channel);
+    if (onTap) onTap();
+}
+
+void ChannelRow::timerCallback()
+{
+    stopTimer();
+    if (pressOnName && ! nameDragging)
+    {
+        longPressDone = true;
+        flash = 1.0f;          // il pulsante si illumina: "rilascia per il menu"
+        repaint();
+        if (onLongPress) onLongPress();
+    }
 }
 
 void ChannelRow::applyVerticalValueAt (juce::Point<float> p)
@@ -406,6 +456,18 @@ void ChannelRow::refresh (int currentStep)
         needsRepaint = true;
     }
 
+    // Nome, colore, solo, muto cambiati altrove (menu, undo, caricamento)
+    {
+        auto& ch = engine.getChannel (channel);
+        const auto look = (juce::uint64) ch.name.hashCode64() * 31u + ch.colour.load() * 7u
+                        + (ch.solo.load() ? 3u : 0u) + (ch.muted.load() ? 5u : 0u) + (juce::uint64) ch.sampleName.hashCode64();
+        if (look != shownLook)
+        {
+            shownLook = look;
+            needsRepaint = true;
+        }
+    }
+
     // Cambiamenti fatti altrove (kit globale, cambio pattern, caricamento progetto, undo)
     if (const int kit = engine.getChannelKit (channel); kit != shownKit)
     {
@@ -413,7 +475,7 @@ void ChannelRow::refresh (int currentStep)
         needsRepaint = true;
     }
 
-    if (SequencerEngine::isSynth (channel))
+    if (engine.isSynth (channel))
         if (const auto label = getSoundLabel (engine, channel); label != shownLabel)
         {
             shownLabel = label;
@@ -459,31 +521,49 @@ void ChannelRow::refresh (int currentStep)
 //==============================================================================
 void ChannelRow::showRowMenu()
 {
-    juce::PopupMenu library, fill;
+    auto& chan = engine.getChannel (channel);
+    const bool synth = engine.isSynth (channel);
+    const int numChannels = engine.getNumChannels();
 
-    if (buildSoundMenu)
-        library = buildSoundMenu (channel);
-
+    juce::PopupMenu fill, steps, colours;
     fill.addItem (201, "Ogni step");
     fill.addItem (202, "Ogni 2 step (ottavi)");
     fill.addItem (204, "Ogni 4 step (quarti)");
     fill.addItem (208, "Ogni 8 step");
     fill.addItem (210, "Controtempo (sugli ottavi pari)");
 
+    steps.addItem (2, juce::String (juce::CharPointer_UTF8 ("Sposta a sinistra  \xe2\x97\x80")));
+    steps.addItem (3, juce::String (juce::CharPointer_UTF8 ("Sposta a destra  \xe2\x96\xb6")));
+    steps.addItem (4, "Inverti");
+    steps.addSubMenu ("Riempi", fill);
+    steps.addSeparator();
+    steps.addItem (5, "Copia riga");
+    steps.addItem (6, "Incolla riga", clipboard.valid);
+    steps.addItem (7, engine.hasNotes (channel) ? "Svuota riga (step e note)" : "Svuota riga");
+
+    for (int i = 0; i < numColours; ++i)
+        colours.addColouredItem (colourBase + i, getPaletteName (i), getPaletteColour (i), true,
+                                 getPaletteColour (i).getARGB() == chan.colour.load());
+
     juce::PopupMenu menu;
-    menu.addSectionHeader (SequencerEngine::getChannelInfo (channel).name);
-    menu.addItem (1, SequencerEngine::isSynth (channel) ? "Apri BassForge..." : "Modifica suono...");
-    menu.addItem (8, "Piano roll...");
-    menu.addSubMenu (SequencerEngine::isSynth (channel) ? "Preset" : "Suono", library);
+    menu.addSectionHeader (chan.name);
+    menu.addItem (changeSound, synth ? "Preset di BassForge..." : "Cambia suono...");
+    menu.addItem (editSound, synth ? "Apri BassForge..." : "Modifica suono e mix...");
+    menu.addItem (openPianoRoll, "Piano roll...");
     menu.addSeparator();
-    menu.addItem (2, juce::String (juce::CharPointer_UTF8 ("Sposta a sinistra  \xe2\x97\x80")));
-    menu.addItem (3, juce::String (juce::CharPointer_UTF8 ("Sposta a destra  \xe2\x96\xb6")));
-    menu.addItem (4, "Inverti");
-    menu.addSubMenu ("Riempi", fill);
+    menu.addItem (15, "Muto", true, chan.muted.load());
+    menu.addItem (solo, "Solo (ascolta solo questo)", true, chan.solo.load());
     menu.addSeparator();
-    menu.addItem (5, "Copia riga");
-    menu.addItem (6, "Incolla riga", clipboard.valid);
-    menu.addItem (7, engine.hasNotes (channel) ? "Svuota riga (step e note)" : "Svuota riga");
+    menu.addItem (clone, synth ? "Clona canale (BassForge e' uno solo)" : "Clona canale",
+                  ! synth && numChannels < SequencerEngine::maxChannels);
+    menu.addItem (rename, "Rinomina...");
+    menu.addSubMenu ("Colore", colours);
+    menu.addItem (moveUp, juce::String (juce::CharPointer_UTF8 ("Sposta su  \xe2\x96\xb2")), channel > 0);
+    menu.addItem (moveDown, juce::String (juce::CharPointer_UTF8 ("Sposta gi\xc3\xb9  \xe2\x96\xbc")), channel < numChannels - 1);
+    menu.addSeparator();
+    menu.addSubMenu ("Step", steps);
+    menu.addSeparator();
+    menu.addItem (remove, "Elimina canale", numChannels > 1);
 
     juce::Component::SafePointer<ChannelRow> safeThis (this);
 
@@ -498,8 +578,7 @@ void ChannelRow::showRowMenu()
                             auto& e = self.engine;
                             const int c = self.channel;
 
-                            if (result == 1)        { if (self.onOpenEditor) self.onOpenEditor (c); }
-                            else if (result == 2)   e.shiftRow (c, -1);
+                            if (result == 2)        e.shiftRow (c, -1);
                             else if (result == 3)   e.shiftRow (c, 1);
                             else if (result == 4)   e.reverseRow (c);
                             else if (result == 5)
@@ -522,22 +601,48 @@ void ChannelRow::showRowMenu()
                                 }
                             }
                             else if (result == 7)   { e.clearRow (c); e.setNotes (c, {}); }
-                            else if (result == 8)   { if (self.onOpenPianoRoll) self.onOpenPianoRoll (c); }
-                            else if (result == 210) e.fillRow (c, 4, 2);
-                            else if (result > 200)  e.fillRow (c, result - 200);
-                            else if (result >= 100 && result < 1000)
+                            else if (result == 15)
                             {
-                                if (self.handleSoundMenu)
-                                    self.handleSoundMenu (c, result);
+                                auto& m = e.getChannel (c).muted;
+                                m.store (! m.load());
+                            }
+                            else if (result == 210) e.fillRow (c, 4, 2);
+                            else if (result > 200 && result < 300)  e.fillRow (c, result - 200);
+                            else if (result >= colourBase && result < colourBase + numColours)
+                                e.getChannel (c).colour.store (getPaletteColour (result - colourBase).getARGB());
+                            else if (self.onCommand)
+                            {
+                                self.onCommand (c, result);   // gestiti dalla schermata principale
+                                return;                       // (la riga potrebbe essere gia' stata ricreata)
                             }
 
                             self.repaint();
                         });
 }
 
+juce::Colour ChannelRow::getPaletteColour (int i)
+{
+    static const juce::uint32 colours[numColours] =
+    {
+        0xffe8833a, 0xffd2555a, 0xffd8b14a, 0xff4fb3a9, 0xff5b8fd6, 0xff9a78d0,
+        0xff2fc6d6, 0xff6fbf5a, 0xffe36fae, 0xffc49360, 0xff8aa0b8, 0xffe0e0e0
+    };
+    return juce::Colour (colours[juce::jlimit (0, numColours - 1, i)]);
+}
+
+juce::String ChannelRow::getPaletteName (int i)
+{
+    static const char* names[numColours] =
+    {
+        "Arancione", "Rosso", "Giallo", "Verde acqua", "Blu", "Viola",
+        "Ciano", "Verde", "Rosa", "Legno", "Grigio", "Bianco"
+    };
+    return names[juce::jlimit (0, numColours - 1, i)];
+}
+
 juce::String ChannelRow::getSoundLabel (SequencerEngine& engine, int channel)
 {
-    if (SequencerEngine::isSynth (channel))
+    if (engine.isSynth (channel))
     {
         if (auto* bf = dynamic_cast<BassForgeAudioProcessor*> (engine.getSynth()))
             return bf->getPresets().currentName();
@@ -546,7 +651,15 @@ juce::String ChannelRow::getSoundLabel (SequencerEngine& engine, int channel)
 
     auto& ch = engine.getChannel (channel);
     if (ch.sample.load() != nullptr)
+    {
+        // Libreria: il nome del suono (o la categoria, se il canale si chiama gia' come il suono)
+        if (auto* entry = SampleStore::findLibraryEntry (ch.sampleName); entry != nullptr && SampleStore::isLibrary (ch.sampleName))
+        {
+            const auto soundName = juce::String (juce::CharPointer_UTF8 (entry->name));
+            return soundName == ch.name ? juce::String (juce::CharPointer_UTF8 (entry->category)) : soundName;
+        }
         return juce::String (juce::CharPointer_UTF8 ("\xe2\x99\xaa ")) + SampleStore::displayName (ch.sampleName);
+    }
 
     return SoundLibrary::getKitName (engine.getChannelKit (channel));
 }
@@ -585,7 +698,7 @@ void ChannelRow::paintNotesPreview (juce::Graphics& g, bool muted)
 
     auto inner = area.reduced (2.0f, 4.0f);
     const float rowH = inner.getHeight() / (float) (hi - lo + 1);
-    const auto noteColour = colour.interpolatedWith (Theme::stepOn, 0.35f).withMultipliedAlpha (muted ? 0.4f : 1.0f);
+    const auto noteColour = getColour().interpolatedWith (Theme::stepOn, 0.35f).withMultipliedAlpha (muted ? 0.4f : 1.0f);
 
     for (auto& n : notes)
     {

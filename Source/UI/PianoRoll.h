@@ -59,7 +59,7 @@ public:
         auto notes = engine.getNotes (channel);
         if (notes.empty())
         {
-            scrollToPitch ((float) (SequencerEngine::isSynth (channel) ? SequencerEngine::synthStepNote : SequencerEngine::rootNote));
+            scrollToPitch ((float) engine.getChannelRootNote (channel));
             return;
         }
 
@@ -122,7 +122,7 @@ public:
         }
 
         // Note
-        const auto colour = juce::Colour (SequencerEngine::getChannelInfo (channel).colour);
+        const auto colour = juce::Colour (engine.getChannel (channel).colour.load());
         for (auto& n : engine.getNotes (channel))
         {
             auto r = noteBounds (n);
@@ -172,7 +172,7 @@ public:
             // Tastiera: tocca per sentire, trascina per scorrere
             dragMode = DragMode::scrollKeyboard;
             const int pitch = (int) pitchAtY (e.position.y);
-            engine.previewChannel (channel, (float) (pitch - SequencerEngine::rootNote));
+            engine.previewChannel (channel, pitch);
             return;
         }
 
@@ -221,7 +221,7 @@ public:
                 n.pitch = juce::jlimit (lowestNote, highestNote, originalNote.pitch - (int) std::round (delta.y / rowHeight));
 
                 if (n.pitch != dragNote.pitch)
-                    engine.previewChannel (channel, (float) (n.pitch - SequencerEngine::rootNote));
+                    engine.previewChannel (channel, n.pitch);
 
                 replaceDraggedNote (n);
                 break;
@@ -275,7 +275,7 @@ public:
                 {
                     notes.push_back (n);
                     engine.setNotes (channel, notes);
-                    engine.previewChannel (channel, (float) (n.pitch - SequencerEngine::rootNote));
+                    engine.previewChannel (channel, n.pitch);
                 }
             }
         }
@@ -365,7 +365,7 @@ private:
                 g.drawText ("C" + juce::String (pitch / 12 - 1), key.reduced (3.0f, 0.0f), juce::Justification::centredRight, false);
             }
 
-            if (pitch == SequencerEngine::rootNote)
+            if (pitch == engine.getChannelRootNote (channel))
             {
                 g.setColour (Theme::accent);
                 g.fillRect (key.removeFromRight (3.0f));
@@ -424,7 +424,7 @@ public:
     {
         channel = c;
         grid.setChannel (c);
-        channelButton.setButtonText (juce::String (SequencerEngine::getChannelInfo (c).name)
+        channelButton.setButtonText (engine.getChannel (c).name
                                      + juce::String (juce::CharPointer_UTF8 ("  \xe2\x96\xbe")));
         grid.centreOnContent();
         repaint();
@@ -438,7 +438,7 @@ public:
         g.setColour (Theme::panel);
         g.fillRoundedRectangle (getLocalBounds().toFloat(), Theme::corner);
 
-        g.setColour (juce::Colour (SequencerEngine::getChannelInfo (channel).colour));
+        g.setColour (juce::Colour (engine.getChannel (channel).colour.load()));
         g.fillRect (colourMark);
 
         Theme::drawCaption (g, "Griglia", snapCaption, juce::Justification::centredRight);
@@ -475,8 +475,8 @@ private:
     void showChannelMenu()
     {
         juce::PopupMenu menu;
-        for (int c = 0; c < SequencerEngine::numChannels; ++c)
-            menu.addItem (c + 1, SequencerEngine::getChannelInfo (c).name, true, c == channel);
+        for (int c = 0; c < engine.getNumChannels(); ++c)
+            menu.addItem (c + 1, engine.getChannel (c).name, true, c == channel);
 
         juce::Component::SafePointer<PianoRoll> safeThis (this);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&channelButton), [safeThis] (int result)

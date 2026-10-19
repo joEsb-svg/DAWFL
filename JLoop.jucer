@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <JUCERPROJECT name="JLoop" projectType="guiapp" bundleIdentifier="com.joesb.dawfl"
-              version="0.14.0" companyName="joEsb" id="DwFl01" useAppConfig="0"
+              version="0.15.0" companyName="joEsb" id="DwFl01" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" cppLanguageStandard="20" defines="JucePlugin_Name=&quot;BassForge&quot;&#10;JUCE_STRICT_REFCOUNTEDPOINTER=1"
               jucerFormatVersion="1">
   <MAINGROUP id="Mg0001" name="JLoop">
@@ -13,6 +13,8 @@
         <FILE id="Fi0011" name="SoundLibrary.h" compile="0" resource="0" file="Source/Engine/SoundLibrary.h"/>
         <FILE id="Fi0015" name="SampleStore.h" compile="0" resource="0" file="Source/Engine/SampleStore.h"/>
         <FILE id="Fi0012" name="ProjectIO.h" compile="0" resource="0" file="Source/Engine/ProjectIO.h"/>
+        <FILE id="SmPl01" name="Sampler.h" compile="0" resource="0" file="Source/Engine/Sampler.h"/>
+        <FILE id="LbIx01" name="LibraryIndex.h" compile="0" resource="0" file="Source/Engine/LibraryIndex.h"/>
       </GROUP>
       <GROUP id="{1A2B3C4D-0000-0000-0000-000000000003}" name="UI">
         <FILE id="Fi0014" name="Haptics.h" compile="0" resource="0" file="Source/UI/Haptics.h"/>
@@ -22,6 +24,7 @@
         <FILE id="Fi0008" name="Widgets.h" compile="0" resource="0" file="Source/UI/Widgets.h"/>
         <FILE id="Fi0017" name="SynthPanel.h" compile="0" resource="0" file="Source/UI/SynthPanel.h"/>
         <FILE id="SpLsh2" name="JLoopSplash.h" compile="0" resource="0" file="Source/UI/JLoopSplash.h"/>
+        <FILE id="SnBr01" name="SoundBrowser.h" compile="0" resource="0" file="Source/UI/SoundBrowser.h"/>
         <FILE id="Fi0016" name="PianoRoll.h" compile="0" resource="0" file="Source/UI/PianoRoll.h"/>
         <FILE id="Fi0013" name="ChannelEditor.h" compile="0" resource="0" file="Source/UI/ChannelEditor.h"/>
         <FILE id="Fi0009" name="ChannelRow.h" compile="0" resource="0" file="Source/UI/ChannelRow.h"/>
@@ -33,6 +36,170 @@
       <FILE id="Fi0005" name="Main.cpp" compile="1" resource="0" file="Source/Main.cpp"/>
     </GROUP>
     <GROUP id="{1A2B3C4D-0000-0000-0000-000000000004}" name="Resources">
+      <GROUP id="{LIBRARY-0000-0000-0000-000000000001}" name="Library">
+        <FILE id="Lb0000" name="piano.ogg" compile="0" resource="1" file="Resources/Library/piano.ogg"/>
+        <FILE id="Lb0001" name="piano_bright.ogg" compile="0" resource="1" file="Resources/Library/piano_bright.ogg"/>
+        <FILE id="Lb0002" name="epiano.ogg" compile="0" resource="1" file="Resources/Library/epiano.ogg"/>
+        <FILE id="Lb0003" name="organ.ogg" compile="0" resource="1" file="Resources/Library/organ.ogg"/>
+        <FILE id="Lb0004" name="church_organ.ogg" compile="0" resource="1" file="Resources/Library/church_organ.ogg"/>
+        <FILE id="Lb0005" name="harpsichord.ogg" compile="0" resource="1" file="Resources/Library/harpsichord.ogg"/>
+        <FILE id="Lb0006" name="music_box.ogg" compile="0" resource="1" file="Resources/Library/music_box.ogg"/>
+        <FILE id="Lb0007" name="clavinet.ogg" compile="0" resource="1" file="Resources/Library/clavinet.ogg"/>
+        <FILE id="Lb0008" name="guitar_acoustic.ogg" compile="0" resource="1" file="Resources/Library/guitar_acoustic.ogg"/>
+        <FILE id="Lb0009" name="guitar_nylon.ogg" compile="0" resource="1" file="Resources/Library/guitar_nylon.ogg"/>
+        <FILE id="Lb0010" name="guitar_clean.ogg" compile="0" resource="1" file="Resources/Library/guitar_clean.ogg"/>
+        <FILE id="Lb0011" name="guitar_dist.ogg" compile="0" resource="1" file="Resources/Library/guitar_dist.ogg"/>
+        <FILE id="Lb0012" name="guitar_mute.ogg" compile="0" resource="1" file="Resources/Library/guitar_mute.ogg"/>
+        <FILE id="Lb0013" name="harp.ogg" compile="0" resource="1" file="Resources/Library/harp.ogg"/>
+        <FILE id="Lb0014" name="sitar.ogg" compile="0" resource="1" file="Resources/Library/sitar.ogg"/>
+        <FILE id="Lb0015" name="bass_finger.ogg" compile="0" resource="1" file="Resources/Library/bass_finger.ogg"/>
+        <FILE id="Lb0016" name="bass_pick.ogg" compile="0" resource="1" file="Resources/Library/bass_pick.ogg"/>
+        <FILE id="Lb0017" name="bass_slap.ogg" compile="0" resource="1" file="Resources/Library/bass_slap.ogg"/>
+        <FILE id="Lb0018" name="bass_upright.ogg" compile="0" resource="1" file="Resources/Library/bass_upright.ogg"/>
+        <FILE id="Lb0019" name="bass_fretless.ogg" compile="0" resource="1" file="Resources/Library/bass_fretless.ogg"/>
+        <FILE id="Lb0020" name="strings.ogg" compile="0" resource="1" file="Resources/Library/strings.ogg"/>
+        <FILE id="Lb0021" name="strings_fast.ogg" compile="0" resource="1" file="Resources/Library/strings_fast.ogg"/>
+        <FILE id="Lb0022" name="pizzicato.ogg" compile="0" resource="1" file="Resources/Library/pizzicato.ogg"/>
+        <FILE id="Lb0023" name="violin.ogg" compile="0" resource="1" file="Resources/Library/violin.ogg"/>
+        <FILE id="Lb0024" name="cello.ogg" compile="0" resource="1" file="Resources/Library/cello.ogg"/>
+        <FILE id="Lb0025" name="brass.ogg" compile="0" resource="1" file="Resources/Library/brass.ogg"/>
+        <FILE id="Lb0026" name="brass_stab.ogg" compile="0" resource="1" file="Resources/Library/brass_stab.ogg"/>
+        <FILE id="Lb0027" name="trumpet.ogg" compile="0" resource="1" file="Resources/Library/trumpet.ogg"/>
+        <FILE id="Lb0028" name="trombone.ogg" compile="0" resource="1" file="Resources/Library/trombone.ogg"/>
+        <FILE id="Lb0029" name="flute.ogg" compile="0" resource="1" file="Resources/Library/flute.ogg"/>
+        <FILE id="Lb0030" name="pan_flute.ogg" compile="0" resource="1" file="Resources/Library/pan_flute.ogg"/>
+        <FILE id="Lb0031" name="clarinet.ogg" compile="0" resource="1" file="Resources/Library/clarinet.ogg"/>
+        <FILE id="Lb0032" name="sax.ogg" compile="0" resource="1" file="Resources/Library/sax.ogg"/>
+        <FILE id="Lb0033" name="harmonica.ogg" compile="0" resource="1" file="Resources/Library/harmonica.ogg"/>
+        <FILE id="Lb0034" name="choir_aah.ogg" compile="0" resource="1" file="Resources/Library/choir_aah.ogg"/>
+        <FILE id="Lb0035" name="choir_ooh.ogg" compile="0" resource="1" file="Resources/Library/choir_ooh.ogg"/>
+        <FILE id="Lb0036" name="voice_solo.ogg" compile="0" resource="1" file="Resources/Library/voice_solo.ogg"/>
+        <FILE id="Lb0037" name="marimba.ogg" compile="0" resource="1" file="Resources/Library/marimba.ogg"/>
+        <FILE id="Lb0038" name="vibraphone.ogg" compile="0" resource="1" file="Resources/Library/vibraphone.ogg"/>
+        <FILE id="Lb0039" name="xylophone.ogg" compile="0" resource="1" file="Resources/Library/xylophone.ogg"/>
+        <FILE id="Lb0040" name="glockenspiel.ogg" compile="0" resource="1" file="Resources/Library/glockenspiel.ogg"/>
+        <FILE id="Lb0041" name="celesta.ogg" compile="0" resource="1" file="Resources/Library/celesta.ogg"/>
+        <FILE id="Lb0042" name="tubular_bells.ogg" compile="0" resource="1" file="Resources/Library/tubular_bells.ogg"/>
+        <FILE id="Lb0043" name="kalimba.ogg" compile="0" resource="1" file="Resources/Library/kalimba.ogg"/>
+        <FILE id="Lb0044" name="steel_drum.ogg" compile="0" resource="1" file="Resources/Library/steel_drum.ogg"/>
+        <FILE id="Lb0045" name="timpani.ogg" compile="0" resource="1" file="Resources/Library/timpani.ogg"/>
+        <FILE id="Lb0046" name="handpan.ogg" compile="0" resource="1" file="Resources/Library/handpan.ogg"/>
+        <FILE id="Lb0047" name="ac_kick.ogg" compile="0" resource="1" file="Resources/Library/ac_kick.ogg"/>
+        <FILE id="Lb0048" name="ac_kick_tight.ogg" compile="0" resource="1" file="Resources/Library/ac_kick_tight.ogg"/>
+        <FILE id="Lb0049" name="ac_snare.ogg" compile="0" resource="1" file="Resources/Library/ac_snare.ogg"/>
+        <FILE id="Lb0050" name="ac_snare_rim.ogg" compile="0" resource="1" file="Resources/Library/ac_snare_rim.ogg"/>
+        <FILE id="Lb0051" name="ac_sidestick.ogg" compile="0" resource="1" file="Resources/Library/ac_sidestick.ogg"/>
+        <FILE id="Lb0052" name="ac_brush.ogg" compile="0" resource="1" file="Resources/Library/ac_brush.ogg"/>
+        <FILE id="Lb0053" name="ac_hat_closed.ogg" compile="0" resource="1" file="Resources/Library/ac_hat_closed.ogg"/>
+        <FILE id="Lb0054" name="ac_hat_open.ogg" compile="0" resource="1" file="Resources/Library/ac_hat_open.ogg"/>
+        <FILE id="Lb0055" name="ac_hat_pedal.ogg" compile="0" resource="1" file="Resources/Library/ac_hat_pedal.ogg"/>
+        <FILE id="Lb0056" name="ac_ride.ogg" compile="0" resource="1" file="Resources/Library/ac_ride.ogg"/>
+        <FILE id="Lb0057" name="ac_ride_bell.ogg" compile="0" resource="1" file="Resources/Library/ac_ride_bell.ogg"/>
+        <FILE id="Lb0058" name="ac_crash.ogg" compile="0" resource="1" file="Resources/Library/ac_crash.ogg"/>
+        <FILE id="Lb0059" name="ac_china.ogg" compile="0" resource="1" file="Resources/Library/ac_china.ogg"/>
+        <FILE id="Lb0060" name="ac_splash.ogg" compile="0" resource="1" file="Resources/Library/ac_splash.ogg"/>
+        <FILE id="Lb0061" name="ac_tom_high.ogg" compile="0" resource="1" file="Resources/Library/ac_tom_high.ogg"/>
+        <FILE id="Lb0062" name="ac_tom_mid.ogg" compile="0" resource="1" file="Resources/Library/ac_tom_mid.ogg"/>
+        <FILE id="Lb0063" name="ac_tom_floor.ogg" compile="0" resource="1" file="Resources/Library/ac_tom_floor.ogg"/>
+        <FILE id="Lb0064" name="shaker.ogg" compile="0" resource="1" file="Resources/Library/shaker.ogg"/>
+        <FILE id="Lb0065" name="tambourine.ogg" compile="0" resource="1" file="Resources/Library/tambourine.ogg"/>
+        <FILE id="Lb0066" name="cowbell.ogg" compile="0" resource="1" file="Resources/Library/cowbell.ogg"/>
+        <FILE id="Lb0067" name="conga_high.ogg" compile="0" resource="1" file="Resources/Library/conga_high.ogg"/>
+        <FILE id="Lb0068" name="conga_low.ogg" compile="0" resource="1" file="Resources/Library/conga_low.ogg"/>
+        <FILE id="Lb0069" name="conga_slap.ogg" compile="0" resource="1" file="Resources/Library/conga_slap.ogg"/>
+        <FILE id="Lb0070" name="bongo.ogg" compile="0" resource="1" file="Resources/Library/bongo.ogg"/>
+        <FILE id="Lb0071" name="djembe.ogg" compile="0" resource="1" file="Resources/Library/djembe.ogg"/>
+        <FILE id="Lb0072" name="claves.ogg" compile="0" resource="1" file="Resources/Library/claves.ogg"/>
+        <FILE id="Lb0073" name="woodblock.ogg" compile="0" resource="1" file="Resources/Library/woodblock.ogg"/>
+        <FILE id="Lb0074" name="triangle.ogg" compile="0" resource="1" file="Resources/Library/triangle.ogg"/>
+        <FILE id="Lb0075" name="guiro.ogg" compile="0" resource="1" file="Resources/Library/guiro.ogg"/>
+        <FILE id="Lb0076" name="cabasa.ogg" compile="0" resource="1" file="Resources/Library/cabasa.ogg"/>
+        <FILE id="Lb0077" name="finger_snap.ogg" compile="0" resource="1" file="Resources/Library/finger_snap.ogg"/>
+        <FILE id="Lb0078" name="hand_clap.ogg" compile="0" resource="1" file="Resources/Library/hand_clap.ogg"/>
+        <FILE id="Lb0079" name="edm_kick.ogg" compile="0" resource="1" file="Resources/Library/edm_kick.ogg"/>
+        <FILE id="Lb0080" name="edm_clap.ogg" compile="0" resource="1" file="Resources/Library/edm_clap.ogg"/>
+        <FILE id="Lb0081" name="edm_snare.ogg" compile="0" resource="1" file="Resources/Library/edm_snare.ogg"/>
+        <FILE id="Lb0082" name="edm_hat.ogg" compile="0" resource="1" file="Resources/Library/edm_hat.ogg"/>
+        <FILE id="Lb0083" name="edm_supersaw.ogg" compile="0" resource="1" file="Resources/Library/edm_supersaw.ogg"/>
+        <FILE id="Lb0084" name="edm_chord.ogg" compile="0" resource="1" file="Resources/Library/edm_chord.ogg"/>
+        <FILE id="Lb0085" name="edm_pluck.ogg" compile="0" resource="1" file="Resources/Library/edm_pluck.ogg"/>
+        <FILE id="Lb0086" name="edm_riser.ogg" compile="0" resource="1" file="Resources/Library/edm_riser.ogg"/>
+        <FILE id="Lb0087" name="edm_impact.ogg" compile="0" resource="1" file="Resources/Library/edm_impact.ogg"/>
+        <FILE id="Lb0088" name="edm_vox.ogg" compile="0" resource="1" file="Resources/Library/edm_vox.ogg"/>
+        <FILE id="Lb0089" name="house_kick.ogg" compile="0" resource="1" file="Resources/Library/house_kick.ogg"/>
+        <FILE id="Lb0090" name="house_clap.ogg" compile="0" resource="1" file="Resources/Library/house_clap.ogg"/>
+        <FILE id="Lb0091" name="house_hat_open.ogg" compile="0" resource="1" file="Resources/Library/house_hat_open.ogg"/>
+        <FILE id="Lb0092" name="house_shaker.ogg" compile="0" resource="1" file="Resources/Library/house_shaker.ogg"/>
+        <FILE id="Lb0093" name="house_organ.ogg" compile="0" resource="1" file="Resources/Library/house_organ.ogg"/>
+        <FILE id="Lb0094" name="house_piano.ogg" compile="0" resource="1" file="Resources/Library/house_piano.ogg"/>
+        <FILE id="Lb0095" name="house_bass.ogg" compile="0" resource="1" file="Resources/Library/house_bass.ogg"/>
+        <FILE id="Lb0096" name="house_stab.ogg" compile="0" resource="1" file="Resources/Library/house_stab.ogg"/>
+        <FILE id="Lb0097" name="house_rim.ogg" compile="0" resource="1" file="Resources/Library/house_rim.ogg"/>
+        <FILE id="Lb0098" name="techno_kick.ogg" compile="0" resource="1" file="Resources/Library/techno_kick.ogg"/>
+        <FILE id="Lb0099" name="techno_rumble.ogg" compile="0" resource="1" file="Resources/Library/techno_rumble.ogg"/>
+        <FILE id="Lb0100" name="techno_hat.ogg" compile="0" resource="1" file="Resources/Library/techno_hat.ogg"/>
+        <FILE id="Lb0101" name="techno_ride.ogg" compile="0" resource="1" file="Resources/Library/techno_ride.ogg"/>
+        <FILE id="Lb0102" name="techno_clap.ogg" compile="0" resource="1" file="Resources/Library/techno_clap.ogg"/>
+        <FILE id="Lb0103" name="techno_acid.ogg" compile="0" resource="1" file="Resources/Library/techno_acid.ogg"/>
+        <FILE id="Lb0104" name="techno_acid_sq.ogg" compile="0" resource="1" file="Resources/Library/techno_acid_sq.ogg"/>
+        <FILE id="Lb0105" name="techno_dubstab.ogg" compile="0" resource="1" file="Resources/Library/techno_dubstab.ogg"/>
+        <FILE id="Lb0106" name="techno_perc.ogg" compile="0" resource="1" file="Resources/Library/techno_perc.ogg"/>
+        <FILE id="Lb0107" name="techno_noise.ogg" compile="0" resource="1" file="Resources/Library/techno_noise.ogg"/>
+        <FILE id="Lb0108" name="electro_kick.ogg" compile="0" resource="1" file="Resources/Library/electro_kick.ogg"/>
+        <FILE id="Lb0109" name="electro_snare.ogg" compile="0" resource="1" file="Resources/Library/electro_snare.ogg"/>
+        <FILE id="Lb0110" name="electro_clap.ogg" compile="0" resource="1" file="Resources/Library/electro_clap.ogg"/>
+        <FILE id="Lb0111" name="electro_hat.ogg" compile="0" resource="1" file="Resources/Library/electro_hat.ogg"/>
+        <FILE id="Lb0112" name="electro_cowbell.ogg" compile="0" resource="1" file="Resources/Library/electro_cowbell.ogg"/>
+        <FILE id="Lb0113" name="electro_bass.ogg" compile="0" resource="1" file="Resources/Library/electro_bass.ogg"/>
+        <FILE id="Lb0114" name="electro_zap.ogg" compile="0" resource="1" file="Resources/Library/electro_zap.ogg"/>
+        <FILE id="Lb0115" name="electro_lead.ogg" compile="0" resource="1" file="Resources/Library/electro_lead.ogg"/>
+        <FILE id="Lb0116" name="dnb_kick.ogg" compile="0" resource="1" file="Resources/Library/dnb_kick.ogg"/>
+        <FILE id="Lb0117" name="dnb_snare.ogg" compile="0" resource="1" file="Resources/Library/dnb_snare.ogg"/>
+        <FILE id="Lb0118" name="dnb_hat.ogg" compile="0" resource="1" file="Resources/Library/dnb_hat.ogg"/>
+        <FILE id="Lb0119" name="dnb_ride.ogg" compile="0" resource="1" file="Resources/Library/dnb_ride.ogg"/>
+        <FILE id="Lb0120" name="dnb_reese.ogg" compile="0" resource="1" file="Resources/Library/dnb_reese.ogg"/>
+        <FILE id="Lb0121" name="dnb_sub.ogg" compile="0" resource="1" file="Resources/Library/dnb_sub.ogg"/>
+        <FILE id="Lb0122" name="dnb_neuro.ogg" compile="0" resource="1" file="Resources/Library/dnb_neuro.ogg"/>
+        <FILE id="Lb0123" name="dnb_pad.ogg" compile="0" resource="1" file="Resources/Library/dnb_pad.ogg"/>
+        <FILE id="Lb0124" name="dub_kick.ogg" compile="0" resource="1" file="Resources/Library/dub_kick.ogg"/>
+        <FILE id="Lb0125" name="dub_snare.ogg" compile="0" resource="1" file="Resources/Library/dub_snare.ogg"/>
+        <FILE id="Lb0126" name="dub_wobble.ogg" compile="0" resource="1" file="Resources/Library/dub_wobble.ogg"/>
+        <FILE id="Lb0127" name="dub_growl.ogg" compile="0" resource="1" file="Resources/Library/dub_growl.ogg"/>
+        <FILE id="Lb0128" name="dub_sub.ogg" compile="0" resource="1" file="Resources/Library/dub_sub.ogg"/>
+        <FILE id="Lb0129" name="dub_laser.ogg" compile="0" resource="1" file="Resources/Library/dub_laser.ogg"/>
+        <FILE id="Lb0130" name="dub_riser.ogg" compile="0" resource="1" file="Resources/Library/dub_riser.ogg"/>
+        <FILE id="Lb0131" name="dub_impact.ogg" compile="0" resource="1" file="Resources/Library/dub_impact.ogg"/>
+        <FILE id="Lb0132" name="trap_808.ogg" compile="0" resource="1" file="Resources/Library/trap_808.ogg"/>
+        <FILE id="Lb0133" name="trap_kick.ogg" compile="0" resource="1" file="Resources/Library/trap_kick.ogg"/>
+        <FILE id="Lb0134" name="trap_snare.ogg" compile="0" resource="1" file="Resources/Library/trap_snare.ogg"/>
+        <FILE id="Lb0135" name="trap_clap.ogg" compile="0" resource="1" file="Resources/Library/trap_clap.ogg"/>
+        <FILE id="Lb0136" name="trap_hat.ogg" compile="0" resource="1" file="Resources/Library/trap_hat.ogg"/>
+        <FILE id="Lb0137" name="trap_hat_open.ogg" compile="0" resource="1" file="Resources/Library/trap_hat_open.ogg"/>
+        <FILE id="Lb0138" name="trap_rim.ogg" compile="0" resource="1" file="Resources/Library/trap_rim.ogg"/>
+        <FILE id="Lb0139" name="trap_bell.ogg" compile="0" resource="1" file="Resources/Library/trap_bell.ogg"/>
+        <FILE id="Lb0140" name="trap_flute.ogg" compile="0" resource="1" file="Resources/Library/trap_flute.ogg"/>
+        <FILE id="Lb0141" name="syn_pad_warm.ogg" compile="0" resource="1" file="Resources/Library/syn_pad_warm.ogg"/>
+        <FILE id="Lb0142" name="syn_pad_glass.ogg" compile="0" resource="1" file="Resources/Library/syn_pad_glass.ogg"/>
+        <FILE id="Lb0143" name="syn_pad_dark.ogg" compile="0" resource="1" file="Resources/Library/syn_pad_dark.ogg"/>
+        <FILE id="Lb0144" name="syn_lead_saw.ogg" compile="0" resource="1" file="Resources/Library/syn_lead_saw.ogg"/>
+        <FILE id="Lb0145" name="syn_lead_soft.ogg" compile="0" resource="1" file="Resources/Library/syn_lead_soft.ogg"/>
+        <FILE id="Lb0146" name="syn_pluck.ogg" compile="0" resource="1" file="Resources/Library/syn_pluck.ogg"/>
+        <FILE id="Lb0147" name="syn_arp.ogg" compile="0" resource="1" file="Resources/Library/syn_arp.ogg"/>
+        <FILE id="Lb0148" name="syn_bell.ogg" compile="0" resource="1" file="Resources/Library/syn_bell.ogg"/>
+        <FILE id="Lb0149" name="syn_sub.ogg" compile="0" resource="1" file="Resources/Library/syn_sub.ogg"/>
+        <FILE id="Lb0150" name="syn_bass_moog.ogg" compile="0" resource="1" file="Resources/Library/syn_bass_moog.ogg"/>
+        <FILE id="Lb0151" name="syn_rave_stab.ogg" compile="0" resource="1" file="Resources/Library/syn_rave_stab.ogg"/>
+        <FILE id="Lb0152" name="syn_hoover.ogg" compile="0" resource="1" file="Resources/Library/syn_hoover.ogg"/>
+        <FILE id="Lb0153" name="fx_riser_noise.ogg" compile="0" resource="1" file="Resources/Library/fx_riser_noise.ogg"/>
+        <FILE id="Lb0154" name="fx_downlifter.ogg" compile="0" resource="1" file="Resources/Library/fx_downlifter.ogg"/>
+        <FILE id="Lb0155" name="fx_uplifter.ogg" compile="0" resource="1" file="Resources/Library/fx_uplifter.ogg"/>
+        <FILE id="Lb0156" name="fx_reverse_cymbal.ogg" compile="0" resource="1" file="Resources/Library/fx_reverse_cymbal.ogg"/>
+        <FILE id="Lb0157" name="fx_impact.ogg" compile="0" resource="1" file="Resources/Library/fx_impact.ogg"/>
+        <FILE id="Lb0158" name="fx_sweep.ogg" compile="0" resource="1" file="Resources/Library/fx_sweep.ogg"/>
+        <FILE id="Lb0159" name="fx_zap.ogg" compile="0" resource="1" file="Resources/Library/fx_zap.ogg"/>
+        <FILE id="Lb0160" name="fx_vinyl.ogg" compile="0" resource="1" file="Resources/Library/fx_vinyl.ogg"/>
+        <FILE id="Lb0161" name="fx_tape_stop.ogg" compile="0" resource="1" file="Resources/Library/fx_tape_stop.ogg"/>
+      </GROUP>
       <FILE id="IcOn01" name="icon.png" compile="0" resource="0" file="Resources/icon.png"/>
       <FILE id="SpLsh1" name="splash_logo.png" compile="0" resource="1" file="Resources/splash_logo.png"/>
     </GROUP>
@@ -150,7 +317,7 @@
   </MAINGROUP>
   <EXPORTFORMATS>
     <ANDROIDSTUDIO targetFolder="Builds/Android" smallIcon="IcOn01" bigIcon="IcOn01"
-                   androidVersionCode="14" androidMinimumSDK="24" androidScreenOrientation="landscape"
+                   androidVersionCode="15" androidMinimumSDK="24" androidScreenOrientation="landscape"
                    androidInternetNeeded="0" androidExternalWriteNeeded="0" androidPushNotifications="0"
                    androidReadMediaAudioPermission="0" androidReadMediaImagesPermission="0"
                    androidReadMediaVideoPermission="0">

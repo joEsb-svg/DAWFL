@@ -28,21 +28,22 @@ MainComponent::MainComponent()
 
     synthPanel = std::make_unique<SynthPanel> (*bassForge);
     synthPanel->onClose   = [this] { synthPanel->closeAll(); synthPanel->setVisible (false); };
-    synthPanel->onPreview = [this] { engine.previewChannel (SequencerEngine::synthChannel); };
+    synthPanel->onPreview = [this] { engine.previewChannel (engine.getSynthChannel()); };
     synthPanel->onOpenMix = [this]
     {
         synthPanel->closeAll();
         synthPanel->setVisible (false);
-        openEditor (SequencerEngine::synthChannel);
+        if (const int sc = engine.getSynthChannel(); sc >= 0)
+            openEditor (sc);
     };
     synthPanel->onShowPresets = [this] (juce::Component& target)
     {
-        auto menu = buildSoundMenu (SequencerEngine::synthChannel);
+        auto menu = buildSoundMenu (engine.getSynthChannel());
         juce::Component::SafePointer<MainComponent> safeThis (this);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&target), [safeThis] (int result)
         {
             if (safeThis != nullptr && result > 0)
-                safeThis->handleSoundMenu (SequencerEngine::synthChannel, result);
+                safeThis->handleSoundMenu (safeThis->engine.getSynthChannel(), result);
         });
     };
     addChildComponent (*synthPanel);
@@ -116,22 +117,24 @@ MainComponent::MainComponent()
 
     addAndMakeVisible (meter);
 
-    // --- Channel rack
-    for (int c = 0; c < SequencerEngine::numChannels; ++c)
-    {
-        auto* row = rows.add (new ChannelRow (engine, c));
-        row->onOpenEditor = [this] (int ch)
-        {
-            Haptics::tick (this);
-            if (SequencerEngine::isSynth (ch)) openSynthPanel(); else openEditor (ch);
-        };
-        row->onTap = [this] { Haptics::tick (this); };
-        row->onOpenPianoRoll = [this] (int ch) { Haptics::tick (this); openPianoRoll (ch); };
-        row->buildSoundMenu  = [this] (int ch) { return buildSoundMenu (ch); };
-        row->handleSoundMenu = [this] (int ch, int result) { handleSoundMenu (ch, result); };
-        addAndMakeVisible (row);
-    }
+    // --- Channel rack (le righe si creano in rebuildRows, ogni volta che cambiano i canali)
+    rackView.setViewedComponent (&rackContent, false);
+    rackView.setScrollOnDragMode (juce::Viewport::ScrollOnDragMode::never);   // il dito serve agli step
+    rackView.setScrollBarsShown (true, false);
+    rackView.setScrollBarThickness (6);
+    addAndMakeVisible (rackView);
 
+    addButton.setButtonText ("+ Strumento");
+    addButton.setTooltip ("Aggiungi uno strumento al channel rack");
+    addButton.onClick = [this] { Haptics::tick (this); openBrowser (-1); };
+    addAndMakeVisible (addButton);
+
+    browser.onClose  = [this] { browser.setVisible (false); };
+    browser.onTap    = [this] { Haptics::tick (this); };
+    browser.onChoose = [this] (int channel, const SoundChoice& choice) { applySoundChoice (channel, choice); };
+    addChildComponent (browser);
+
+    editor.onChangeSound = [this] (int ch) { openBrowser (ch); };
     editor.onClose = [this] { editor.setVisible (false); };
     pianoRoll.onClose = [this] { pianoRoll.setVisible (false); };
     pianoRoll.getGrid().onEdit = [this] { Haptics::tick (this); };
@@ -142,8 +145,8 @@ MainComponent::MainComponent()
 
     ruler.getColumnBounds = [this] (int i)
     {
-        auto* row = rows.getFirst();
-        return row->getPadBounds (i).translated ((float) (row->getX() - ruler.getX()), 0.0f);
+        // Il righello e' allineato al contenuto del rack (le righe partono da x = 0)
+        return rows.isEmpty() ? juce::Rectangle<float>() : rows.getFirst()->getPadBounds (i);
     };
     addAndMakeVisible (ruler);
 
@@ -155,6 +158,7 @@ MainComponent::MainComponent()
         projectName = json.getProperty ("projectName", untitled).toString();
     }
     resolveSamples();
+    rebuildRows();
     syncControlsFromEngine();
     lastSnapshot = takeSnapshot();
 
@@ -366,35 +370,46 @@ void MainComponent::layoutRack (juce::Rectangle<int> full, bool portrait)
     if (portrait)
     {
         metroButton.setBounds (bar.removeFromLeft (34));
+        bar.removeFromLeft (6);
+        addButton.setButtonText ("+");
+        addButton.setBounds (bar.removeFromLeft (juce::jmax (40, bar.getWidth())).reduced (0, 1));
         rack.removeFromTop (4);
         pageSwitch.setBounds (rack.removeFromTop (24).reduced (0, 1));
     }
     else
     {
+        addButton.setButtonText ("+ Strumento");
+        addButton.setBounds (bar.removeFromRight (juce::jmin (120, bar.getWidth() / 3)).reduced (0, 1));
         pageSwitch.setBounds (bar.removeFromLeft (100 + (getVisibleSteps() < 16 ? 100 : 0)).reduced (0, 1));
         bar.removeFromLeft (8);
         metroButton.setBounds (bar.removeFromLeft (34));
     }
 
-    // Righello allineato agli step, poi le righe
+    // Righello allineato agli step, poi le righe (in un'area che scorre se non stanno tutte)
     auto rulerArea = rack.removeFromTop (16);
     rack.removeFromTop (2);
+    rackView.setBounds (rack);
 
+    const int n = juce::jmax (1, rows.size());
     const int gap = 4;
-    const int rowH = juce::jmin (portrait ? 84 : 90,
-                                 (rack.getHeight() - gap * (SequencerEngine::numChannels - 1)) / SequencerEngine::numChannels);
-    auto rowsArea = rack;
+    const int minH = portrait ? 56 : 34, maxH = portrait ? 84 : 90;
+    const int rowH = juce::jlimit (minH, maxH, (rack.getHeight() - gap * (n - 1)) / n);
+    const int contentH = n * (rowH + gap) - gap;
+    const int w = rack.getWidth() - (contentH > rack.getHeight() ? 9 : 0);   // spazio per la barra di scorrimento
 
+    rackContent.setSize (w, contentH);
+    int y = 0;
     for (auto* row : rows)
     {
         row->setLayout (portrait ? 8 : 16, portrait);
-        row->setBounds (rack.removeFromTop (rowH));
-        rack.removeFromTop (gap);
+        row->setBounds (0, y, w, rowH);
+        y += rowH + gap;
     }
 
-    ruler.setBounds (rows.getFirst()->getX(), rulerArea.getY(), rows.getFirst()->getWidth(), rulerArea.getHeight());
-    editor.setBounds (rowsArea.withTop (rulerArea.getY()).expanded (2, 2));
+    ruler.setBounds (rack.getX(), rulerArea.getY(), w, rulerArea.getHeight());
+    editor.setBounds (rack.withTop (rulerArea.getY()).expanded (2, 2));
     pianoRoll.setBounds (full);   // il piano roll copre tutto il channel rack, barra compresa
+    browser.setBounds (full);
     if (synthPanel != nullptr)
         synthPanel->setBounds (getContentArea());   // BassForge usa tutto lo schermo
 }
@@ -453,18 +468,28 @@ void MainComponent::syncControlsFromEngine()
 
 juce::String MainComponent::getKitLabel() const
 {
-    // Se tutti gli strumenti usano lo stesso kit ne mostra il nome, altrimenti "Misto".
-    const int first = engine.getChannelKit (0);
-    for (int c = 1; c < SequencerEngine::numDrumChannels; ++c)
-        if (engine.getChannelKit (c) != first)
+    // Se tutta la batteria sintetizzata usa lo stesso kit ne mostra il nome, altrimenti "Misto".
+    int first = -1;
+    for (int c = 0; c < engine.getNumChannels(); ++c)
+    {
+        if (! engine.isDrumSynthChannel (c))
+            continue;
+        if (first < 0)
+            first = engine.getChannelKit (c);
+        else if (engine.getChannelKit (c) != first)
             return "Misto";
+    }
 
-    return SoundLibrary::getKitName (first);
+    return first < 0 ? juce::String ("Kit") : juce::String (SoundLibrary::getKitName (first));
 }
 
 //==============================================================================
 void MainComponent::timerCallback()
 {
+    // Canali aggiunti, tolti o spostati (anche da undo e caricamento): ricrea le righe
+    if (engine.getStructureVersion() != shownStructure)
+        rebuildRows();
+
     const int step = engine.getCurrentStep();
     const int firstStep = getFirstVisibleStep();
     const int visible = getVisibleSteps();
@@ -749,8 +774,10 @@ void MainComponent::showKitMenu()
                             if (safeThis == nullptr || result <= 0)
                                 return;
 
-                            safeThis->engine.setAllKits (result - 1);
-                            safeThis->engine.previewChannel (0);
+                            auto& e = safeThis->engine;
+                            e.setAllKits (result - 1);
+                            for (int c = 0; c < e.getNumChannels(); ++c)
+                                if (e.isDrumSynthChannel (c)) { e.previewChannel (c); break; }
                             safeThis->kitButton.setButtonText (safeThis->getKitLabel());
                         });
 }
@@ -905,7 +932,7 @@ void MainComponent::handleCommandLine (const juce::String& commandLine)
     }
 
     if (const int i = args.indexOf ("--editor"); i >= 0)
-        openEditor (juce::jlimit (0, SequencerEngine::numChannels - 1, args[i + 1].getIntValue()));
+        openEditor (juce::jlimit (0, engine.getNumChannels() - 1, args[i + 1].getIntValue()));
 
     if (args.contains ("--synth"))
         openSynthPanel();
@@ -926,7 +953,39 @@ void MainComponent::handleCommandLine (const juce::String& commandLine)
     }
 
     if (const int i = args.indexOf ("--roll"); i >= 0)
-        openPianoRoll (juce::jlimit (0, SequencerEngine::numChannels - 1, args[i + 1].getIntValue()));
+        openPianoRoll (juce::jlimit (0, engine.getNumChannels() - 1, args[i + 1].getIntValue()));
+
+    // test: aggiunge canali con suoni della libreria ("--add piano,strings")
+    if (const int i = args.indexOf ("--add"); i >= 0)
+    {
+        for (auto& id : juce::StringArray::fromTokens (args[i + 1], ",", {}))
+        {
+            SoundChoice c;
+            c.kind = SoundChoice::library;
+            c.id = id;
+            if (auto* entry = SampleStore::findLibraryEntry (id))
+            {
+                c.name = juce::String (juce::CharPointer_UTF8 (entry->name));
+                c.colour = entry->colour;
+                applySoundChoice (-1, c);
+            }
+        }
+        rebuildRows();
+    }
+
+    if (const int i = args.indexOf ("--browser"); i >= 0)       // test: browser dei suoni (canale, scheda, categoria)
+    {
+        openBrowser (args[i + 1].getIntValue());
+        if (args.size() > i + 3)
+            browser.showTabForTest (args[i + 2].getIntValue(), args[i + 3].getIntValue());
+    }
+
+    if (const int i = args.indexOf ("--rowmenu"); i >= 0)       // test: menu del canale
+        if (auto* row = rows[args[i + 1].getIntValue()])
+            row->showRowMenu();
+
+    if (const int i = args.indexOf ("--scroll"); i >= 0)
+        rackView.setViewPosition (0, args[i + 1].getIntValue());
 
     if (const int i = args.indexOf ("--mode"); i >= 0)
     {
@@ -987,90 +1046,43 @@ juce::PopupMenu MainComponent::createSettingsMenu()
 //==============================================================================
 // Libreria suoni e campioni
 
-juce::PopupMenu MainComponent::buildSoundMenu (int channel)
+juce::PopupMenu MainComponent::buildSoundMenu (int)
 {
-    if (SequencerEngine::isSynth (channel))
-    {
-        juce::PopupMenu menu;
-        menu.addItem (650, "Apri BassForge...");
-        menu.addSectionHeader ("Preset di fabbrica");
-        const auto current = bassForge->getPresets().currentName();
-        for (int i = 0; i < bf::PresetManager::numFactory(); ++i)
-            menu.addItem (600 + i, bf::PresetManager::factoryName (i), true, bf::PresetManager::factoryName (i) == current);
-
-        const auto user = bassForge->getPresets().userPresets();
-        if (! user.isEmpty())
-        {
-            menu.addSectionHeader ("Preset utente");
-            for (int i = 0; i < juce::jmin (user.size(), 200); ++i)
-                menu.addItem (700 + i, user[i].getFileNameWithoutExtension(), true, user[i].getFileNameWithoutExtension() == current);
-        }
-        return menu;
-    }
-
-    auto& ch = engine.getChannel (channel);
-    const bool usingSample = ch.sample.load() != nullptr;
-    const int kit = engine.getChannelKit (channel);
-
+    // Preset di BassForge (gli altri canali scelgono il suono dal browser)
     juce::PopupMenu menu;
-    menu.addSectionHeader ("Sintesi");
-    for (int k = 0; k < SoundLibrary::numKits; ++k)
-        menu.addItem (100 + k, SoundLibrary::getKitName (k), true, ! usingSample && k == kit);
+    menu.addItem (650, "Apri BassForge...");
+    menu.addSectionHeader ("Preset di fabbrica");
+    const auto current = bassForge->getPresets().currentName();
+    for (int i = 0; i < bf::PresetManager::numFactory(); ++i)
+        menu.addItem (600 + i, bf::PresetManager::factoryName (i), true, bf::PresetManager::factoryName (i) == current);
 
-    menu.addSectionHeader ("Campioni personali");
-    menu.addItem (300, "Importa campione (WAV, AIFF, FLAC, OGG, MP3)...");
-
-    const auto samples = sampleStore.listSamples();
-    for (int i = 0; i < juce::jmin (samples.size(), 500); ++i)
-        menu.addItem (400 + i, SampleStore::displayName (samples[i]), true, usingSample && samples[i] == ch.sampleName);
-
+    const auto user = bassForge->getPresets().userPresets();
+    if (! user.isEmpty())
+    {
+        menu.addSectionHeader ("Preset utente");
+        for (int i = 0; i < juce::jmin (user.size(), 200); ++i)
+            menu.addItem (700 + i, user[i].getFileNameWithoutExtension(), true, user[i].getFileNameWithoutExtension() == current);
+    }
     return menu;
 }
 
 void MainComponent::handleSoundMenu (int channel, int result)
 {
-    if (SequencerEngine::isSynth (channel))
+    if (result == 650)
+        openSynthPanel();
+    else if (result >= 600 && result < 600 + bf::PresetManager::numFactory())
+        bassForge->getPresets().loadFactory (result - 600);
+    else if (result >= 700)
     {
-        if (result == 650)
-            openSynthPanel();
-        else if (result >= 600 && result < 600 + bf::PresetManager::numFactory())
-            bassForge->getPresets().loadFactory (result - 600);
-        else if (result >= 700)
-        {
-            const auto user = bassForge->getPresets().userPresets();
-            if (result - 700 < user.size())
-                bassForge->getPresets().load (user[result - 700]);
-        }
-
-        if (result != 650)
-            engine.previewChannel (channel);
-
-        synthPanel->refreshPresetName();
-        if (editor.isVisible())
-            editor.refreshFromEngine();
-        return;
+        const auto user = bassForge->getPresets().userPresets();
+        if (result - 700 < user.size())
+            bassForge->getPresets().load (user[result - 700]);
     }
 
-    auto& ch = engine.getChannel (channel);
-
-    if (result >= 100 && result < 100 + SoundLibrary::numKits)
-    {
-        ch.sample.store (nullptr);
-        ch.sampleName.clear();
-        engine.setChannelKit (channel, result - 100);
+    if (result != 650 && channel >= 0)
         engine.previewChannel (channel);
-    }
-    else if (result == 300)
-    {
-        importSample (channel);
-    }
-    else if (result >= 400)
-    {
-        const auto samples = sampleStore.listSamples();
-        if (result - 400 < samples.size())
-            assignSample (channel, samples[result - 400]);
-    }
 
+    synthPanel->refreshPresetName();
     if (editor.isVisible())
         editor.refreshFromEngine();
 }
@@ -1093,7 +1105,7 @@ void MainComponent::assignSample (int channel, const juce::String& fileName)
     }
 }
 
-void MainComponent::importSample (int channel)
+void MainComponent::importSample (int channel)   // channel = -1: crea un canale nuovo col campione
 {
     chooser = std::make_unique<juce::FileChooser> ("Scegli un campione audio", juce::File(),
                                                    "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3");
@@ -1113,9 +1125,17 @@ void MainComponent::importSample (int channel)
                               const auto name = safeThis->sampleStore.importFromUrl (url, error);
 
                               if (name.isEmpty())
+                              {
                                   safeThis->showMessage ("Campione", error);
-                              else
-                                  safeThis->assignSample (channel, name);
+                                  return;
+                              }
+
+                              SoundChoice c;
+                              c.kind = SoundChoice::userSample;
+                              c.id = name;
+                              c.name = SampleStore::displayName (name);
+                              c.colour = 0xffc49360;
+                              safeThis->applySoundChoice (channel, c);
                           });
 }
 
@@ -1124,10 +1144,10 @@ void MainComponent::resolveSamples()
     // Dopo un caricamento i nomi dei campioni ci sono, i puntatori no: li ricolleghiamo
     juce::StringArray missing;
 
-    for (int c = 0; c < SequencerEngine::numDrumChannels; ++c)
+    for (int c = 0; c < engine.getNumChannels(); ++c)
     {
         auto& ch = engine.getChannel (c);
-        if (ch.sampleName.isEmpty())
+        if (ch.sampleName.isEmpty() || engine.isSynth (c))
         {
             ch.sample.store (nullptr);
             continue;
@@ -1142,4 +1162,257 @@ void MainComponent::resolveSamples()
     if (! missing.isEmpty())
         showMessage ("Campioni mancanti", "Questi campioni non si trovano piu': " + missing.joinIntoString (", ")
                                             + ". Quei canali useranno la sintesi.");
+}
+
+//==============================================================================
+// Canali: righe, menu del canale, browser dei suoni
+
+void MainComponent::rebuildRows()
+{
+    shownStructure = engine.getStructureVersion();
+    rows.clear();
+
+    for (int c = 0; c < engine.getNumChannels(); ++c)
+    {
+        auto* row = rows.add (new ChannelRow (engine, c));
+        row->onOpenEditor = [this] (int ch)
+        {
+            Haptics::tick (this);
+            if (engine.isSynth (ch)) openSynthPanel(); else openEditor (ch);
+        };
+        row->onTap = [this] { Haptics::tick (this); };
+        row->onLongPress = [this] { Haptics::tick (this); };
+        row->onOpenPianoRoll = [this] (int ch) { Haptics::tick (this); openPianoRoll (ch); };
+        row->onCommand = [this] (int ch, int command) { handleChannelCommand (ch, command); };
+        row->onScrollDrag = [this] (float delta, bool started)
+        {
+            if (started)
+                scrollStartY = rackView.getViewPositionY();
+            else
+                rackView.setViewPosition (0, scrollStartY - juce::roundToInt (delta));
+        };
+        rackContent.addAndMakeVisible (row);
+    }
+
+    addButton.setEnabled (engine.getNumChannels() < SequencerEngine::maxChannels);
+
+    if (! getLocalBounds().isEmpty())
+        resized();
+    for (auto* row : rows)
+        row->repaint();
+}
+
+void MainComponent::hideOverlays()
+{
+    editor.setVisible (false);
+    pianoRoll.setVisible (false);
+    browser.setVisible (false);
+}
+
+void MainComponent::scrollToChannel (int channel)
+{
+    if (auto* row = rows[channel])
+    {
+        const int top = rackView.getViewPositionY(), h = rackView.getHeight();
+        if (row->getY() < top)
+            rackView.setViewPosition (0, row->getY());
+        else if (row->getBottom() > top + h)
+            rackView.setViewPosition (0, juce::jmin (row->getY(), rackContent.getHeight() - h));
+    }
+}
+
+void MainComponent::handleChannelCommand (int channel, int command)
+{
+    if (channel < 0 || channel >= engine.getNumChannels())
+        return;
+
+    auto& ch = engine.getChannel (channel);
+    juce::Component::SafePointer<MainComponent> safeThis (this);
+
+    // Le modifiche alla struttura ricreano le righe: si fanno appena finito il callback del menu
+    auto later = [safeThis] (std::function<void (MainComponent&)> fn)
+    {
+        juce::MessageManager::callAsync ([safeThis, fn]
+        {
+            if (safeThis != nullptr)
+                fn (*safeThis);
+        });
+    };
+
+    switch (command)
+    {
+        case ChannelRow::changeSound:
+            if (engine.isSynth (channel))
+            {
+                auto menu = buildSoundMenu (channel);
+                menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (rows[channel]), [safeThis, channel] (int result)
+                {
+                    if (safeThis != nullptr && result > 0)
+                        safeThis->handleSoundMenu (channel, result);
+                });
+            }
+            else
+            {
+                openBrowser (channel);
+            }
+            break;
+
+        case ChannelRow::editSound:
+            if (engine.isSynth (channel)) openSynthPanel(); else openEditor (channel);
+            break;
+
+        case ChannelRow::openPianoRoll:
+            openPianoRoll (channel);
+            break;
+
+        case ChannelRow::rename:
+            askText ("Rinomina canale", ch.name, [safeThis, channel] (juce::String name)
+            {
+                if (safeThis == nullptr || channel >= safeThis->engine.getNumChannels())
+                    return;
+                auto& c = safeThis->engine.getChannel (channel);
+                c.name = name.substring (0, 32);
+                c.customName = true;
+                if (auto* row = safeThis->rows[channel])
+                    row->repaint();
+            });
+            break;
+
+        case ChannelRow::solo:
+            ch.solo.store (! ch.solo.load());
+            break;
+
+        case ChannelRow::clone:
+            later ([channel] (MainComponent& m)
+            {
+                const int copy = m.engine.duplicateChannel (channel);
+                m.hideOverlays();
+                m.rebuildRows();
+                if (copy >= 0)
+                {
+                    m.scrollToChannel (copy);
+                    m.engine.previewChannel (copy);
+                }
+            });
+            break;
+
+        case ChannelRow::moveUp:
+        case ChannelRow::moveDown:
+            later ([channel, command] (MainComponent& m)
+            {
+                const int to = channel + (command == ChannelRow::moveUp ? -1 : 1);
+                m.engine.moveChannel (channel, to);
+                m.hideOverlays();
+                m.rebuildRows();
+                m.scrollToChannel (to);
+            });
+            break;
+
+        case ChannelRow::remove:
+            later ([channel] (MainComponent& m)
+            {
+                m.engine.removeChannel (channel);
+                m.hideOverlays();
+                m.rebuildRows();
+            });
+            break;
+
+        default:
+            break;
+    }
+
+    if (auto* row = rows[channel])
+        row->repaint();
+}
+
+void MainComponent::openBrowser (int channel)
+{
+    editor.setVisible (false);
+    pianoRoll.setVisible (false);
+    browser.openFor (channel);
+    browser.setVisible (true);
+    browser.toFront (false);
+}
+
+void MainComponent::applySoundChoice (int channel, const SoundChoice& choice)
+{
+    if (choice.kind == SoundChoice::none)
+        return;
+
+    if (choice.kind == SoundChoice::importFile)
+    {
+        importSample (channel);
+        return;
+    }
+
+    const bool isNew = channel < 0;
+    if (isNew)
+    {
+        channel = engine.addChannel();
+        if (channel < 0)
+        {
+            showMessage ("Canali", "Hai raggiunto il massimo di " + juce::String (SequencerEngine::maxChannels) + " canali.");
+            return;
+        }
+    }
+
+    auto& ch = engine.getChannel (channel);
+
+    if (choice.kind == SoundChoice::bassForge)
+    {
+        if (const int sc = engine.getSynthChannel(); sc >= 0 && sc != channel)
+        {
+            if (isNew) engine.removeChannel (channel);
+            showMessage ("BassForge", "BassForge e' gia' nel progetto (si puo' usare un solo BassForge).");
+            return;
+        }
+        engine.makeSynthChannel (channel);
+    }
+    else if (choice.kind == SoundChoice::drumSynth)
+    {
+        engine.makeDrumChannel (channel, choice.drumType);
+        engine.setChannelKit (channel, choice.kit);
+    }
+    else
+    {
+        const auto file = choice.kind == SoundChoice::library ? SampleStore::libraryName (choice.id) : choice.id;
+        auto* data = sampleStore.load (file);
+        if (data == nullptr)
+        {
+            if (isNew) engine.removeChannel (channel);
+            showMessage ("Suono", "Non riesco ad aprire \"" + choice.name + "\".");
+            return;
+        }
+
+        ch.type.store (SequencerEngine::drumOrSample);
+        ch.sampleName = file;
+        ch.sample.store (data);
+        ch.colour.store (choice.colour);
+        if (! ch.customName)
+            ch.name = choice.name;
+        ch.touchSound();
+    }
+
+    browser.setVisible (false);
+    rebuildRows();
+    scrollToChannel (channel);
+    engine.previewChannel (channel);
+
+    if (editor.isVisible())
+        editor.refreshFromEngine();
+}
+
+void MainComponent::askText (const juce::String& title, const juce::String& initial, std::function<void (juce::String)> onText)
+{
+    auto* window = new juce::AlertWindow (title, {}, juce::MessageBoxIconType::NoIcon, this);
+    window->addTextEditor ("text", initial);
+    window->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    window->addButton ("Annulla", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+
+    window->enterModalState (true, juce::ModalCallbackFunction::create ([window, onText] (int result)
+    {
+        const auto text = window->getTextEditorContents ("text").trim();
+        if (result == 1 && text.isNotEmpty() && onText)
+            onText (text);
+    }), true);
 }

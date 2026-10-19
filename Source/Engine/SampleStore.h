@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "LibraryIndex.h"
 
 //==============================================================================
 /** Un campione audio caricato in memoria (mono), pronto per il thread audio. */
@@ -11,6 +12,9 @@ struct SampleData : public juce::ReferenceCountedObject
     juce::String name;
     juce::AudioBuffer<float> audio;   // un canale
     double sampleRate = 44100.0;
+    int    rootNote = 60;             // nota MIDI a cui e' registrato (le note del piano roll sono relative a questa)
+    bool   gated = false;             // nel piano roll la nota sfuma alla sua fine (strumenti "tenuti")
+    float  release = 0.15f;           // secondi della sfumatura
 };
 
 //==============================================================================
@@ -95,7 +99,24 @@ public:
         return dest.getFileName();
     }
 
-    /** Il campione con quel nome (caricandolo dal disco la prima volta), o nullptr. */
+    //==============================================================================
+    // Libreria di JLoop (suoni inclusi nell'app). Nei progetti sono salvati come "lib:<id>".
+
+    static constexpr const char* libraryPrefix = "lib:";
+
+    static bool isLibrary (const juce::String& name)     { return name.startsWith (libraryPrefix); }
+    static juce::String libraryName (const juce::String& id)   { return libraryPrefix + id; }
+
+    static const LibraryIndex::Entry* findLibraryEntry (const juce::String& name)
+    {
+        const auto id = isLibrary (name) ? name.substring (4) : name;
+        for (auto& e : LibraryIndex::entries)
+            if (id == e.id)
+                return &e;
+        return nullptr;
+    }
+
+    /** Il campione con quel nome (caricandolo dal disco o dalla libreria la prima volta), o nullptr. */
     SampleData* load (const juce::String& fileName)
     {
         if (fileName.isEmpty())
@@ -104,6 +125,9 @@ public:
         for (auto* s : loaded)
             if (s->name == fileName)
                 return s;
+
+        if (isLibrary (fileName))
+            return loadLibrary (fileName);
 
         auto file = getFolder().getChildFile (fileName);
         std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
@@ -148,10 +172,44 @@ public:
 
     static juce::String displayName (const juce::String& fileName)
     {
+        if (isLibrary (fileName))
+            if (auto* e = findLibraryEntry (fileName))
+                return juce::String (juce::CharPointer_UTF8 (e->name));
+
         return juce::File (fileName).getFileNameWithoutExtension();
     }
 
 private:
+    SampleData* loadLibrary (const juce::String& name)
+    {
+        auto* entry = findLibraryEntry (name);
+        if (entry == nullptr)
+            return nullptr;
+
+        int size = 0;
+        const char* data = BinaryData::getNamedResource (entry->resource, size);
+        if (data == nullptr || size <= 0)
+            return nullptr;
+
+        std::unique_ptr<juce::AudioFormatReader> reader (
+            formats.createReaderFor (std::make_unique<juce::MemoryInputStream> (data, (size_t) size, false)));
+        if (reader == nullptr || reader->lengthInSamples <= 0)
+            return nullptr;
+
+        const auto length = (int) juce::jmin ((juce::int64) (maxSeconds * reader->sampleRate), reader->lengthInSamples);
+        SampleData::Ptr sample = new SampleData();
+        sample->name = name;
+        sample->sampleRate = reader->sampleRate;
+        sample->audio.setSize (1, length);
+        reader->read (&sample->audio, 0, length, 0, true, false);
+        sample->rootNote = entry->rootNote;
+        sample->gated = entry->gated;
+        sample->release = entry->release;
+
+        loaded.add (sample);
+        return sample.get();
+    }
+
     /** Ricava un nome di file leggibile anche dagli URI di Android (es. "primary%3AMusic%2Fkick.wav"). */
     static juce::String cleanFileName (const juce::URL& url)
     {

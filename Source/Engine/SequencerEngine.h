@@ -8,6 +8,7 @@
 #include <vector>
 #include <limits>
 #include "DrumVoice.h"
+#include "Sampler.h"
 
 //==============================================================================
 /**
@@ -18,7 +19,8 @@
     variabili atomiche, che si possono leggere e scrivere da thread diversi.
 
     Struttura (come in FL Studio):
-    - i CANALI (strumento, suono, volume, pan, effetti...) sono del progetto
+    - i CANALI (strumento, suono, volume, pan, effetti...) sono del progetto: se ne possono
+      aggiungere, clonare, spostare ed eliminare (fino a maxChannels)
     - i PATTERN (fino a 8) contengono le note: per ogni canale e step
       velocity (0 = spento), probabilita' e ratchet (colpi ripetuti nello step)
     - clock preciso al campione con swing; il cambio pattern durante la
@@ -32,13 +34,13 @@ class SequencerEngine : public juce::AudioIODeviceCallback
 {
 public:
     static constexpr int maxSteps         = 32;
-    static constexpr int numChannels      = 7;     // 6 strumenti di batteria + il synth BassForge
-    static constexpr int numDrumChannels  = 6;
-    static constexpr int synthChannel     = 6;
+    static constexpr int maxChannels      = 32;    // canali del channel rack (strumenti)
+    static constexpr int defaultChannels  = 7;     // progetto nuovo: 6 strumenti di batteria + il synth BassForge
+    static constexpr int numDrumTypes     = 6;     // strumenti della batteria sintetizzata (vedi SoundLibrary)
     static constexpr int synthStepNote    = 48;    // nota suonata dagli step del synth (C3: registro da basso)
     static constexpr int numPatterns      = 8;
-    static constexpr int closedHatChannel = 3;
-    static constexpr int openHatChannel   = 4;
+    static constexpr int closedHatType    = 3;
+    static constexpr int openHatType      = 4;
     static constexpr int defaultVelocity  = 100;
     static constexpr int maxRatchet       = 4;
     static constexpr int ticksPerStep     = 12;    // risoluzione del piano roll: 1/12 di sedicesimo
@@ -52,15 +54,19 @@ public:
         bool operator== (const NoteData& o) const { return start == o.start && length == o.length && pitch == o.pitch && velocity == o.velocity; }
     };
 
-    struct ChannelInfo
+    /** Tipo di canale: batteria sintetizzata / campione (con il campionatore), oppure il synth BassForge. */
+    enum ChannelType { drumOrSample = 0, synth = 1 };
+
+    struct DrumTypeInfo
     {
         const char*  name;
         juce::uint32 colour;
     };
 
-    static const ChannelInfo& getChannelInfo (int index)
+    /** Gli strumenti della batteria sintetizzata, con il nome e il colore di default. */
+    static const DrumTypeInfo& getDrumTypeInfo (int drumType)
     {
-        static const ChannelInfo infos[numChannels] =
+        static const DrumTypeInfo infos[numDrumTypes] =
         {
             { "Kick",     0xffe8833a },
             { "Snare",    0xffd2555a },
@@ -68,10 +74,11 @@ public:
             { "Hi-Hat",   0xff4fb3a9 },
             { "Open Hat", 0xff5b8fd6 },
             { "Tom",      0xff9a78d0 },
-            { "BassForge", 0xff2fc6d6 },
         };
-        return infos[index];
+        return infos[juce::jlimit (0, numDrumTypes - 1, drumType)];
     }
+
+    static constexpr juce::uint32 synthColour = 0xff2fc6d6;
 
     //==============================================================================
     /** Impostazioni di un canale (valgono per tutti i pattern). */
@@ -79,7 +86,15 @@ public:
     {
         std::atomic<float> volume   { 0.8f };
         std::atomic<bool>  muted    { false };
-        std::atomic<int>   kit      { 0 };       // suono scelto dalla libreria (vedi SoundLibrary)
+        std::atomic<bool>  solo     { false };
+        std::atomic<int>   type     { drumOrSample };
+        std::atomic<int>   drumType { 0 };       // quale strumento della batteria sintetizzata (Kick, Snare...)
+        std::atomic<int>   kit      { 0 };       // kit della batteria sintetizzata (vedi SoundLibrary)
+        std::atomic<juce::uint32> colour { 0xff8aa0b8 };
+
+        // Usati solo dal thread della UI
+        juce::String name;
+        bool customName = false;                 // rinominato dall'utente: cambiando suono il nome resta
 
         // Editor del canale
         std::atomic<float> pan      { 0.0f };    // -1 sinistra .. +1 destra
@@ -97,9 +112,9 @@ public:
         // Campione dell'utente al posto della sintesi (nullptr = sintesi). Il puntatore resta valido:
         // i campioni vivono nel SampleStore per tutta la sessione.
         std::atomic<const SampleData*> sample { nullptr };
-        juce::String sampleName;                        // usato solo dal thread della UI (salvataggio)
+        juce::String sampleName;                        // usato solo dal thread della UI (salvataggio); "lib:<id>" = libreria
         std::atomic<bool>  previewRequested { false };
-        std::atomic<float> previewPitch     { 0.0f };   // semitoni dell'anteprima (piano roll)
+        std::atomic<int>   previewPitch     { -1 };     // nota MIDI dell'anteprima (piano roll), -1 = suono di base
         std::atomic<float> activity         { 0.0f };   // per far "lampeggiare" la UI quando suona
         std::atomic<int>   triggerCount     { 0 };      // colpi suonati in totale (diagnostica e test)
 
@@ -110,15 +125,15 @@ public:
     struct Pattern
     {
         using Row = std::array<std::atomic<uint8_t>, maxSteps>;
-        std::array<Row, numChannels> velocity;      // 0 = spento, 1..127
-        std::array<Row, numChannels> probability;   // 0..100 %
-        std::array<Row, numChannels> ratchet;       // 1..4 colpi nello step
+        std::array<Row, maxChannels> velocity;      // 0 = spento, 1..127
+        std::array<Row, maxChannels> probability;   // 0..100 %
+        std::array<Row, maxChannels> ratchet;       // 1..4 colpi nello step
         std::atomic<int> length { 16 };
 
         // Note del piano roll, impacchettate in 32 bit (0 = slot vuoto):
         // inizio 9 bit | durata 9 bit | altezza 7 bit | velocity 7 bit
-        std::array<std::array<std::atomic<uint32_t>, maxNotes>, numChannels> notes;
-        std::array<std::atomic<int>, numChannels> noteCount;   // se > 0 il canale usa il piano roll, non gli step
+        std::array<std::array<std::atomic<uint32_t>, maxNotes>, maxChannels> notes;
+        std::array<std::atomic<int>, maxChannels> noteCount;   // se > 0 il canale usa il piano roll, non gli step
     };
 
     static uint32_t packNote (const NoteData& n)
@@ -143,10 +158,16 @@ public:
         for (int p = 0; p < numPatterns; ++p)
             clearPattern (p);
 
-        static const float defaultVolumes[numChannels] = { 0.8f, 0.8f, 0.7f, 0.6f, 0.55f, 0.75f, 0.8f };
+        // Progetto nuovo: Kick, Snare, Clap, Hi-Hat, Open Hat, Tom + BassForge
+        static const float defaultVolumes[defaultChannels] = { 0.8f, 0.8f, 0.7f, 0.6f, 0.55f, 0.75f, 0.8f };
+        setNumChannels (defaultChannels);
 
-        for (int c = 0; c < numChannels; ++c)
-            resetChannel (c, defaultVolumes[c]);
+        for (int c = 0; c < maxChannels; ++c)
+            resetChannel (c, c < defaultChannels ? defaultVolumes[c] : 0.8f);
+
+        for (int c = 0; c < numDrumTypes; ++c)
+            makeDrumChannel (c, c);
+        makeSynthChannel (defaultChannels - 1);
 
         bpm.store (120.0);
         swing.store (0.0f);
@@ -159,6 +180,12 @@ public:
         auto& ch = channels[(size_t) c];
         ch.volume.store (vol);
         ch.muted.store (false);
+        ch.solo.store (false);
+        ch.type.store (drumOrSample);
+        ch.drumType.store (0);
+        ch.colour.store (0xff8aa0b8);
+        ch.name = "Canale";
+        ch.customName = false;
         ch.kit.store (0);
         ch.pan.store (0.0f);
         ch.pitch.store (0.0f);
@@ -172,6 +199,138 @@ public:
         ch.sample.store (nullptr);
         ch.sampleName.clear();
         ch.touchSound();
+    }
+
+    /** Trasforma un canale in uno strumento della batteria sintetizzata (senza campione). */
+    void makeDrumChannel (int c, int drumType)
+    {
+        auto& ch = channels[(size_t) c];
+        ch.type.store (drumOrSample);
+        ch.drumType.store (juce::jlimit (0, numDrumTypes - 1, drumType));
+        ch.sample.store (nullptr);
+        ch.sampleName.clear();
+        ch.colour.store (getDrumTypeInfo (drumType).colour);
+        if (! ch.customName)
+            ch.name = getDrumTypeInfo (drumType).name;
+        ch.touchSound();
+    }
+
+    void makeSynthChannel (int c)
+    {
+        auto& ch = channels[(size_t) c];
+        ch.type.store (synth);
+        ch.sample.store (nullptr);
+        ch.sampleName.clear();
+        ch.colour.store (synthColour);
+        if (! ch.customName)
+            ch.name = "BassForge";
+        ch.touchSound();
+    }
+
+    //==============================================================================
+    // Canali: quanti sono, aggiungi / clona / sposta / elimina
+
+    int getNumChannels() const                  { return numActiveChannels.load(); }
+
+    /** Il canale del synth BassForge (-1 se non c'e'). C'e' un solo BassForge per progetto. */
+    int getSynthChannel() const
+    {
+        for (int c = 0; c < getNumChannels(); ++c)
+            if (channels[(size_t) c].type.load() == synth)
+                return c;
+        return -1;
+    }
+
+    bool isSynth (int channel) const            { return channel >= 0 && channel < maxChannels && channels[(size_t) channel].type.load() == synth; }
+
+    /** La nota "naturale" del canale: quella a cui suona lo step (per il piano roll). */
+    int getChannelRootNote (int c) const
+    {
+        if (isSynth (c))
+            return synthStepNote;
+        if (auto* smp = channels[(size_t) c].sample.load())
+            return smp->rootNote;
+        return rootNote;
+    }
+
+    /** Cambia il numero di canali (quelli in piu' vanno impostati dal chiamante). */
+    void setNumChannels (int count)
+    {
+        const juce::SpinLock::ScopedLockType lock (structureLock);
+        numActiveChannels.store (juce::jlimit (1, maxChannels, count));
+        structureChanged.store (true);
+        structureVersion.fetch_add (1);
+    }
+
+    /** Cambia ogni volta che i canali vengono aggiunti, tolti o spostati (la UI ricostruisce le righe). */
+    int getStructureVersion() const             { return structureVersion.load(); }
+
+    /** Aggiunge un canale in fondo (o dopo "after"), con le impostazioni di default. Ritorna l'indice o -1. */
+    int addChannel (int after = -1)
+    {
+        const int n = getNumChannels();
+        if (n >= maxChannels)
+            return -1;
+
+        const int index = after < 0 ? n : juce::jlimit (0, n, after + 1);
+        std::vector<int> order;
+        for (int c = 0; c < n; ++c)
+        {
+            if (c == index) order.push_back (-1);
+            order.push_back (c);
+        }
+        if (index == n) order.push_back (-1);
+        applyOrder (order);
+        return index;
+    }
+
+    /** Copia un canale (suono, regolazioni, step e note di tutti i pattern) subito sotto. */
+    int duplicateChannel (int c)
+    {
+        const int n = getNumChannels();
+        if (n >= maxChannels || c < 0 || c >= n || isSynth (c))
+            return -1;
+
+        std::vector<int> order;
+        for (int i = 0; i < n; ++i)
+        {
+            order.push_back (i);
+            if (i == c) order.push_back (c);
+        }
+        applyOrder (order);
+
+        auto& copy = channels[(size_t) c + 1];
+        copy.solo.store (false);
+        copy.name = channels[(size_t) c].name + " 2";
+        copy.customName = true;
+        return c + 1;
+    }
+
+    void removeChannel (int c)
+    {
+        const int n = getNumChannels();
+        if (n <= 1 || c < 0 || c >= n)
+            return;
+
+        std::vector<int> order;
+        for (int i = 0; i < n; ++i)
+            if (i != c)
+                order.push_back (i);
+        applyOrder (order);
+    }
+
+    void moveChannel (int from, int to)
+    {
+        const int n = getNumChannels();
+        if (from < 0 || from >= n || to < 0 || to >= n || from == to)
+            return;
+
+        std::vector<int> order;
+        for (int i = 0; i < n; ++i)
+            if (i != from)
+                order.push_back (i);
+        order.insert (order.begin() + to, from);
+        applyOrder (order);
     }
 
     //==============================================================================
@@ -244,7 +403,7 @@ public:
     void clearPattern (int index)
     {
         auto& p = patterns[(size_t) index];
-        for (int c = 0; c < numChannels; ++c)
+        for (int c = 0; c < maxChannels; ++c)
         {
             for (int s = 0; s < maxSteps; ++s)
                 clearStep (p, c, s);
@@ -271,7 +430,7 @@ public:
         auto& src = patterns[(size_t) from];
         auto& dst = patterns[(size_t) to];
 
-        for (int c = 0; c < numChannels; ++c)
+        for (int c = 0; c < maxChannels; ++c)
         {
             for (int s = 0; s < maxSteps; ++s)
                 copyStep (src, c, s, dst, c, s);
@@ -286,14 +445,15 @@ public:
 
     bool isPatternEmpty (int index) const
     {
-        for (auto& row : patterns[(size_t) index].velocity)
-            for (auto& v : row)
+        for (int c = 0; c < getNumChannels(); ++c)
+        {
+            for (auto& v : patterns[(size_t) index].velocity[(size_t) c])
                 if (v.load() > 0)
                     return false;
 
-        for (auto& count : patterns[(size_t) index].noteCount)
-            if (count.load() > 0)
+            if (patterns[(size_t) index].noteCount[(size_t) c].load() > 0)
                 return false;
+        }
 
         return true;
     }
@@ -408,9 +568,12 @@ public:
     Channel& getChannel (int index)             { return channels[(size_t) index]; }
 
     /** Fa sentire lo strumento. Senza altezza: suono "di base" (per il synth la nota degli step). */
-    void previewChannel (int channel, float semitones = std::numeric_limits<float>::quiet_NaN())
+    /** Fa sentire lo strumento. midiNote < 0: suono "di base" (lo step); altrimenti quella nota (piano roll). */
+    void previewChannel (int channel, int midiNote = -1)
     {
-        channels[(size_t) channel].previewPitch.store (semitones);
+        if (channel < 0 || channel >= maxChannels)
+            return;
+        channels[(size_t) channel].previewPitch.store (midiNote);
         channels[(size_t) channel].previewRequested.store (true);
     }
 
@@ -419,11 +582,31 @@ public:
 
     void setAllKits (int kit)
     {
-        for (int c = 0; c < numDrumChannels; ++c)
-            setChannelKit (c, kit);
+        for (int c = 0; c < getNumChannels(); ++c)
+            if (isDrumSynthChannel (c))
+                setChannelKit (c, kit);
     }
 
-    static bool isSynth (int channel)           { return channel == synthChannel; }
+    /** Canale della batteria sintetizzata (non synth, senza campione). */
+    bool isDrumSynthChannel (int c) const
+    {
+        return channels[(size_t) c].type.load() == drumOrSample && channels[(size_t) c].sample.load() == nullptr;
+    }
+
+    /** Fa sentire un campione della libreria (browser dei suoni), senza effetti del canale. */
+    void previewSample (const SampleData* sample)
+    {
+        browserSample.store (sample);
+        browserPreview.store (1);
+    }
+
+    /** Fa sentire uno strumento della batteria sintetizzata (browser dei suoni). */
+    void previewDrum (int drumType, int kit)
+    {
+        browserDrumType.store (drumType);
+        browserKit.store (kit);
+        browserPreview.store (2);
+    }
 
     //==============================================================================
     // Synth BassForge (un AudioProcessor JUCE ospitato da JLoop)
@@ -455,21 +638,14 @@ public:
 
     void audioDeviceAboutToStart (juce::AudioIODevice* device) override
     {
+        const juce::SpinLock::ScopedLockType lock (structureLock);
         const double sr = device->getCurrentSampleRate();
         sampleRate.store (sr);
         restartRequested.store (true);
 
-        for (int c = 0; c < numChannels; ++c)
-        {
-            appliedKits[(size_t) c] = -1;           // forza il ricalcolo della ricetta
-            appliedVersions[(size_t) c] = -1;
-            appliedSamples[(size_t) c] = nullptr;
-            appliedFilter[(size_t) c] = -1.0f;
-            voices[(size_t) c].prepare (sr);
-            channelFilters[(size_t) c].reset();
-            ratchets[(size_t) c] = {};
-        }
-        updateVoiceParams (sr);
+        resetChannelVoices (sr);
+        browserSampler.prepare (sr);
+        browserDrum.prepare (sr);
 
         // Preparazione degli effetti (qui si puo' allocare: non siamo ancora nel callback)
         juce::Reverb::Parameters rp;
@@ -512,7 +688,20 @@ public:
                                            int numSamples,
                                            const juce::AudioIODeviceCallbackContext&) override
     {
+        // Se la UI sta riordinando i canali (pochi microsecondi), questo blocco resta in silenzio
+        const juce::SpinLock::ScopedTryLockType lock (structureLock);
+        if (! lock.isLocked())
+        {
+            for (int ch = 0; ch < numOutputChannels; ++ch)
+                if (auto* out = outputChannelData[ch])
+                    juce::FloatVectorOperations::clear (out, numSamples);
+            return;
+        }
+
         const double sr = sampleRate.load();
+
+        if (structureChanged.exchange (false))
+            resetChannelVoices (sr);
 
         if (restartRequested.exchange (false))
         {
@@ -521,33 +710,63 @@ public:
             samplesUntilNextTick = 0.0;   // il primo step parte subito
         }
 
+        numActive = numActiveChannels.load();
+        synthIndex = -1;
+        for (int c = 0; c < numActive; ++c)
+            if (channels[(size_t) c].type.load() == synth) { synthIndex = c; break; }
+
         updateVoiceParams (sr);
 
-        // Stop: spegne tutte le note del synth
+        // Stop: spegne tutte le note del synth e sfuma i campioni tenuti
         if (wasPlaying && ! playing.load())
+        {
             synthAllNotesOff();
+            for (int c = 0; c < numActive; ++c)
+                samplers[(size_t) c].releaseAll();
+        }
         wasPlaying = playing.load();
 
         playHead.bpm.store (bpm.load());
         playHead.playing.store (playing.load());
         currentSample = 0;
 
-        // Anteprime richieste dalla UI (tocco sul nome del canale).
-        for (int c = 0; c < numChannels; ++c)
+        // Anteprime richieste dalla UI (tocco sul nome del canale, piano roll, browser dei suoni)
+        for (int c = 0; c < numActive; ++c)
             if (channels[(size_t) c].previewRequested.exchange (false))
             {
-                const float semis = channels[(size_t) c].previewPitch.load();
-                if (c == synthChannel)
-                    synthPreview (std::isnan (semis) ? synthStepNote : rootNote + juce::roundToInt (semis));
+                const int note = channels[(size_t) c].previewPitch.load();
+                if (c == synthIndex)
+                    synthPreview (note < 0 ? synthStepNote : note);
                 else
-                    triggerChannel (c, 0.9f, 0.0f, std::isnan (semis) ? 0.0f : semis);
+                    triggerChannel (c, 0.9f, 0.0f, note, -1, true);
             }
 
+        if (const int what = browserPreview.exchange (0); what != 0)
+        {
+            browserSampler.stopAll();
+            if (what == 1)
+            {
+                browserSampler.setSample (browserSample.load(), {});
+                browserSampler.trigger (0.9f, 0.0f, -1, 0.0f, 0.0f, 0.0f);
+            }
+            else
+            {
+                browserDrum.setParams (SoundLibrary::get (browserDrumType.load(), browserKit.load()));
+                browserDrum.setSample (nullptr, {});
+                browserDrum.trigger (0.9f);
+            }
+        }
+
         // Parametri del mix letti una volta per blocco.
-        for (int c = 0; c < numChannels; ++c)
+        bool anySolo = false;
+        for (int c = 0; c < numActive; ++c)
+            anySolo = anySolo || channels[(size_t) c].solo.load();
+
+        for (int c = 0; c < numActive; ++c)
         {
             auto& ch = channels[(size_t) c];
-            const float g = ch.muted.load() ? 0.0f : ch.volume.load();
+            const bool silent = ch.muted.load() || (anySolo && ! ch.solo.load());
+            const float g = silent ? 0.0f : ch.volume.load();
             const float angle = (ch.pan.load() + 1.0f) * juce::MathConstants<float>::pi * 0.25f;
             gainL[(size_t) c] = g * std::cos (angle) * juce::MathConstants<float>::sqrt2;
             gainR[(size_t) c] = g * std::sin (angle) * juce::MathConstants<float>::sqrt2;
@@ -575,24 +794,159 @@ private:
     static constexpr int chunk = 256;
 
     //==============================================================================
+    /** Le impostazioni di un canale e le sue righe nei pattern, copiate per riordinare i canali. */
+    struct ChannelCopy
+    {
+        float volume, pan, pitch, decay, tone, drive, filter, reverb, delay, humanize;
+        bool muted, solo, customName;
+        int type, drumType, kit;
+        juce::uint32 colour;
+        const SampleData* sample;
+        juce::String name, sampleName;
+
+        struct PatternRows
+        {
+            uint8_t velocity[maxSteps], probability[maxSteps], ratchet[maxSteps];
+            uint32_t notes[maxNotes];
+            int noteCount;
+        };
+        std::array<PatternRows, numPatterns> rows;
+    };
+
+    void readChannel (int c, ChannelCopy& out) const
+    {
+        auto& ch = channels[(size_t) c];
+        out.volume = ch.volume.load(); out.pan = ch.pan.load(); out.pitch = ch.pitch.load();
+        out.decay = ch.decay.load(); out.tone = ch.tone.load(); out.drive = ch.drive.load();
+        out.filter = ch.filter.load(); out.reverb = ch.reverb.load(); out.delay = ch.delay.load();
+        out.humanize = ch.humanize.load(); out.muted = ch.muted.load(); out.solo = ch.solo.load();
+        out.customName = ch.customName; out.type = ch.type.load(); out.drumType = ch.drumType.load();
+        out.kit = ch.kit.load(); out.colour = ch.colour.load(); out.sample = ch.sample.load();
+        out.name = ch.name; out.sampleName = ch.sampleName;
+
+        for (int p = 0; p < numPatterns; ++p)
+        {
+            auto& pat = patterns[(size_t) p];
+            auto& r = out.rows[(size_t) p];
+            for (int s = 0; s < maxSteps; ++s)
+            {
+                r.velocity[s]    = pat.velocity[(size_t) c][(size_t) s].load();
+                r.probability[s] = pat.probability[(size_t) c][(size_t) s].load();
+                r.ratchet[s]     = pat.ratchet[(size_t) c][(size_t) s].load();
+            }
+            for (int n = 0; n < maxNotes; ++n)
+                r.notes[n] = pat.notes[(size_t) c][(size_t) n].load();
+            r.noteCount = pat.noteCount[(size_t) c].load();
+        }
+    }
+
+    void writeChannel (int c, const ChannelCopy& in)
+    {
+        auto& ch = channels[(size_t) c];
+        ch.volume.store (in.volume); ch.pan.store (in.pan); ch.pitch.store (in.pitch);
+        ch.decay.store (in.decay); ch.tone.store (in.tone); ch.drive.store (in.drive);
+        ch.filter.store (in.filter); ch.reverb.store (in.reverb); ch.delay.store (in.delay);
+        ch.humanize.store (in.humanize); ch.muted.store (in.muted); ch.solo.store (in.solo);
+        ch.customName = in.customName; ch.type.store (in.type); ch.drumType.store (in.drumType);
+        ch.kit.store (in.kit); ch.colour.store (in.colour); ch.sample.store (in.sample);
+        ch.name = in.name; ch.sampleName = in.sampleName;
+        ch.touchSound();
+
+        for (int p = 0; p < numPatterns; ++p)
+        {
+            auto& pat = patterns[(size_t) p];
+            auto& r = in.rows[(size_t) p];
+            for (int s = 0; s < maxSteps; ++s)
+            {
+                pat.velocity[(size_t) c][(size_t) s].store (r.velocity[s]);
+                pat.probability[(size_t) c][(size_t) s].store (r.probability[s]);
+                pat.ratchet[(size_t) c][(size_t) s].store (r.ratchet[s]);
+            }
+            for (int n = 0; n < maxNotes; ++n)
+                pat.notes[(size_t) c][(size_t) n].store (r.notes[n]);
+            pat.noteCount[(size_t) c].store (r.noteCount);
+        }
+    }
+
+    /** Nuovo ordine dei canali: order[nuovo] = vecchio indice, oppure -1 per un canale nuovo e vuoto. */
+    void applyOrder (const std::vector<int>& order)
+    {
+        // Copia fatta fuori dal lock (solo la UI scrive questi dati)
+        const int n = getNumChannels();
+        std::vector<ChannelCopy> old ((size_t) n);
+        for (int c = 0; c < n; ++c)
+            readChannel (c, old[(size_t) c]);
+
+        ChannelCopy blank;
+        {
+            // Un canale "pulito" con i valori di default, usando l'ultimo slot libero come stampo
+            const int spare = maxChannels - 1;
+            ChannelCopy saved;
+            readChannel (spare, saved);
+            resetChannel (spare);
+            for (auto& pat : patterns)
+            {
+                for (int s = 0; s < maxSteps; ++s)
+                    clearStep (pat, spare, s);
+                for (auto& note : pat.notes[(size_t) spare]) note.store (0);
+                pat.noteCount[(size_t) spare].store (0);
+            }
+            readChannel (spare, blank);
+            writeChannel (spare, saved);
+        }
+
+        const juce::SpinLock::ScopedLockType lock (structureLock);
+        const int newCount = juce::jlimit (1, maxChannels, (int) order.size());
+        for (int c = 0; c < newCount; ++c)
+            writeChannel (c, order[(size_t) c] >= 0 ? old[(size_t) order[(size_t) c]] : blank);
+
+        numActiveChannels.store (newCount);
+        structureChanged.store (true);
+        structureVersion.fetch_add (1);
+    }
+
+    void resetChannelVoices (double sr)
+    {
+        for (int c = 0; c < maxChannels; ++c)
+        {
+            appliedKits[(size_t) c] = -1;           // forza il ricalcolo della ricetta
+            appliedVersions[(size_t) c] = -1;
+            appliedTypes[(size_t) c] = -1;
+            appliedSamples[(size_t) c] = nullptr;
+            appliedFilter[(size_t) c] = -1.0f;
+            voices[(size_t) c].prepare (sr);
+            samplers[(size_t) c].prepare (sr);
+            samplers[(size_t) c].setSample (nullptr, {});
+            channelFilters[(size_t) c].reset();
+            ratchets[(size_t) c] = {};
+        }
+        numActive = numActiveChannels.load();
+        updateVoiceParams (sr);
+    }
+
+    //==============================================================================
     void updateVoiceParams (double sr)
     {
-        for (int c = 0; c < numDrumChannels; ++c)
+        for (int c = 0; c < numActive; ++c)
         {
             auto& ch = channels[(size_t) c];
             const int kit = ch.kit.load();
             const int version = ch.soundVersion.load();
+            const int type = ch.drumType.load();
             const auto* smp = ch.sample.load();
 
-            if (kit != appliedKits[(size_t) c] || version != appliedVersions[(size_t) c] || smp != appliedSamples[(size_t) c])
+            if (kit != appliedKits[(size_t) c] || version != appliedVersions[(size_t) c]
+                 || smp != appliedSamples[(size_t) c] || type != appliedTypes[(size_t) c])
             {
                 appliedKits[(size_t) c] = kit;
                 appliedVersions[(size_t) c] = version;
                 appliedSamples[(size_t) c] = smp;
+                appliedTypes[(size_t) c] = type;
 
                 SoundShape shape { ch.pitch.load(), ch.decay.load(), ch.tone.load(), ch.drive.load() };
-                voices[(size_t) c].setParams (shapeParams (SoundLibrary::get (c, kit), shape), shape.tone);
-                voices[(size_t) c].setSample (smp, shape);
+                voices[(size_t) c].setParams (shapeParams (SoundLibrary::get (type, kit), shape), shape.tone);
+                voices[(size_t) c].setSample (nullptr, shape);
+                samplers[(size_t) c].setSample (smp, shape);
             }
 
             const float f = ch.filter.load();
@@ -651,12 +1005,12 @@ private:
                 samplesUntilNextTick -= 1.0;
 
                 // Ratchet: colpi aggiuntivi dentro lo step
-                for (int c = 0; c < numChannels; ++c)
+                for (int c = 0; c < numActive; ++c)
                 {
                     auto& r = ratchets[(size_t) c];
                     if (r.remaining > 0 && --r.countdown <= 0)
                     {
-                        triggerChannel (c, r.velocity, humanizeAmt[(size_t) c] * 0.5f, 0.0f, juce::jmax (1, ticksPerStep / maxRatchet));
+                        triggerChannel (c, r.velocity, humanizeAmt[(size_t) c] * 0.5f, -1, juce::jmax (1, ticksPerStep / maxRatchet));
                         r.velocity *= 0.85f;
                         r.countdown = r.interval;
                         --r.remaining;
@@ -666,13 +1020,18 @@ private:
 
             float l = 0.0f, r = 0.0f, rev = 0.0f, del = 0.0f;
 
-            for (int c = 0; c < numDrumChannels; ++c)
+            for (int c = 0; c < numActive; ++c)
             {
-                auto& voice = voices[(size_t) c];
-                if (! voice.isActive())
+                if (c == synthIndex)
                     continue;
 
-                float x = voice.render();
+                auto& voice = voices[(size_t) c];
+                auto& smp = samplers[(size_t) c];
+                const bool drumOn = voice.isActive(), smpOn = smp.isActive();
+                if (! drumOn && ! smpOn)
+                    continue;
+
+                float x = (drumOn ? voice.render() : 0.0f) + (smpOn ? smp.render() : 0.0f);
                 if (appliedFilter[(size_t) c] < 0.999f)
                 {
                     float lp, bp, hp;
@@ -688,22 +1047,32 @@ private:
 
             delIn[(size_t) s] = del;
 
+            // Anteprima del browser dei suoni: diretta, senza effetti
+            if (browserSampler.isActive() || browserDrum.isActive())
+            {
+                const float b = (browserSampler.isActive() ? browserSampler.render() : 0.0f)
+                              + (browserDrum.isActive() ? browserDrum.render() : 0.0f);
+                l += b * 0.8f;
+                r += b * 0.8f;
+            }
+
             mixL[(size_t) s] = l;
             mixR[(size_t) s] = r;
             revL[(size_t) s] = rev;
             revR[(size_t) s] = rev;
         }
 
-        // Synth: suona il blocco con i suoi eventi MIDI (gia' alla posizione giusta nel blocco)
-        if (synthProcessor != nullptr)
+        // Synth: suona il blocco con i suoi eventi MIDI (gia' alla posizione giusta nel blocco).
+        // Se il progetto non ha il canale BassForge, il synth non lavora (niente CPU sprecata).
+        if (synthProcessor != nullptr && synthIndex >= 0)
         {
             juce::AudioBuffer<float> view (synthBuffer.getArrayOfWritePointers(), 2, n);
             view.clear();
             synthProcessor->processBlock (view, synthMidi);
             synthMidi.clear();
 
-            auto& ch = channels[synthChannel];
-            const float g   = ch.muted.load() ? 0.0f : ch.volume.load();
+            auto& ch = channels[(size_t) synthIndex];
+            const float g   = gainL[(size_t) synthIndex] == 0.0f && gainR[(size_t) synthIndex] == 0.0f ? 0.0f : ch.volume.load();
             const float pan = ch.pan.load();
             const float gl  = g * juce::jmin (1.0f, 1.0f - pan);   // bilanciamento stereo
             const float gr  = g * juce::jmin (1.0f, 1.0f + pan);
@@ -721,32 +1090,28 @@ private:
                 delIn[(size_t) s] += (sl[s] + sr_[s]) * sd2;
             }
         }
+        else
+        {
+            synthMidi.clear();
+        }
 
         // Delay ping-pong con un po' di attenuazione degli acuti nei rimbalzi
         for (int s = 0; s < n; ++s)
         {
             const float del = delIn[(size_t) s];
-            float l = 0.0f, r = 0.0f;
+            const size_t size = delayBuffer[0].size();
+            const size_t readPos = (delayWrite + size - (size_t) delaySamples) % size;
+            const float dl = delayBuffer[0][readPos];
+            const float dr = delayBuffer[1][readPos];
 
-            // Delay ping-pong con un po' di attenuazione degli acuti nei rimbalzi
-            {
-                const size_t size = delayBuffer[0].size();
-                const size_t readPos = (delayWrite + size - (size_t) delaySamples) % size;
-                const float dl = delayBuffer[0][readPos];
-                const float dr = delayBuffer[1][readPos];
+            delayLp[0] += delayDamp * (dr - delayLp[0]);
+            delayLp[1] += delayDamp * (dl - delayLp[1]);
+            delayBuffer[0][delayWrite] = del + delayLp[0] * delayFeedback;
+            delayBuffer[1][delayWrite] = delayLp[1] * delayFeedback;
+            delayWrite = (delayWrite + 1) % size;
 
-                delayLp[0] += delayDamp * (dr - delayLp[0]);
-                delayLp[1] += delayDamp * (dl - delayLp[1]);
-                delayBuffer[0][delayWrite] = del + delayLp[0] * delayFeedback;
-                delayBuffer[1][delayWrite] = delayLp[1] * delayFeedback;
-                delayWrite = (delayWrite + 1) % size;
-
-                l += dl;
-                r += dr;
-            }
-
-            mixL[(size_t) s] += l;
-            mixR[(size_t) s] += r;
+            mixL[(size_t) s] += dl;
+            mixR[(size_t) s] += dr;
         }
 
         reverb.processStereo (revL.data(), revR.data(), n);
@@ -828,7 +1193,7 @@ private:
         const bool even = (stepIndex % 2) == 0;
         const double stepLength = samplesPerStep * (even ? 1.0 + swingAmount : 1.0 - swingAmount);
 
-        for (int c = 0; c < numChannels; ++c)
+        for (int c = 0; c < numActive; ++c)
         {
             if (pattern.noteCount[(size_t) c].load() > 0)   // questo canale usa il piano roll
                 continue;
@@ -842,10 +1207,9 @@ private:
                 continue;
 
             const float v = (float) vel / 127.0f;
-            const int rat = juce::jlimit (1, maxRatchet, (int) pattern.ratchet[(size_t) c][(size_t) stepIndex].load());
-            triggerChannel (c, v, humanizeAmt[(size_t) c], 0.0f, ticksPerStep / rat);
-
             const int count = juce::jlimit (1, maxRatchet, (int) pattern.ratchet[(size_t) c][(size_t) stepIndex].load());
+            triggerChannel (c, v, humanizeAmt[(size_t) c], -1, ticksPerStep / count);
+
             auto& r = ratchets[(size_t) c];
             r.remaining = count - 1;
             r.interval = juce::jmax (1, (int) (stepLength / count));
@@ -872,12 +1236,15 @@ private:
         currentTick.store (tick);
         playHead.ppq.store ((double) tick / (4.0 * ticksPerStep));
 
-        // Note del synth che finiscono a questo tick (prima delle nuove, cosi' una nota ripetuta riparte pulita)
+        // Note che finiscono a questo tick (prima delle nuove, cosi' una nota ripetuta riparte pulita)
         for (int note = 0; note < 128; ++note)
             if (synthOffTicks[(size_t) note] > 0 && --synthOffTicks[(size_t) note] == 0)
                 synthMidi.addEvent (juce::MidiMessage::noteOff (1, note), currentSample);
 
-        for (int c = 0; c < numChannels; ++c)
+        for (int c = 0; c < numActive; ++c)
+            samplers[(size_t) c].tick();
+
+        for (int c = 0; c < numActive; ++c)
         {
             if (pattern.noteCount[(size_t) c].load() <= 0)
                 continue;
@@ -889,17 +1256,17 @@ private:
                     continue;
 
                 const auto n = unpackNote (v);
-                if (c == synthChannel)
+                if (c == synthIndex)
                     synthNoteOn (n.pitch, (float) n.velocity / 127.0f, n.length);   // il synth riceve l'altezza vera
                 else
-                    triggerChannel (c, (float) n.velocity / 127.0f, humanizeAmt[(size_t) c], (float) (n.pitch - rootNote), n.length);
+                    triggerChannel (c, (float) n.velocity / 127.0f, humanizeAmt[(size_t) c], n.pitch, n.length, true);
             }
         }
     }
 
     void synthNoteOn (int note, float velocity, int lengthTicks)
     {
-        if (synthProcessor == nullptr || note < 0 || note > 127)
+        if (synthProcessor == nullptr || synthIndex < 0 || note < 0 || note > 127)
             return;
 
         if (synthOffTicks[(size_t) note] > 0)
@@ -907,13 +1274,13 @@ private:
 
         synthMidi.addEvent (juce::MidiMessage::noteOn (1, note, juce::jlimit (0.01f, 1.0f, velocity)), currentSample);
         synthOffTicks[(size_t) note] = juce::jmax (1, lengthTicks);
-        channels[synthChannel].activity.store (velocity);
-        channels[synthChannel].triggerCount.fetch_add (1);
+        channels[(size_t) synthIndex].activity.store (velocity);
+        channels[(size_t) synthIndex].triggerCount.fetch_add (1);
     }
 
     void synthPreview (int note)
     {
-        if (synthProcessor == nullptr)
+        if (synthProcessor == nullptr || synthIndex < 0)
             return;
 
         if (previewNote >= 0)
@@ -922,7 +1289,7 @@ private:
         previewNote = juce::jlimit (0, 127, note);
         previewSamplesLeft = (int) (0.45 * sampleRate.load());
         synthMidi.addEvent (juce::MidiMessage::noteOn (1, previewNote, 0.85f), 0);
-        channels[synthChannel].activity.store (0.85f);
+        channels[(size_t) synthIndex].activity.store (0.85f);
     }
 
     void synthAllNotesOff()
@@ -935,22 +1302,44 @@ private:
         synthMidi.addEvent (juce::MidiMessage::allNotesOff (1), 0);
     }
 
-    void triggerChannel (int c, float velocity, float humanize, float semitones = 0.0f, int lengthTicks = ticksPerStep)
+    /**
+        Suona un canale.
+        @param midiNote     nota del piano roll (-1 = lo step: suono alla sua altezza naturale)
+        @param lengthTicks  durata della nota (per synth e campioni "tenuti")
+        @param fromNote     true per le note del piano roll e le anteprime con altezza
+    */
+    void triggerChannel (int c, float velocity, float humanize, int midiNote, int lengthTicks, bool fromNote = false)
     {
-        if (c == synthChannel)
+        if (c == synthIndex)
         {
-            juce::ignoreUnused (humanize);
-            synthNoteOn (synthStepNote + juce::roundToInt (semitones), velocity, lengthTicks);
+            synthNoteOn (midiNote < 0 ? synthStepNote : midiNote, velocity, lengthTicks);
             return;
         }
 
-        // L'hi-hat chiuso "strozza" quello aperto, come su una vera drum machine.
-        if (c == closedHatChannel)
-            voices[openHatChannel].choke();
+        auto& ch = channels[(size_t) c];
+        auto& smp = samplers[(size_t) c];
 
-        voices[(size_t) c].trigger (velocity, humanize, semitones);
-        channels[(size_t) c].activity.store (velocity);
-        channels[(size_t) c].triggerCount.fetch_add (1);
+        if (const auto* sample = smp.getSample())
+        {
+            // Campione: le note sono relative alla nota a cui e' registrato. Gli step suonano il campione
+            // intero; le note del piano roll degli strumenti "tenuti" sfumano alla loro fine.
+            const float semis = midiNote < 0 ? 0.0f : (float) (midiNote - sample->rootNote);
+            const int gate = (fromNote && midiNote >= 0 && sample->gated && lengthTicks > 0) ? lengthTicks : -1;
+            smp.trigger (velocity, semis, gate, humanize, rng.nextFloat() * 2.0f - 1.0f, rng.nextFloat() * 2.0f - 1.0f);
+        }
+        else
+        {
+            // L'hi-hat chiuso "strozza" quello aperto, come su una vera drum machine.
+            if (ch.drumType.load() == closedHatType)
+                for (int o = 0; o < numActive; ++o)
+                    if (o != c && channels[(size_t) o].drumType.load() == openHatType && channels[(size_t) o].type.load() == drumOrSample)
+                        voices[(size_t) o].choke();
+
+            voices[(size_t) c].trigger (velocity, humanize, midiNote < 0 ? 0.0f : (float) (midiNote - rootNote));
+        }
+
+        ch.activity.store (velocity);
+        ch.triggerCount.fetch_add (1);
     }
 
     //==============================================================================
@@ -972,8 +1361,12 @@ private:
     };
 
     // Stato condiviso UI <-> audio
-    std::array<Channel, numChannels> channels;
+    std::array<Channel, maxChannels> channels;
     std::array<Pattern, numPatterns> patterns;
+    std::atomic<int>    numActiveChannels { defaultChannels };
+    std::atomic<int>    structureVersion { 0 };
+    std::atomic<bool>   structureChanged { true };
+    juce::SpinLock      structureLock;            // tenuto dalla UI solo mentre riordina i canali
     std::atomic<int>    currentPattern   { 0 };   // quello che si vede e si modifica
     std::atomic<int>    playingPattern   { 0 };   // quello che sta suonando
     std::atomic<bool>   playing          { false };
@@ -988,16 +1381,25 @@ private:
     std::atomic<float>  limiterReduction { 0.0f };
     std::atomic<double> sampleRate       { 48000.0 };
 
+    // Anteprima del browser dei suoni
+    std::atomic<const SampleData*> browserSample { nullptr };
+    std::atomic<int> browserPreview { 0 }, browserDrumType { 0 }, browserKit { 0 };
+
     // Stato usato SOLO dal thread audio
     struct RatchetState { int remaining = 0, interval = 1, countdown = 0; float velocity = 0.0f; };
 
-    std::array<DrumVoice, numChannels>    voices;
-    std::array<SVFilter, numChannels>     channelFilters;
-    std::array<RatchetState, numChannels> ratchets {};
-    std::array<int, numChannels>   appliedKits {}, appliedVersions {};
-    std::array<const SampleData*, numChannels> appliedSamples {};
-    std::array<float, numChannels> appliedFilter {}, gainL {}, gainR {}, sendRev {}, sendDel {}, humanizeAmt {};
+    std::array<DrumVoice, maxChannels>    voices;
+    std::array<SamplerPool, maxChannels>  samplers;
+    std::array<SVFilter, maxChannels>     channelFilters;
+    std::array<RatchetState, maxChannels> ratchets {};
+    std::array<int, maxChannels>   appliedKits {}, appliedVersions {}, appliedTypes {};
+    std::array<const SampleData*, maxChannels> appliedSamples {};
+    std::array<float, maxChannels> appliedFilter {}, gainL {}, gainR {}, sendRev {}, sendDel {}, humanizeAmt {};
+    SamplerPool browserSampler;
+    DrumVoice   browserDrum;
     juce::Random rng;
+    int    numActive            = defaultChannels;
+    int    synthIndex           = -1;
     int    stepIndex            = -1;
     int    tickInStep           = 0;
     int    currentSample        = 0;      // posizione nel blocco corrente (per gli eventi MIDI)

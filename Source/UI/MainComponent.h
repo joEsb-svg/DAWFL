@@ -8,6 +8,7 @@
 #include "ChannelEditor.h"
 #include "PianoRoll.h"
 #include "SynthPanel.h"
+#include "SoundBrowser.h"
 #include "JLoopSplash.h"
 #include "Haptics.h"
 
@@ -63,6 +64,17 @@ private:
     void importSample (int channel);
     void resolveSamples();
 
+    // Canali: aggiungi / clona / sposta / elimina, menu del canale, browser dei suoni
+    void rebuildRows();
+    void handleChannelCommand (int channel, int command);
+    void openBrowser (int channel);
+    void applySoundChoice (int channel, const SoundChoice& choice);
+    void askText (const juce::String& title, const juce::String& initial, std::function<void (juce::String)> onText);
+    void hideOverlays();
+    void scrollToChannel (int channel);
+    int shownStructure = -1;
+    int scrollStartY = 0;
+
     // Impostazioni dell'app (vibrazione, buffer audio), salvate a parte rispetto ai progetti
     std::unique_ptr<juce::PropertiesFile> settings;
     void loadSettings();
@@ -110,6 +122,10 @@ private:
     LevelMeter meter;
     StepRuler ruler;
     juce::OwnedArray<ChannelRow> rows;
+    juce::Viewport rackView;            // i canali scorrono in verticale quando non stanno tutti
+    juce::Component rackContent;
+    juce::TextButton addButton;
+    SoundBrowser browser { engine, sampleStore };
 
     juce::Rectangle<float> headerArea, logoArea, swingCaption, masterCaption, kitCaption, rackArea;
     bool portraitLayout = false;

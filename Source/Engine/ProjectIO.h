@@ -12,7 +12,7 @@
 */
 namespace ProjectIO
 {
-    static constexpr int formatVersion = 2;
+    static constexpr int formatVersion = 3;   // 3: canali variabili (tipo, nome, colore, libreria)
     static constexpr const char* extension = ".dawfl";
 
     inline juce::File getRootFolder()
@@ -76,12 +76,20 @@ namespace ProjectIO
         root->setProperty ("master", engine.getMasterVolume());
         root->setProperty ("currentPattern", engine.getCurrentPattern());
 
+        const int numChannels = engine.getNumChannels();
         juce::Array<juce::var> channels;
-        for (int c = 0; c < SequencerEngine::numChannels; ++c)
+        for (int c = 0; c < numChannels; ++c)
         {
             auto& ch = engine.getChannel (c);
             auto* o = new juce::DynamicObject();
-            o->setProperty ("name", SequencerEngine::getChannelInfo (c).name);
+            o->setProperty ("name", ch.name);
+            if (ch.customName)
+                o->setProperty ("customName", true);
+            o->setProperty ("type", ch.type.load() == SequencerEngine::synth ? "synth" : "drum");
+            o->setProperty ("drumType", ch.drumType.load());
+            o->setProperty ("colour", juce::String::toHexString ((juce::int64) ch.colour.load()));
+            if (ch.solo.load())
+                o->setProperty ("solo", true);
             o->setProperty ("kit", ch.kit.load());
             o->setProperty ("volume", ch.volume.load());
             o->setProperty ("muted", ch.muted.load());
@@ -108,7 +116,7 @@ namespace ProjectIO
             o->setProperty ("length", pat.length.load());
 
             juce::Array<juce::var> rows, probs, ratchets;
-            for (int c = 0; c < SequencerEngine::numChannels; ++c)
+            for (int c = 0; c < numChannels; ++c)
             {
                 rows.add (encodeRow (pat.velocity[(size_t) c]));
                 probs.add (encodeRow (pat.probability[(size_t) c]));
@@ -118,7 +126,7 @@ namespace ProjectIO
             // Note del piano roll: per canale una lista di [inizio, durata, altezza, velocity] in tick
             juce::Array<juce::var> notes;
             bool anyNotes = false;
-            for (int c = 0; c < SequencerEngine::numChannels; ++c)
+            for (int c = 0; c < numChannels; ++c)
             {
                 juce::Array<juce::var> list;
                 for (auto& n : engine.getNotes (p, c))
@@ -160,12 +168,38 @@ namespace ProjectIO
         engine.setSwing ((float) (double) json.getProperty ("swing", 0.0));
         engine.setMasterVolume ((float) (double) json.getProperty ("master", 1.0));
 
+        const int version = (int) json.getProperty ("version", 1);
+        int numChannels = SequencerEngine::defaultChannels;
+
         if (auto* channels = json.getProperty ("channels", {}).getArray())
         {
-            for (int c = 0; c < juce::jmin (channels->size(), SequencerEngine::numChannels); ++c)
+            numChannels = juce::jlimit (1, SequencerEngine::maxChannels, channels->size());
+            if (version < 3)
+                numChannels = SequencerEngine::defaultChannels;   // i progetti vecchi avevano sempre 6 batterie + BassForge
+            engine.setNumChannels (numChannels);
+
+            for (int c = 0; c < numChannels; ++c)
             {
-                const auto& o = channels->getReference (c);
+                const auto o = c < channels->size() ? channels->getReference (c) : juce::var();
                 auto& ch = engine.getChannel (c);
+
+                // Tipo di canale. Nei progetti vecchi (v1-v2) i canali erano fissi: 6 di batteria + BassForge.
+                const bool isSynthChannel = version >= 3 ? o.getProperty ("type", "drum").toString() == "synth" : c == 6;
+                const int drumType = version >= 3 ? (int) o.getProperty ("drumType", 0) : juce::jmin (c, SequencerEngine::numDrumTypes - 1);
+                ch.customName = false;
+                if (isSynthChannel)
+                    engine.makeSynthChannel (c);
+                else
+                    engine.makeDrumChannel (c, drumType);
+
+                if (version >= 3)
+                {
+                    ch.name = o.getProperty ("name", ch.name).toString();
+                    ch.customName = (bool) o.getProperty ("customName", false);
+                    ch.colour.store ((juce::uint32) o.getProperty ("colour", "ff8aa0b8").toString().getHexValue64());
+                    ch.solo.store ((bool) o.getProperty ("solo", false));
+                }
+
                 engine.setChannelKit (c, (int) o.getProperty ("kit", 0));
                 ch.volume.store (juce::jlimit (0.0f, 1.0f, (float) (double) o.getProperty ("volume", 0.8)));
                 ch.muted.store ((bool) o.getProperty ("muted", false));
@@ -197,11 +231,11 @@ namespace ProjectIO
                 auto& pat = engine.getPattern (p);
                 pat.length.store ((int) o.getProperty ("length", 16) > 16 ? 32 : 16);
 
-                auto readRows = [&o] (const char* key, std::array<SequencerEngine::Pattern::Row, SequencerEngine::numChannels>& target,
-                                      int lo, int hi)
+                auto readRows = [&o, numChannels] (const char* key, std::array<SequencerEngine::Pattern::Row, SequencerEngine::maxChannels>& target,
+                                                   int lo, int hi)
                 {
                     if (auto* rows = o.getProperty (key, {}).getArray())
-                        for (int c = 0; c < juce::jmin (rows->size(), SequencerEngine::numChannels); ++c)
+                        for (int c = 0; c < juce::jmin (rows->size(), numChannels); ++c)
                             decodeRow (target[(size_t) c], rows->getReference (c).toString(), lo, hi);
                 };
 
@@ -211,7 +245,7 @@ namespace ProjectIO
 
                 if (auto* notes = o.getProperty ("notes", {}).getArray())
                 {
-                    for (int c = 0; c < juce::jmin (notes->size(), SequencerEngine::numChannels); ++c)
+                    for (int c = 0; c < juce::jmin (notes->size(), numChannels); ++c)
                     {
                         std::vector<SequencerEngine::NoteData> list;
                         if (auto* arr = notes->getReference (c).getArray())

@@ -5,3 +5,4 @@ JuceLibraryCode/
 *.apk
 .DS_Store
 .vs/
+__pycache__/
