@@ -8,6 +8,7 @@
 #include "ChannelEditor.h"
 #include "PianoRoll.h"
 #include "SynthPanel.h"
+#include "JLoopSplash.h"
 #include "Haptics.h"
 
 //==============================================================================
@@ -85,6 +86,7 @@ private:
     SequencerEngine engine;
     std::unique_ptr<BassForgeAudioProcessor> bassForge;   // il synth ospitato (prima del pannello: viene distrutto dopo)
     std::unique_ptr<SynthPanel> synthPanel;
+    std::unique_ptr<JLoopSplash> splash;
     void openSynthPanel();
     juce::AudioDeviceManager deviceManager;
     juce::String audioError;

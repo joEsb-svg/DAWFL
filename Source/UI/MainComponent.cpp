@@ -165,6 +165,19 @@ MainComponent::MainComponent()
 
     startTimerHz (40);
     setSize (900, 440);
+
+    // Presentazione all'avvio (sopra a tutto, poi si toglie da sola)
+    splash = std::make_unique<JLoopSplash>();
+    splash->onFinished = [safe = juce::Component::SafePointer<MainComponent> (this)]
+    {
+        if (safe != nullptr && safe->splash != nullptr)
+        {
+            safe->removeChildComponent (safe->splash.get());
+            safe->splash.reset();
+        }
+    };
+    addAndMakeVisible (*splash);
+    splash->setBounds (getLocalBounds());
 }
 
 MainComponent::~MainComponent()
@@ -227,6 +240,12 @@ void MainComponent::paint (juce::Graphics& g)
 
 void MainComponent::resized()
 {
+    if (splash != nullptr)
+    {
+        splash->setBounds (getLocalBounds());
+        splash->toFront (false);
+    }
+
     auto full = getContentArea();
     portraitLayout = full.getWidth() < full.getHeight();
     patternDisplay.caption = portraitLayout ? "Pat" : "Pattern";
@@ -878,6 +897,12 @@ void MainComponent::redo()
 void MainComponent::handleCommandLine (const juce::String& commandLine)
 {
     auto args = juce::StringArray::fromTokens (commandLine, true);
+
+    if (args.contains ("--no-splash") && splash != nullptr)   // test: niente presentazione
+    {
+        removeChildComponent (splash.get());
+        splash.reset();
+    }
 
     if (const int i = args.indexOf ("--editor"); i >= 0)
         openEditor (juce::jlimit (0, SequencerEngine::numChannels - 1, args[i + 1].getIntValue()));
