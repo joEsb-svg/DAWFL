@@ -14,7 +14,7 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.17)
+## Stato attuale (v0.18)
 
 **Canali (channel rack)**
 - Fino a 32 canali: "+ Strumento" aggiunge un canale scegliendo il suono dal browser
@@ -44,7 +44,7 @@ Gli aggiornamenti si installano sopra la versione precedente.
 
 **Strumenti (synth)**
 - Ogni canale strumento ha il suo synth: si possono avere piu' BassForge e piu' PolyForge insieme
-  (browser dei suoni > Sintesi > Synth); clona, sposta ed elimina come gli altri canali
+  (browser dei suoni > Sintesi > Synth: BassForge, PolyForge, FMForge); clona, sposta ed elimina come gli altri canali
 - Pannello dello strumento con tastiera a schermo per suonare e provare i preset
 - Preset di fabbrica e utente per ogni synth ("Salva come preset utente" dal menu Preset)
 
@@ -55,6 +55,13 @@ Gli aggiornamenti si installano sopra la versione precedente.
 - 2 inviluppi ADSR, LFO (5 forme, libero o a tempo) su vibrato, filtro, volume e PWM
 - Effetti: chorus, delay ping-pong a tempo, riverbero; 24 preset di fabbrica
 - Interfaccia per il telefono nello stile di BassForge: schede OSC, FILTRO, ENV, LFO, FX
+
+**Synth FMForge** (Source/Instruments/FMForge)
+- FM a 4 operatori (stile DX/TX): rapporto, fine, livello, velocity e ADSR per operatore
+- 8 algoritmi (disegnati nella scheda ALGO), feedback, "Timbro", filtro "Tono"
+- LFO su vibrato, tremolo e timbro; Poly / Mono / Legato con glide; chorus, delay, riverbero
+- 22 preset: piani elettrici, organo, clavinet, campane, glockenspiel, marimba, vibrafono,
+  kalimba, steel drum, bassi FM (anche slap, 80s, growl, sub), brass, lead, pad, pluck, metalli
 
 **Synth BassForge**
 - Il synth BassForge (repository VST-, ramo bassforge-initial) e' compilato dentro l'app (un canale per progetto)

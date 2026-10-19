@@ -4,7 +4,7 @@
 #include <functional>
 #include "../Engine/SequencerEngine.h"
 #include "../Instruments/Instruments.h"
-#include "../Instruments/PolyForge/PolyForgeEditor.h"
+#include "../Instruments/Common/ForgeEditorBase.h"
 #include "Theme.h"
 
 //==============================================================================

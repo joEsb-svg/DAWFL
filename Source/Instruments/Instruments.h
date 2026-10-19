@@ -7,6 +7,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "PolyForge/PolyForge.h"
+#include "FMForge/FMForge.h"
 
 //==============================================================================
 /**
@@ -31,6 +32,7 @@ namespace Instruments
         {
             { "bassforge", "BassForge", "Bassi: wavetable, Performer, matrice", SequencerEngine::synthColour },
             { "polyforge", "PolyForge", "Polifonico: pad, lead, plucks, accordi", 0xffb07cff },
+            { "fmforge",   "FMForge",   "FM: piani elettrici, campane, bassi FM", 0xff7dffb0 },
         };
         return infos;
     }
@@ -46,6 +48,7 @@ namespace Instruments
     inline std::unique_ptr<juce::AudioProcessor> create (const juce::String& id)
     {
         if (id == "polyforge") return std::make_unique<PolyForgeAudioProcessor>();
+        if (id == "fmforge")   return std::make_unique<FMForgeAudioProcessor>();
         return std::make_unique<BassForgeAudioProcessor>();
     }
 
@@ -59,6 +62,8 @@ namespace Instruments
             for (int i = 0; i < bf::PresetManager::numFactory(); ++i) names.add (bf::PresetManager::factoryName (i));
         else if (dynamic_cast<PolyForgeAudioProcessor*> (p) != nullptr)
             for (int i = 0; i < pf::Presets::numFactory(); ++i) names.add (pf::Presets::factoryName (i));
+        else if (dynamic_cast<FMForgeAudioProcessor*> (p) != nullptr)
+            for (int i = 0; i < fm::Presets::numFactory(); ++i) names.add (fm::Presets::factoryName (i));
         return names;
     }
 
@@ -66,12 +71,14 @@ namespace Instruments
     {
         if (auto* b = dynamic_cast<BassForgeAudioProcessor*> (p))  b->getPresets().loadFactory (index);
         if (auto* f = dynamic_cast<PolyForgeAudioProcessor*> (p))  f->getPresets().loadFactory (index);
+        if (auto* m = dynamic_cast<FMForgeAudioProcessor*> (p))    m->getPresets().loadFactory (index);
     }
 
     inline juce::Array<juce::File> userPresets (juce::AudioProcessor* p)
     {
         if (auto* b = dynamic_cast<BassForgeAudioProcessor*> (p))  return b->getPresets().userPresets();
         if (auto* f = dynamic_cast<PolyForgeAudioProcessor*> (p))  return f->getPresets().userPresets();
+        if (auto* m = dynamic_cast<FMForgeAudioProcessor*> (p))    return m->getPresets().userPresets();
         return {};
     }
 
@@ -79,12 +86,14 @@ namespace Instruments
     {
         if (auto* b = dynamic_cast<BassForgeAudioProcessor*> (p))  b->getPresets().load (file);
         if (auto* f = dynamic_cast<PolyForgeAudioProcessor*> (p))  f->getPresets().load (file);
+        if (auto* m = dynamic_cast<FMForgeAudioProcessor*> (p))    m->getPresets().load (file);
     }
 
     inline bool saveUser (juce::AudioProcessor* p, const juce::String& name)
     {
         if (auto* b = dynamic_cast<BassForgeAudioProcessor*> (p))  return b->getPresets().save (name);
         if (auto* f = dynamic_cast<PolyForgeAudioProcessor*> (p))  return f->getPresets().save (name);
+        if (auto* m = dynamic_cast<FMForgeAudioProcessor*> (p))    return m->getPresets().save (name);
         return false;
     }
 
@@ -92,6 +101,7 @@ namespace Instruments
     {
         if (auto* b = dynamic_cast<BassForgeAudioProcessor*> (p))  return b->getPresets().currentName();
         if (auto* f = dynamic_cast<PolyForgeAudioProcessor*> (p))  return f->getPresets().currentName();
+        if (auto* m = dynamic_cast<FMForgeAudioProcessor*> (p))    return m->getPresets().currentName();
         return "Synth";
     }
 

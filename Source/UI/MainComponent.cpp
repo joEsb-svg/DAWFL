@@ -1045,7 +1045,7 @@ void MainComponent::handleCommandLine (const juce::String& commandLine)
     {
         openSynthPanel (args[i + 1].getIntValue());
         if (args.size() > i + 2)
-            if (auto* pfEditor = dynamic_cast<PolyForgeEditor*> (synthPanel->getEditorForTest()))
+            if (auto* pfEditor = dynamic_cast<ForgeEditorBase*> (synthPanel->getEditorForTest()))
                 pfEditor->showTab (args[i + 2].getIntValue());
     }
 

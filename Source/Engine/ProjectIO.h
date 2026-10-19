@@ -208,8 +208,8 @@ namespace ProjectIO
                 if (isSynthChannel)
                 {
                     const auto kind = o.getProperty ("instrument", "bassforge").toString();
-                    engine.makeInstrumentChannel (c, kind, kind == "polyforge" ? "PolyForge" : "BassForge",
-                                                  kind == "polyforge" ? 0xffb07cffu : SequencerEngine::synthColour);
+                    engine.makeInstrumentChannel (c, kind, kind == "polyforge" ? "PolyForge" : kind == "fmforge" ? "FMForge" : "BassForge",
+                                                  kind == "polyforge" ? 0xffb07cffu : kind == "fmforge" ? 0xff7dffb0u : SequencerEngine::synthColour);
                     ch.instrumentId = (int) o.getProperty ("instrumentId", 0);
                     ch.pendingState = o.getProperty ("state", {}).toString();   // lo applica la UI (Instruments::Host)
                 }
