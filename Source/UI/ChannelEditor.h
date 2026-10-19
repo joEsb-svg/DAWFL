@@ -113,6 +113,13 @@ public:
         for (auto* k : soundKnobs)
             k->setColour (colour);
 
+        // Per il synth il suono si modella dentro BassForge: qui restano solo mix ed effetti
+        const bool synth = SequencerEngine::isSynth (channel);
+        for (auto* k : { &pitch, &decay, &tone, &drive, &humanize })
+            k->setVisible (! synth);
+        resetButton.setVisible (! synth);
+        filter.setVisible (! synth);
+
         refreshFromEngine();
         repaint();
     }
@@ -154,7 +161,8 @@ public:
         g.drawText (SequencerEngine::getChannelInfo (channel).name, title, juce::Justification::centredLeft, false);
 
         // Separatori delle sezioni
-        Theme::drawCaption (g, "Suono", soundCaption, juce::Justification::centredLeft);
+        Theme::drawCaption (g, SequencerEngine::isSynth (channel) ? "Suono: apri BassForge dal menu del canale" : "Suono",
+                            soundCaption, juce::Justification::centredLeft);
         Theme::drawCaption (g, "Mix ed effetti", mixCaption, juce::Justification::centredLeft);
         g.setColour (Theme::border);
         g.drawHorizontalLine ((int) soundCaption.getY(), soundCaption.getX(), getWidth() - 10.0f);

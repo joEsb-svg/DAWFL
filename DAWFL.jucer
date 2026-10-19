@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <JUCERPROJECT name="DAWFL" projectType="guiapp" bundleIdentifier="com.joesb.dawfl"
-              version="0.8.0" companyName="joEsb" id="DwFl01" useAppConfig="0"
-              addUsingNamespaceToJuceHeader="0" cppLanguageStandard="20"
+              version="0.9.0" companyName="joEsb" id="DwFl01" useAppConfig="0"
+              addUsingNamespaceToJuceHeader="0" cppLanguageStandard="20" defines="JucePlugin_Name=&quot;BassForge&quot;&#10;JUCE_STRICT_REFCOUNTEDPOINTER=1"
               jucerFormatVersion="1">
   <MAINGROUP id="Mg0001" name="DAWFL">
     <GROUP id="{1A2B3C4D-0000-0000-0000-000000000001}" name="Source">
@@ -17,8 +17,10 @@
       <GROUP id="{1A2B3C4D-0000-0000-0000-000000000003}" name="UI">
         <FILE id="Fi0014" name="Haptics.h" compile="0" resource="0" file="Source/UI/Haptics.h"/>
         <FILE id="Fi0002" name="Theme.h" compile="0" resource="0" file="Source/UI/Theme.h"/>
-        <FILE id="Fi0007" name="DawLookAndFeel.h" compile="0" resource="0" file="Source/UI/DawLookAndFeel.h"/>
+        <FILE id="Fi0007" name="DawLookAndFeel.h" compile="0" resource="0"
+              file="Source/UI/DawLookAndFeel.h"/>
         <FILE id="Fi0008" name="Widgets.h" compile="0" resource="0" file="Source/UI/Widgets.h"/>
+        <FILE id="Fi0017" name="SynthPanel.h" compile="0" resource="0" file="Source/UI/SynthPanel.h"/>
         <FILE id="Fi0016" name="PianoRoll.h" compile="0" resource="0" file="Source/UI/PianoRoll.h"/>
         <FILE id="Fi0013" name="ChannelEditor.h" compile="0" resource="0" file="Source/UI/ChannelEditor.h"/>
         <FILE id="Fi0009" name="ChannelRow.h" compile="0" resource="0" file="Source/UI/ChannelRow.h"/>
@@ -32,20 +34,137 @@
     <GROUP id="{1A2B3C4D-0000-0000-0000-000000000004}" name="Resources">
       <FILE id="IcOn01" name="icon.png" compile="0" resource="0" file="Resources/icon.png"/>
     </GROUP>
+    <GROUP id="{BE1A880B-0000-0000-0000-BE1A880B3E73}" name="BassForge">
+      <GROUP id="{15D5F946-0000-0000-0000-15D5F9466BCA}" name="DSP">
+        <FILE id="bdfd48c" name="DualFilterEngine.cpp" compile="1" resource="0"
+              file="BassForge/Source/DSP/DualFilterEngine.cpp"/>
+        <FILE id="bb253b0" name="DualFilterEngine.h" compile="0" resource="0"
+              file="BassForge/Source/DSP/DualFilterEngine.h"/>
+        <FILE id="b54252e" name="Interpolation.h" compile="0" resource="0"
+              file="BassForge/Source/DSP/Interpolation.h"/>
+        <FILE id="b54e8f4" name="NoiseGenerator.cpp" compile="1" resource="0"
+              file="BassForge/Source/DSP/NoiseGenerator.cpp"/>
+        <FILE id="b81c11b" name="NoiseGenerator.h" compile="0" resource="0"
+              file="BassForge/Source/DSP/NoiseGenerator.h"/>
+        <FILE id="b33bcd0" name="SampleBank.cpp" compile="1" resource="0" file="BassForge/Source/DSP/SampleBank.cpp"/>
+        <FILE id="b32cfec" name="SampleBank.h" compile="0" resource="0" file="BassForge/Source/DSP/SampleBank.h"/>
+        <FILE id="b5462f2" name="Simd.h" compile="0" resource="0" file="BassForge/Source/DSP/Simd.h"/>
+        <FILE id="bce8d5b" name="SineLUT.h" compile="0" resource="0" file="BassForge/Source/DSP/SineLUT.h"/>
+        <FILE id="b123235" name="SubOscillator.cpp" compile="1" resource="0"
+              file="BassForge/Source/DSP/SubOscillator.cpp"/>
+        <FILE id="bbcdb27" name="SubOscillator.h" compile="0" resource="0"
+              file="BassForge/Source/DSP/SubOscillator.h"/>
+        <FILE id="bb69a72" name="Wavetable.cpp" compile="1" resource="0" file="BassForge/Source/DSP/Wavetable.cpp"/>
+        <FILE id="b11be1a" name="Wavetable.h" compile="0" resource="0" file="BassForge/Source/DSP/Wavetable.h"/>
+        <FILE id="be04ef6" name="WavetableOscillator.cpp" compile="1" resource="0"
+              file="BassForge/Source/DSP/WavetableOscillator.cpp"/>
+        <FILE id="b2515f6" name="WavetableOscillator.h" compile="0" resource="0"
+              file="BassForge/Source/DSP/WavetableOscillator.h"/>
+      </GROUP>
+      <GROUP id="{41DD4A40-0000-0000-0000-41DD4A4082F7}" name="FX">
+        <FILE id="b1c30ed" name="DimensionExpander.h" compile="0" resource="0"
+              file="BassForge/Source/FX/DimensionExpander.h"/>
+        <FILE id="bfa3040" name="FxCommon.h" compile="0" resource="0" file="BassForge/Source/FX/FxCommon.h"/>
+        <FILE id="b55d2f9" name="HyperDrive.h" compile="0" resource="0" file="BassForge/Source/FX/HyperDrive.h"/>
+        <FILE id="b13b81c" name="MasterDelay.h" compile="0" resource="0" file="BassForge/Source/FX/MasterDelay.h"/>
+        <FILE id="b9fdaf7" name="MasterFXChain.h" compile="0" resource="0"
+              file="BassForge/Source/FX/MasterFXChain.h"/>
+        <FILE id="b56ea8b" name="MasterLimiter.h" compile="0" resource="0"
+              file="BassForge/Source/FX/MasterLimiter.h"/>
+        <FILE id="b42039e" name="MasterReverb.h" compile="0" resource="0" file="BassForge/Source/FX/MasterReverb.h"/>
+        <FILE id="b49b876" name="MultibandOTT.h" compile="0" resource="0" file="BassForge/Source/FX/MultibandOTT.h"/>
+        <FILE id="b590604" name="Oversampler.h" compile="0" resource="0" file="BassForge/Source/FX/Oversampler.h"/>
+      </GROUP>
+      <GROUP id="{51358556-0000-0000-0000-5135855647C5}" name="Modulation">
+        <FILE id="bd60ae3" name="MidiModulators.h" compile="0" resource="0"
+              file="BassForge/Source/Modulation/MidiModulators.h"/>
+        <FILE id="b396b59" name="ModCurve.h" compile="0" resource="0" file="BassForge/Source/Modulation/ModCurve.h"/>
+        <FILE id="b17a99f" name="ModEnvelope.h" compile="0" resource="0" file="BassForge/Source/Modulation/ModEnvelope.h"/>
+        <FILE id="ba6020f" name="ModLfo.h" compile="0" resource="0" file="BassForge/Source/Modulation/ModLfo.h"/>
+        <FILE id="ba00025" name="ModMonitor.h" compile="0" resource="0" file="BassForge/Source/Modulation/ModMonitor.h"/>
+        <FILE id="b96d879" name="ModSync.h" compile="0" resource="0" file="BassForge/Source/Modulation/ModSync.h"/>
+        <FILE id="b2d41a7" name="ModTypes.h" compile="0" resource="0" file="BassForge/Source/Modulation/ModTypes.h"/>
+        <FILE id="bc097e4" name="ModulationMatrix.h" compile="0" resource="0"
+              file="BassForge/Source/Modulation/ModulationMatrix.h"/>
+        <FILE id="b0cd725" name="PerformerModulator.h" compile="0" resource="0"
+              file="BassForge/Source/Modulation/PerformerModulator.h"/>
+        <FILE id="b9089be" name="PerformerPattern.h" compile="0" resource="0"
+              file="BassForge/Source/Modulation/PerformerPattern.h"/>
+        <FILE id="bb0b7c0" name="VoiceModulation.h" compile="0" resource="0"
+              file="BassForge/Source/Modulation/VoiceModulation.h"/>
+      </GROUP>
+      <GROUP id="{EE9B579C-0000-0000-0000-EE9B579C00BD}" name="Parameters">
+        <FILE id="ba2aad7" name="ParamCache.h" compile="0" resource="0" file="BassForge/Source/Parameters/ParamCache.h"/>
+        <FILE id="b956a15" name="ParameterIDs.h" compile="0" resource="0" file="BassForge/Source/Parameters/ParameterIDs.h"/>
+        <FILE id="bd6e3a4" name="ParameterLayout.cpp" compile="1" resource="0"
+              file="BassForge/Source/Parameters/ParameterLayout.cpp"/>
+        <FILE id="bbc74e7" name="ParameterLayout.h" compile="0" resource="0"
+              file="BassForge/Source/Parameters/ParameterLayout.h"/>
+      </GROUP>
+      <FILE id="bc6919e" name="PluginEditor.cpp" compile="1" resource="0"
+            file="BassForge/Source/PluginEditor.cpp"/>
+      <FILE id="b62210d" name="PluginEditor.h" compile="0" resource="0" file="BassForge/Source/PluginEditor.h"/>
+      <FILE id="b093d1c" name="PluginProcessor.cpp" compile="1" resource="0"
+            file="BassForge/Source/PluginProcessor.cpp"/>
+      <FILE id="b0f43e0" name="PluginProcessor.h" compile="0" resource="0"
+            file="BassForge/Source/PluginProcessor.h"/>
+      <GROUP id="{94FF1DFD-0000-0000-0000-94FF1DFD5E55}" name="Presets">
+        <FILE id="bd0ff0d" name="PerformerState.h" compile="0" resource="0"
+              file="BassForge/Source/Presets/PerformerState.h"/>
+        <FILE id="bd0eeee" name="PresetManager.cpp" compile="1" resource="0"
+              file="BassForge/Source/Presets/PresetManager.cpp"/>
+        <FILE id="b158cd3" name="PresetManager.h" compile="0" resource="0"
+              file="BassForge/Source/Presets/PresetManager.h"/>
+      </GROUP>
+      <GROUP id="{39E499FB-0000-0000-0000-39E499FB70BE}" name="Synth">
+        <FILE id="b346541" name="BassVoice.cpp" compile="1" resource="0" file="BassForge/Source/Synth/BassVoice.cpp"/>
+        <FILE id="b6560ff" name="BassVoice.h" compile="0" resource="0" file="BassForge/Source/Synth/BassVoice.h"/>
+        <FILE id="b40645c" name="DirectBus.h" compile="0" resource="0" file="BassForge/Source/Synth/DirectBus.h"/>
+        <FILE id="b2efb07" name="SynthSound.h" compile="0" resource="0" file="BassForge/Source/Synth/SynthSound.h"/>
+      </GROUP>
+      <GROUP id="{76DE0C17-0000-0000-0000-76DE0C17921F}" name="UI">
+        <FILE id="bb45c8a" name="CustomLookAndFeel.cpp" compile="1" resource="0"
+              file="BassForge/Source/UI/CustomLookAndFeel.cpp"/>
+        <FILE id="b35537f" name="CustomLookAndFeel.h" compile="0" resource="0"
+              file="BassForge/Source/UI/CustomLookAndFeel.h"/>
+        <FILE id="bb2a7dc" name="EnvelopeView.h" compile="0" resource="0" file="BassForge/Source/UI/EnvelopeView.h"/>
+        <FILE id="bfc9304" name="KnobKit.h" compile="0" resource="0" file="BassForge/Source/UI/KnobKit.h"/>
+        <FILE id="b71ccfe" name="ModRing.h" compile="0" resource="0" file="BassForge/Source/UI/ModRing.h"/>
+        <FILE id="bda1071" name="Pages.cpp" compile="1" resource="0" file="BassForge/Source/UI/Pages.cpp"/>
+        <FILE id="b0a90d7" name="Pages.h" compile="0" resource="0" file="BassForge/Source/UI/Pages.h"/>
+        <FILE id="bf260cb" name="Palette.h" compile="0" resource="0" file="BassForge/Source/UI/Palette.h"/>
+        <FILE id="b213b00" name="PerformerEditor.cpp" compile="1" resource="0"
+              file="BassForge/Source/UI/PerformerEditor.cpp"/>
+        <FILE id="b27c84a" name="PerformerEditor.h" compile="0" resource="0"
+              file="BassForge/Source/UI/PerformerEditor.h"/>
+        <FILE id="b56e13a" name="PresetBar.h" compile="0" resource="0" file="BassForge/Source/UI/PresetBar.h"/>
+        <FILE id="b3fb444" name="ScopeView.h" compile="0" resource="0" file="BassForge/Source/UI/ScopeView.h"/>
+        <FILE id="bf13980" name="WavetableView.cpp" compile="1" resource="0"
+              file="BassForge/Source/UI/WavetableView.cpp"/>
+        <FILE id="bc498ca" name="WavetableView.h" compile="0" resource="0"
+              file="BassForge/Source/UI/WavetableView.h"/>
+      </GROUP>
+    </GROUP>
   </MAINGROUP>
   <EXPORTFORMATS>
-    <ANDROIDSTUDIO targetFolder="Builds/Android" smallIcon="IcOn01" bigIcon="IcOn01" androidVersionCode="8" androidMinimumSDK="24" androidScreenOrientation="landscape"
+    <ANDROIDSTUDIO targetFolder="Builds/Android" smallIcon="IcOn01" bigIcon="IcOn01"
+                   androidVersionCode="9" androidMinimumSDK="24" androidScreenOrientation="landscape"
                    androidInternetNeeded="0" androidExternalWriteNeeded="0" androidPushNotifications="0"
                    androidReadMediaAudioPermission="0" androidReadMediaImagesPermission="0"
                    androidReadMediaVideoPermission="0">
       <CONFIGURATIONS>
-        <CONFIGURATION isDebug="1" name="Debug" androidArchitectures="arm64-v8a armeabi-v7a"/>
-        <CONFIGURATION isDebug="0" name="Release" androidArchitectures="arm64-v8a armeabi-v7a"/>
+        <CONFIGURATION isDebug="1" name="Debug" androidArchitectures="arm64-v8a armeabi-v7a" headerPath="../../BassForge/Source"/>
+        <CONFIGURATION isDebug="0" name="Release" androidArchitectures="arm64-v8a armeabi-v7a" headerPath="../../BassForge/Source"/>
       </CONFIGURATIONS>
       <MODULEPATHS>
         <MODULEPATH id="juce_audio_basics" path="JUCE/modules"/>
         <MODULEPATH id="juce_audio_devices" path="JUCE/modules"/>
         <MODULEPATH id="juce_audio_formats" path="JUCE/modules"/>
+        <MODULEPATH id="juce_gui_extra" path="JUCE/modules"/>
+        <MODULEPATH id="juce_dsp" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_utils" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors_headless" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors" path="JUCE/modules"/>
         <MODULEPATH id="juce_core" path="JUCE/modules"/>
         <MODULEPATH id="juce_data_structures" path="JUCE/modules"/>
         <MODULEPATH id="juce_events" path="JUCE/modules"/>
@@ -55,13 +174,18 @@
     </ANDROIDSTUDIO>
     <VS2022 targetFolder="Builds/VisualStudio2022" smallIcon="IcOn01" bigIcon="IcOn01">
       <CONFIGURATIONS>
-        <CONFIGURATION isDebug="1" name="Debug"/>
-        <CONFIGURATION isDebug="0" name="Release"/>
+        <CONFIGURATION isDebug="1" name="Debug" headerPath="../../BassForge/Source"/>
+        <CONFIGURATION isDebug="0" name="Release" headerPath="../../BassForge/Source"/>
       </CONFIGURATIONS>
       <MODULEPATHS>
         <MODULEPATH id="juce_audio_basics" path="JUCE/modules"/>
         <MODULEPATH id="juce_audio_devices" path="JUCE/modules"/>
         <MODULEPATH id="juce_audio_formats" path="JUCE/modules"/>
+        <MODULEPATH id="juce_gui_extra" path="JUCE/modules"/>
+        <MODULEPATH id="juce_dsp" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_utils" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors_headless" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors" path="JUCE/modules"/>
         <MODULEPATH id="juce_core" path="JUCE/modules"/>
         <MODULEPATH id="juce_data_structures" path="JUCE/modules"/>
         <MODULEPATH id="juce_events" path="JUCE/modules"/>
@@ -71,13 +195,18 @@
     </VS2022>
     <LINUX_MAKE targetFolder="Builds/LinuxMakefile">
       <CONFIGURATIONS>
-        <CONFIGURATION isDebug="1" name="Debug"/>
-        <CONFIGURATION isDebug="0" name="Release"/>
+        <CONFIGURATION isDebug="1" name="Debug" headerPath="../../BassForge/Source"/>
+        <CONFIGURATION isDebug="0" name="Release" headerPath="../../BassForge/Source"/>
       </CONFIGURATIONS>
       <MODULEPATHS>
         <MODULEPATH id="juce_audio_basics" path="JUCE/modules"/>
         <MODULEPATH id="juce_audio_devices" path="JUCE/modules"/>
         <MODULEPATH id="juce_audio_formats" path="JUCE/modules"/>
+        <MODULEPATH id="juce_gui_extra" path="JUCE/modules"/>
+        <MODULEPATH id="juce_dsp" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_utils" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors_headless" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors" path="JUCE/modules"/>
         <MODULEPATH id="juce_core" path="JUCE/modules"/>
         <MODULEPATH id="juce_data_structures" path="JUCE/modules"/>
         <MODULEPATH id="juce_events" path="JUCE/modules"/>
@@ -90,12 +219,18 @@
     <MODULE id="juce_audio_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_audio_devices" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_audio_formats" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_processors" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_processors_headless" showAllCode="1" useLocalCopy="0"
+            useGlobalPath="0"/>
+    <MODULE id="juce_audio_utils" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_core" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_data_structures" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_dsp" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_events" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_graphics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_gui_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_gui_extra" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
   </MODULES>
-  <JUCEOPTIONS JUCE_USE_MP3AUDIOFORMAT="1"/>
+  <JUCEOPTIONS JUCE_USE_MP3AUDIOFORMAT="1" JUCE_WEB_BROWSER="0" JUCE_USE_CURL="0"/>
   <LIVE_SETTINGS/>
 </JUCERPROJECT>

@@ -85,6 +85,7 @@ private:
     juce::uint64 shownNotesHash = 0;
     void paintNotesPreview (juce::Graphics&, bool muted);
     const void* shownSample = nullptr;
+    juce::String shownLabel;
     int      shownPattern = -1;
 
     /** Appunti condivisi tra le righe per "Copia riga" / "Incolla riga". */

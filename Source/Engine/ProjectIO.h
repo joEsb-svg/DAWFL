@@ -64,7 +64,8 @@ namespace ProjectIO
     }
 
     //==============================================================================
-    inline juce::var toJson (SequencerEngine& engine)
+    /** @param includeSynthState  false per le istantanee dell'undo (lo stato del synth e' grande e ha i suoi preset) */
+    inline juce::var toJson (SequencerEngine& engine, bool includeSynthState = true)
     {
         auto* root = new juce::DynamicObject();
         root->setProperty ("app", "DAWFL");
@@ -133,6 +134,15 @@ namespace ProjectIO
             patterns.add (juce::var (o));
         }
         root->setProperty ("patterns", patterns);
+
+        // Stato completo di BassForge (tutti i parametri + pattern dei Performer), in base64
+        if (includeSynthState)
+            if (auto* synth = engine.getSynth())
+            {
+                juce::MemoryBlock state;
+                synth->getStateInformation (state);
+                root->setProperty ("bassforge", state.toBase64Encoding());
+            }
 
         return juce::var (root);
     }
@@ -213,6 +223,15 @@ namespace ProjectIO
         }
 
         engine.selectPattern ((int) json.getProperty ("currentPattern", 0));
+
+        if (auto* synth = engine.getSynth())
+        {
+            const auto encoded = json.getProperty ("bassforge", {}).toString();
+            juce::MemoryBlock state;
+            if (encoded.isNotEmpty() && state.fromBase64Encoding (encoded))
+                synth->setStateInformation (state.getData(), (int) state.getSize());
+        }
+
         return true;
     }
 

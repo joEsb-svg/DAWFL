@@ -59,7 +59,7 @@ public:
         auto notes = engine.getNotes (channel);
         if (notes.empty())
         {
-            scrollToPitch ((float) SequencerEngine::rootNote);
+            scrollToPitch ((float) (SequencerEngine::isSynth (channel) ? SequencerEngine::synthStepNote : SequencerEngine::rootNote));
             return;
         }
 

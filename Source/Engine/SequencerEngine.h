@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <vector>
+#include <limits>
 #include "DrumVoice.h"
 
 //==============================================================================
@@ -31,7 +32,10 @@ class SequencerEngine : public juce::AudioIODeviceCallback
 {
 public:
     static constexpr int maxSteps         = 32;
-    static constexpr int numChannels      = 6;
+    static constexpr int numChannels      = 7;     // 6 strumenti di batteria + il synth BassForge
+    static constexpr int numDrumChannels  = 6;
+    static constexpr int synthChannel     = 6;
+    static constexpr int synthStepNote    = 48;    // nota suonata dagli step del synth (C3: registro da basso)
     static constexpr int numPatterns      = 8;
     static constexpr int closedHatChannel = 3;
     static constexpr int openHatChannel   = 4;
@@ -64,6 +68,7 @@ public:
             { "Hi-Hat",   0xff4fb3a9 },
             { "Open Hat", 0xff5b8fd6 },
             { "Tom",      0xff9a78d0 },
+            { "BassForge", 0xff2fc6d6 },
         };
         return infos[index];
     }
@@ -138,7 +143,7 @@ public:
         for (int p = 0; p < numPatterns; ++p)
             clearPattern (p);
 
-        static const float defaultVolumes[numChannels] = { 0.8f, 0.8f, 0.7f, 0.6f, 0.55f, 0.75f };
+        static const float defaultVolumes[numChannels] = { 0.8f, 0.8f, 0.7f, 0.6f, 0.55f, 0.75f, 0.8f };
 
         for (int c = 0; c < numChannels; ++c)
             resetChannel (c, defaultVolumes[c]);
@@ -402,7 +407,8 @@ public:
 
     Channel& getChannel (int index)             { return channels[(size_t) index]; }
 
-    void previewChannel (int channel, float semitones = 0.0f)
+    /** Fa sentire lo strumento. Senza altezza: suono "di base" (per il synth la nota degli step). */
+    void previewChannel (int channel, float semitones = std::numeric_limits<float>::quiet_NaN())
     {
         channels[(size_t) channel].previewPitch.store (semitones);
         channels[(size_t) channel].previewRequested.store (true);
@@ -413,9 +419,24 @@ public:
 
     void setAllKits (int kit)
     {
-        for (int c = 0; c < numChannels; ++c)
+        for (int c = 0; c < numDrumChannels; ++c)
             setChannelKit (c, kit);
     }
+
+    static bool isSynth (int channel)           { return channel == synthChannel; }
+
+    //==============================================================================
+    // Synth BassForge (un AudioProcessor JUCE ospitato da DAWFL)
+
+    /** Da chiamare una volta, prima di avviare l'audio. Il processore resta di proprieta' del chiamante. */
+    void setSynth (juce::AudioProcessor* processor)
+    {
+        synthProcessor = processor;
+        if (synthProcessor != nullptr)
+            synthProcessor->setPlayHead (&playHead);
+    }
+
+    juce::AudioProcessor* getSynth() const      { return synthProcessor; }
 
     //==============================================================================
     // Stato per la UI
@@ -471,6 +492,17 @@ public:
         limiterAttack  = (float) std::exp (-1.0 / (0.0005 * sr));
 
         metroPhase = 0.0; metroEnv = 0.0f;
+
+        // Synth: prepara il processore come farebbe una DAW con un plugin
+        synthBuffer.setSize (2, chunk);
+        synthMidi.ensureSize (16384);
+        synthOffTicks.fill (0);
+        previewNote = -1;
+        if (synthProcessor != nullptr)
+        {
+            synthProcessor->setPlayConfigDetails (0, 2, sr, chunk);
+            synthProcessor->prepareToPlay (sr, chunk);
+        }
     }
 
     void audioDeviceStopped() override {}
@@ -491,10 +523,25 @@ public:
 
         updateVoiceParams (sr);
 
+        // Stop: spegne tutte le note del synth
+        if (wasPlaying && ! playing.load())
+            synthAllNotesOff();
+        wasPlaying = playing.load();
+
+        playHead.bpm.store (bpm.load());
+        playHead.playing.store (playing.load());
+        currentSample = 0;
+
         // Anteprime richieste dalla UI (tocco sul nome del canale).
         for (int c = 0; c < numChannels; ++c)
             if (channels[(size_t) c].previewRequested.exchange (false))
-                triggerChannel (c, 0.9f, 0.0f, channels[(size_t) c].previewPitch.load());
+            {
+                const float semis = channels[(size_t) c].previewPitch.load();
+                if (c == synthChannel)
+                    synthPreview (std::isnan (semis) ? synthStepNote : rootNote + juce::roundToInt (semis));
+                else
+                    triggerChannel (c, 0.9f, 0.0f, std::isnan (semis) ? 0.0f : semis);
+            }
 
         // Parametri del mix letti una volta per blocco.
         for (int c = 0; c < numChannels; ++c)
@@ -530,7 +577,7 @@ private:
     //==============================================================================
     void updateVoiceParams (double sr)
     {
-        for (int c = 0; c < numChannels; ++c)
+        for (int c = 0; c < numDrumChannels; ++c)
         {
             auto& ch = channels[(size_t) c];
             const int kit = ch.kit.load();
@@ -578,6 +625,15 @@ private:
 
         for (int s = 0; s < n; ++s)
         {
+            currentSample = s;
+
+            // Fine dell'anteprima del synth
+            if (previewNote >= 0 && --previewSamplesLeft <= 0)
+            {
+                synthMidi.addEvent (juce::MidiMessage::noteOff (1, previewNote), s);
+                previewNote = -1;
+            }
+
             if (isOn)
             {
                 // Clock a tick: 12 tick per step; all'inizio di ogni step suonano gli step,
@@ -600,7 +656,7 @@ private:
                     auto& r = ratchets[(size_t) c];
                     if (r.remaining > 0 && --r.countdown <= 0)
                     {
-                        triggerChannel (c, r.velocity, humanizeAmt[(size_t) c] * 0.5f);
+                        triggerChannel (c, r.velocity, humanizeAmt[(size_t) c] * 0.5f, 0.0f, juce::jmax (1, ticksPerStep / maxRatchet));
                         r.velocity *= 0.85f;
                         r.countdown = r.interval;
                         --r.remaining;
@@ -610,7 +666,7 @@ private:
 
             float l = 0.0f, r = 0.0f, rev = 0.0f, del = 0.0f;
 
-            for (int c = 0; c < numChannels; ++c)
+            for (int c = 0; c < numDrumChannels; ++c)
             {
                 auto& voice = voices[(size_t) c];
                 if (! voice.isActive())
@@ -630,6 +686,48 @@ private:
                 del += x * sendDel[(size_t) c];
             }
 
+            delIn[(size_t) s] = del;
+
+            mixL[(size_t) s] = l;
+            mixR[(size_t) s] = r;
+            revL[(size_t) s] = rev;
+            revR[(size_t) s] = rev;
+        }
+
+        // Synth: suona il blocco con i suoi eventi MIDI (gia' alla posizione giusta nel blocco)
+        if (synthProcessor != nullptr)
+        {
+            juce::AudioBuffer<float> view (synthBuffer.getArrayOfWritePointers(), 2, n);
+            view.clear();
+            synthProcessor->processBlock (view, synthMidi);
+            synthMidi.clear();
+
+            auto& ch = channels[synthChannel];
+            const float g   = ch.muted.load() ? 0.0f : ch.volume.load();
+            const float pan = ch.pan.load();
+            const float gl  = g * juce::jmin (1.0f, 1.0f - pan);   // bilanciamento stereo
+            const float gr  = g * juce::jmin (1.0f, 1.0f + pan);
+            const float sr2 = g * ch.reverb.load() * 0.5f;
+            const float sd2 = g * ch.delay.load() * 0.5f;
+            const float* sl = view.getReadPointer (0);
+            const float* sr_ = view.getReadPointer (1);
+
+            for (int s = 0; s < n; ++s)
+            {
+                mixL[(size_t) s] += sl[s] * gl;
+                mixR[(size_t) s] += sr_[s] * gr;
+                revL[(size_t) s] += (sl[s] + sr_[s]) * sr2;
+                revR[(size_t) s]  = revL[(size_t) s];
+                delIn[(size_t) s] += (sl[s] + sr_[s]) * sd2;
+            }
+        }
+
+        // Delay ping-pong con un po' di attenuazione degli acuti nei rimbalzi
+        for (int s = 0; s < n; ++s)
+        {
+            const float del = delIn[(size_t) s];
+            float l = 0.0f, r = 0.0f;
+
             // Delay ping-pong con un po' di attenuazione degli acuti nei rimbalzi
             {
                 const size_t size = delayBuffer[0].size();
@@ -647,10 +745,8 @@ private:
                 r += dr;
             }
 
-            mixL[(size_t) s] = l;
-            mixR[(size_t) s] = r;
-            revL[(size_t) s] = rev;
-            revR[(size_t) s] = rev;
+            mixL[(size_t) s] += l;
+            mixR[(size_t) s] += r;
         }
 
         reverb.processStereo (revL.data(), revR.data(), n);
@@ -746,7 +842,8 @@ private:
                 continue;
 
             const float v = (float) vel / 127.0f;
-            triggerChannel (c, v, humanizeAmt[(size_t) c]);
+            const int rat = juce::jlimit (1, maxRatchet, (int) pattern.ratchet[(size_t) c][(size_t) stepIndex].load());
+            triggerChannel (c, v, humanizeAmt[(size_t) c], 0.0f, ticksPerStep / rat);
 
             const int count = juce::jlimit (1, maxRatchet, (int) pattern.ratchet[(size_t) c][(size_t) stepIndex].load());
             auto& r = ratchets[(size_t) c];
@@ -773,6 +870,12 @@ private:
         auto& pattern = patterns[(size_t) playingPattern.load()];
         const int tick = stepIndex * ticksPerStep + tickInStep;
         currentTick.store (tick);
+        playHead.ppq.store ((double) tick / (4.0 * ticksPerStep));
+
+        // Note del synth che finiscono a questo tick (prima delle nuove, cosi' una nota ripetuta riparte pulita)
+        for (int note = 0; note < 128; ++note)
+            if (synthOffTicks[(size_t) note] > 0 && --synthOffTicks[(size_t) note] == 0)
+                synthMidi.addEvent (juce::MidiMessage::noteOff (1, note), currentSample);
 
         for (int c = 0; c < numChannels; ++c)
         {
@@ -786,13 +889,61 @@ private:
                     continue;
 
                 const auto n = unpackNote (v);
-                triggerChannel (c, (float) n.velocity / 127.0f, humanizeAmt[(size_t) c], (float) (n.pitch - rootNote));
+                if (c == synthChannel)
+                    synthNoteOn (n.pitch, (float) n.velocity / 127.0f, n.length);   // il synth riceve l'altezza vera
+                else
+                    triggerChannel (c, (float) n.velocity / 127.0f, humanizeAmt[(size_t) c], (float) (n.pitch - rootNote), n.length);
             }
         }
     }
 
-    void triggerChannel (int c, float velocity, float humanize, float semitones = 0.0f)
+    void synthNoteOn (int note, float velocity, int lengthTicks)
     {
+        if (synthProcessor == nullptr || note < 0 || note > 127)
+            return;
+
+        if (synthOffTicks[(size_t) note] > 0)
+            synthMidi.addEvent (juce::MidiMessage::noteOff (1, note), currentSample);
+
+        synthMidi.addEvent (juce::MidiMessage::noteOn (1, note, juce::jlimit (0.01f, 1.0f, velocity)), currentSample);
+        synthOffTicks[(size_t) note] = juce::jmax (1, lengthTicks);
+        channels[synthChannel].activity.store (velocity);
+        channels[synthChannel].triggerCount.fetch_add (1);
+    }
+
+    void synthPreview (int note)
+    {
+        if (synthProcessor == nullptr)
+            return;
+
+        if (previewNote >= 0)
+            synthMidi.addEvent (juce::MidiMessage::noteOff (1, previewNote), 0);
+
+        previewNote = juce::jlimit (0, 127, note);
+        previewSamplesLeft = (int) (0.45 * sampleRate.load());
+        synthMidi.addEvent (juce::MidiMessage::noteOn (1, previewNote, 0.85f), 0);
+        channels[synthChannel].activity.store (0.85f);
+    }
+
+    void synthAllNotesOff()
+    {
+        for (int note = 0; note < 128; ++note)
+            if (synthOffTicks[(size_t) note] > 0)
+                synthMidi.addEvent (juce::MidiMessage::noteOff (1, note), 0);
+
+        synthOffTicks.fill (0);
+        synthMidi.addEvent (juce::MidiMessage::allNotesOff (1), 0);
+    }
+
+    void triggerChannel (int c, float velocity, float humanize, float semitones = 0.0f, int lengthTicks = ticksPerStep)
+    {
+        if (c == synthChannel)
+        {
+            juce::ignoreUnused (humanize);
+            synthNoteOn (synthStepNote + juce::roundToInt (semitones), velocity, lengthTicks);
+            return;
+        }
+
         // L'hi-hat chiuso "strozza" quello aperto, come su una vera drum machine.
         if (c == closedHatChannel)
             voices[openHatChannel].choke();
@@ -803,6 +954,23 @@ private:
     }
 
     //==============================================================================
+    /** Il "playhead" che il synth legge per BPM e posizione (LFO e Performer a tempo). */
+    struct EnginePlayHead : public juce::AudioPlayHead
+    {
+        std::atomic<double> bpm { 120.0 }, ppq { 0.0 };
+        std::atomic<bool>   playing { false };
+
+        juce::Optional<PositionInfo> getPosition() const override
+        {
+            PositionInfo info;
+            info.setBpm (bpm.load());
+            info.setPpqPosition (ppq.load());
+            info.setIsPlaying (playing.load());
+            info.setTimeSignature (juce::AudioPlayHead::TimeSignature { 4, 4 });
+            return info;
+        }
+    };
+
     // Stato condiviso UI <-> audio
     std::array<Channel, numChannels> channels;
     std::array<Pattern, numPatterns> patterns;
@@ -832,10 +1000,20 @@ private:
     juce::Random rng;
     int    stepIndex            = -1;
     int    tickInStep           = 0;
+    int    currentSample        = 0;      // posizione nel blocco corrente (per gli eventi MIDI)
+    bool   wasPlaying           = false;
+
+    // Synth
+    juce::AudioProcessor* synthProcessor = nullptr;
+    EnginePlayHead playHead;
+    juce::AudioBuffer<float> synthBuffer;
+    juce::MidiBuffer synthMidi;
+    std::array<int, 128> synthOffTicks {};   // tick mancanti alla fine di ogni nota (0 = spenta)
+    int previewNote = -1, previewSamplesLeft = 0;
     double samplesUntilNextTick = 0.0;
     double currentStepLength    = 1.0;
 
-    std::array<float, chunk> mixL {}, mixR {}, revL {}, revR {};
+    std::array<float, chunk> mixL {}, mixR {}, revL {}, revR {}, delIn {};
     juce::Reverb reverb;
     std::vector<float> delayBuffer[2];
     size_t delayWrite = 0;

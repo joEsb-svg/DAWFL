@@ -7,6 +7,7 @@
 #include "ChannelRow.h"
 #include "ChannelEditor.h"
 #include "PianoRoll.h"
+#include "SynthPanel.h"
 #include "Haptics.h"
 
 //==============================================================================
@@ -82,6 +83,9 @@ private:
     juce::String getKitLabel() const;
 
     SequencerEngine engine;
+    std::unique_ptr<BassForgeAudioProcessor> bassForge;   // il synth ospitato (prima del pannello: viene distrutto dopo)
+    std::unique_ptr<SynthPanel> synthPanel;
+    void openSynthPanel();
     juce::AudioDeviceManager deviceManager;
     juce::String audioError;
     juce::String projectName;

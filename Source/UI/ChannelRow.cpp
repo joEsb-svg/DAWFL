@@ -1,5 +1,6 @@
 #include "ChannelRow.h"
 #include "Theme.h"
+#include "PluginProcessor.h"
 
 ChannelRow::RowClipboard ChannelRow::clipboard;
 
@@ -412,6 +413,13 @@ void ChannelRow::refresh (int currentStep)
         needsRepaint = true;
     }
 
+    if (SequencerEngine::isSynth (channel))
+        if (const auto label = getSoundLabel (engine, channel); label != shownLabel)
+        {
+            shownLabel = label;
+            needsRepaint = true;
+        }
+
     if (const void* smp = engine.getChannel (channel).sample.load(); smp != shownSample)
     {
         shownSample = smp;
@@ -464,9 +472,9 @@ void ChannelRow::showRowMenu()
 
     juce::PopupMenu menu;
     menu.addSectionHeader (SequencerEngine::getChannelInfo (channel).name);
-    menu.addItem (1, "Modifica suono...");
+    menu.addItem (1, SequencerEngine::isSynth (channel) ? "Apri BassForge..." : "Modifica suono...");
     menu.addItem (8, "Piano roll...");
-    menu.addSubMenu ("Suono", library);
+    menu.addSubMenu (SequencerEngine::isSynth (channel) ? "Preset" : "Suono", library);
     menu.addSeparator();
     menu.addItem (2, juce::String (juce::CharPointer_UTF8 ("Sposta a sinistra  \xe2\x97\x80")));
     menu.addItem (3, juce::String (juce::CharPointer_UTF8 ("Sposta a destra  \xe2\x96\xb6")));
@@ -529,6 +537,13 @@ void ChannelRow::showRowMenu()
 
 juce::String ChannelRow::getSoundLabel (SequencerEngine& engine, int channel)
 {
+    if (SequencerEngine::isSynth (channel))
+    {
+        if (auto* bf = dynamic_cast<BassForgeAudioProcessor*> (engine.getSynth()))
+            return bf->getPresets().currentName();
+        return "Synth";
+    }
+
     auto& ch = engine.getChannel (channel);
     if (ch.sample.load() != nullptr)
         return juce::String (juce::CharPointer_UTF8 ("\xe2\x99\xaa ")) + SampleStore::displayName (ch.sampleName);

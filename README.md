@@ -12,7 +12,7 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.8)
+## Stato attuale (v0.9)
 
 **Suono e mix**
 - 6 strumenti sintetizzati, 6 kit per strumento (Classic, Rock, Drum & Bass, Dubstep, Techno, Progressive)
@@ -25,6 +25,13 @@ Gli aggiornamenti si installano sopra la versione precedente.
 - Importa i tuoi suoni dal telefono (WAV, AIFF, FLAC, OGG, MP3): menu ▾ di un canale > Suono > Importa campione
 - I campioni vengono copiati nell'app e normalizzati; pitch, decay, tono, drive ed effetti valgono anche per loro
 - I progetti ricordano il campione di ogni canale
+
+**Synth BassForge**
+- Il synth BassForge (repository VST-, ramo bassforge-initial) e' compilato dentro l'app come settimo canale
+- Suona dagli step (nota C3) o dal piano roll, con note on/off precise al campione; BPM e posizione arrivano
+  al synth per LFO e Performer a tempo
+- Interfaccia completa di BassForge a schermo intero (Adatta / Zoom), preset di fabbrica e utente
+- Volume, pan, riverbero e delay del canale; lo stato del synth e' salvato nel progetto
 
 **Piano roll**
 - Note con inizio, durata e altezza per ogni canale e pattern (menu ▾ > Piano roll)
@@ -54,6 +61,7 @@ DAWFL.jucer                  progetto JUCE (Projucer)
 Source/Main.cpp              avvio dell'app e finestra
 Source/Engine/               motore audio (thread real-time), libreria suoni, salvataggio
 Source/UI/                   interfaccia
+BassForge/Source/            sorgenti del synth BassForge (JUCE AudioProcessor ospitato dal motore)
 .github/workflows/           compilazione automatica dell'APK
 ci/debug.keystore            chiave di firma di sviluppo (password "android")
 ```

@@ -22,6 +22,31 @@ MainComponent::MainComponent()
     setLookAndFeel (&lookAndFeel);
     juce::LookAndFeel::setDefaultLookAndFeel (&lookAndFeel);   // anche per finestre e menu
 
+    // --- Synth BassForge: creato prima di tutto, cosi' i progetti caricati ne ripristinano lo stato
+    bassForge = std::make_unique<BassForgeAudioProcessor>();
+    engine.setSynth (bassForge.get());
+
+    synthPanel = std::make_unique<SynthPanel> (*bassForge);
+    synthPanel->onClose   = [this] { synthPanel->closeEditor(); synthPanel->setVisible (false); };
+    synthPanel->onPreview = [this] { engine.previewChannel (SequencerEngine::synthChannel); };
+    synthPanel->onOpenMix = [this]
+    {
+        synthPanel->closeEditor();
+        synthPanel->setVisible (false);
+        openEditor (SequencerEngine::synthChannel);
+    };
+    synthPanel->onShowPresets = [this] (juce::Component& target)
+    {
+        auto menu = buildSoundMenu (SequencerEngine::synthChannel);
+        juce::Component::SafePointer<MainComponent> safeThis (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&target), [safeThis] (int result)
+        {
+            if (safeThis != nullptr && result > 0)
+                safeThis->handleSoundMenu (SequencerEngine::synthChannel, result);
+        });
+    };
+    addChildComponent (*synthPanel);
+
     // --- Menu file
     fileButton.setButtonText ("FILE");
     fileButton.onClick = [this] { showFileMenu(); };
@@ -95,7 +120,11 @@ MainComponent::MainComponent()
     for (int c = 0; c < SequencerEngine::numChannels; ++c)
     {
         auto* row = rows.add (new ChannelRow (engine, c));
-        row->onOpenEditor = [this] (int ch) { Haptics::tick (this); openEditor (ch); };
+        row->onOpenEditor = [this] (int ch)
+        {
+            Haptics::tick (this);
+            if (SequencerEngine::isSynth (ch)) openSynthPanel(); else openEditor (ch);
+        };
         row->onTap = [this] { Haptics::tick (this); };
         row->onOpenPianoRoll = [this] (int ch) { Haptics::tick (this); openPianoRoll (ch); };
         row->buildSoundMenu  = [this] (int ch) { return buildSoundMenu (ch); };
@@ -347,6 +376,8 @@ void MainComponent::layoutRack (juce::Rectangle<int> full, bool portrait)
     ruler.setBounds (rows.getFirst()->getX(), rulerArea.getY(), rows.getFirst()->getWidth(), rulerArea.getHeight());
     editor.setBounds (rowsArea.withTop (rulerArea.getY()).expanded (2, 2));
     pianoRoll.setBounds (full);   // il piano roll copre tutto il channel rack, barra compresa
+    if (synthPanel != nullptr)
+        synthPanel->setBounds (getContentArea());   // BassForge usa tutto lo schermo
 }
 
 int MainComponent::getVisibleSteps() const
@@ -391,6 +422,8 @@ void MainComponent::syncControlsFromEngine()
 {
     swingKnob.setValue (engine.getSwing(), juce::dontSendNotification);
     metroButton.setToggleState (engine.isMetronomeOn(), juce::dontSendNotification);
+    if (synthPanel != nullptr)
+        synthPanel->refreshPresetName();
     if (editor.isVisible())
         editor.refreshFromEngine();
     masterKnob.setValue (engine.getMasterVolume(), juce::dontSendNotification);
@@ -403,7 +436,7 @@ juce::String MainComponent::getKitLabel() const
 {
     // Se tutti gli strumenti usano lo stesso kit ne mostra il nome, altrimenti "Misto".
     const int first = engine.getChannelKit (0);
-    for (int c = 1; c < SequencerEngine::numChannels; ++c)
+    for (int c = 1; c < SequencerEngine::numDrumChannels; ++c)
         if (engine.getChannelKit (c) != first)
             return "Misto";
 
@@ -628,12 +661,15 @@ void MainComponent::newProject()
 {
     engine.setPlaying (false);
     engine.resetProject();
+    bassForge->getPresets().loadFactory (0);   // BassForge torna al preset "Init"
+    synthPanel->refreshPresetName();
     projectName = untitled;
     pageSwitch.setSelected (0);
     modeSwitch.setSelected (0);
     undoStack.clear(); redoStack.clear(); lastSnapshot = takeSnapshot();
     editor.setVisible (false);
     pianoRoll.setVisible (false);
+    synthPanel->onClose();
     syncControlsFromEngine();
     saveSession();
     repaint();
@@ -729,6 +765,16 @@ void MainComponent::showMessage (const juce::String& title, const juce::String& 
 }
 
 //==============================================================================
+void MainComponent::openSynthPanel()
+{
+    editor.setVisible (false);
+    pianoRoll.setVisible (false);
+    synthPanel->setBounds (getContentArea());
+    synthPanel->open();
+    synthPanel->setVisible (true);
+    synthPanel->toFront (false);
+}
+
 void MainComponent::openPianoRoll (int channel)
 {
     editor.setVisible (false);
@@ -768,7 +814,7 @@ void MainComponent::tapTempo()
 juce::String MainComponent::takeSnapshot()
 {
     // Il pattern selezionato non conta come "modifica": lo togliamo dall'istantanea
-    auto json = ProjectIO::toJson (engine);
+    auto json = ProjectIO::toJson (engine, false);   // il synth ha i suoi preset: non entra nell'undo
     if (auto* obj = json.getDynamicObject())
         obj->removeProperty ("currentPattern");
     return juce::JSON::toString (json, true);
@@ -836,6 +882,9 @@ void MainComponent::handleCommandLine (const juce::String& commandLine)
     if (const int i = args.indexOf ("--editor"); i >= 0)
         openEditor (juce::jlimit (0, SequencerEngine::numChannels - 1, args[i + 1].getIntValue()));
 
+    if (args.contains ("--synth"))
+        openSynthPanel();
+
     if (const int i = args.indexOf ("--roll"); i >= 0)
         openPianoRoll (juce::jlimit (0, SequencerEngine::numChannels - 1, args[i + 1].getIntValue()));
 
@@ -900,6 +949,25 @@ juce::PopupMenu MainComponent::createSettingsMenu()
 
 juce::PopupMenu MainComponent::buildSoundMenu (int channel)
 {
+    if (SequencerEngine::isSynth (channel))
+    {
+        juce::PopupMenu menu;
+        menu.addItem (650, "Apri BassForge...");
+        menu.addSectionHeader ("Preset di fabbrica");
+        const auto current = bassForge->getPresets().currentName();
+        for (int i = 0; i < bf::PresetManager::numFactory(); ++i)
+            menu.addItem (600 + i, bf::PresetManager::factoryName (i), true, bf::PresetManager::factoryName (i) == current);
+
+        const auto user = bassForge->getPresets().userPresets();
+        if (! user.isEmpty())
+        {
+            menu.addSectionHeader ("Preset utente");
+            for (int i = 0; i < juce::jmin (user.size(), 200); ++i)
+                menu.addItem (700 + i, user[i].getFileNameWithoutExtension(), true, user[i].getFileNameWithoutExtension() == current);
+        }
+        return menu;
+    }
+
     auto& ch = engine.getChannel (channel);
     const bool usingSample = ch.sample.load() != nullptr;
     const int kit = engine.getChannelKit (channel);
@@ -921,6 +989,28 @@ juce::PopupMenu MainComponent::buildSoundMenu (int channel)
 
 void MainComponent::handleSoundMenu (int channel, int result)
 {
+    if (SequencerEngine::isSynth (channel))
+    {
+        if (result == 650)
+            openSynthPanel();
+        else if (result >= 600 && result < 600 + bf::PresetManager::numFactory())
+            bassForge->getPresets().loadFactory (result - 600);
+        else if (result >= 700)
+        {
+            const auto user = bassForge->getPresets().userPresets();
+            if (result - 700 < user.size())
+                bassForge->getPresets().load (user[result - 700]);
+        }
+
+        if (result != 650)
+            engine.previewChannel (channel);
+
+        synthPanel->refreshPresetName();
+        if (editor.isVisible())
+            editor.refreshFromEngine();
+        return;
+    }
+
     auto& ch = engine.getChannel (channel);
 
     if (result >= 100 && result < 100 + SoundLibrary::numKits)
@@ -994,7 +1084,7 @@ void MainComponent::resolveSamples()
     // Dopo un caricamento i nomi dei campioni ci sono, i puntatori no: li ricolleghiamo
     juce::StringArray missing;
 
-    for (int c = 0; c < SequencerEngine::numChannels; ++c)
+    for (int c = 0; c < SequencerEngine::numDrumChannels; ++c)
     {
         auto& ch = engine.getChannel (c);
         if (ch.sampleName.isEmpty())
