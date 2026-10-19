@@ -19,15 +19,15 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Java (8 per il toolchain JUCE, 17 per Gradle)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: |
@@ -50,13 +50,14 @@ jobs:
         if: steps.juce-cache.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libfreetype-dev libfontconfig1-dev
-          # Projucer serve solo da riga di comando: le estensioni X11 opzionali e curl non servono.
-          make -C JUCE/extras/Projucer/Builds/LinuxMakefile CONFIG=Release -j"$(nproc)" \
-            CPPFLAGS="-UJUCE_USE_CURL -DJUCE_USE_CURL=0 -DJUCE_USE_XRANDR=0 -DJUCE_USE_XINERAMA=0 -DJUCE_USE_XCURSOR=0 -DJUCE_USE_XINPUT=0 -DJUCE_USE_XRENDER=0"
+          sudo apt-get install -y build-essential pkg-config libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxrender-dev libxcomposite-dev
+          # Projucer serve solo da riga di comando: curl non serve.
+          ci/run-logged.sh "Projucer" make -C JUCE/extras/Projucer/Builds/LinuxMakefile CONFIG=Release -j"$(nproc)" \
+            CPPFLAGS="-UJUCE_USE_CURL -DJUCE_USE_CURL=0"
 
       - name: Genera il progetto Android
-        run: JUCE/extras/Projucer/Builds/LinuxMakefile/build/Projucer --resave DAWFL.jucer
+        run: ci/run-logged.sh "Projucer resave" JUCE/extras/Projucer/Builds/LinuxMakefile/build/Projucer --resave DAWFL.jucer
 
       - name: Installa NDK e CMake
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION" "cmake;$CMAKE_VERSION" > /dev/null
@@ -79,7 +80,7 @@ jobs:
         working-directory: Builds/Android
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease_Release --no-daemon --stacktrace \
+          ../../ci/run-logged.sh "Gradle" ./gradlew assembleRelease_Release --no-daemon \
             -Porg.gradle.java.installations.paths="$JAVA_HOME_8_X64,$JAVA_HOME_17_X64"
 
       - name: Prepara APK
