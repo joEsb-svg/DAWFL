@@ -29,7 +29,7 @@ public:
     enum Command
     {
         changeSound = 10, editSound = 11, openPianoRoll = 12, rename = 13, solo = 16,
-        clone = 17, moveUp = 18, moveDown = 19, remove = 20, colourBase = 1400
+        clone = 17, moveUp = 18, moveDown = 19, remove = 20, openMixer = 21, colourBase = 1400, mixerTrackBase = 3000
     };
 
     static constexpr int numColours = 12;

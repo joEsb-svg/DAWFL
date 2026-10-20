@@ -14,7 +14,7 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.19)
+## Stato attuale (v0.20)
 
 **Canali (channel rack)**
 - Fino a 32 canali: "+ Strumento" aggiunge un canale scegliendo il suono dal browser
@@ -30,6 +30,21 @@ Gli aggiornamenti si installano sopra la versione precedente.
 - Browser con anteprima: tocca un suono per sentirlo, poi "Aggiungi" o "Usa questo suono"
 - Campionatore polifonico (accordi nel piano roll); gli strumenti "tenuti" (archi, organo, pad...) sfumano
   alla fine della nota; ogni suono sa la sua nota, cosi' il piano roll suona intonato
+
+**Mixer** (pulsante MIXER, o MENU > Mixer)
+- Traccia Master + 32 tracce insert, come in FL Studio: ogni canale manda il suono a una traccia
+  (menu del canale > Mixer); i canali nuovi prendono da soli una traccia libera
+- Per traccia: volume (fader in dB), panorama, muto, solo, misuratore, nome e colore
+- Equalizzatore a 3 bande (bassi, medi con la frequenza, alti) e fino a 6 effetti in fila:
+  compressore, saturazione, filtro (con LFO), delay a tempo, riverbero, chorus, bitcrusher,
+  sidechain, stereo; ogni effetto si puo' escludere o spostare su e giu'
+- Sidechain: la traccia si abbassa a ogni colpo di un'altra (la cassa) e risale nel tempo di rilascio
+- Anche la traccia Master ha EQ ed effetti (prima del limiter); tutto e' salvato nel progetto e nell'undo
+
+**Pattern**
+- 99 pattern per progetto: dal menu del pattern "Nuovo pattern vuoto", "Clona in un pattern nuovo",
+  "Rinomina", "Copia in", "Svuota"; le frecce scorrono i pattern in uso piu' uno nuovo
+- I nomi dei pattern compaiono anche nella playlist
 
 **Suono e mix**
 - Batteria sintetizzata: 6 strumenti, 6 kit (Classic, Rock, Drum & Bass, Dubstep, Techno, Progressive)

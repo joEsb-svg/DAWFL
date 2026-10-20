@@ -10,6 +10,7 @@
 #include <limits>
 #include "DrumVoice.h"
 #include "Sampler.h"
+#include "Mixer.h"
 
 //==============================================================================
 /**
@@ -100,6 +101,7 @@ public:
         // Strumento (synth) del canale: un AudioProcessor posseduto dalla UI (Instruments::Host)
         std::atomic<juce::AudioProcessor*> instrument { nullptr };
         std::atomic<int> stepNote { synthStepNote };   // nota suonata dagli step (DrumForge: 36, il primo pad)
+        std::atomic<int> mixerTrack { 0 };             // traccia del mixer: 0 = Master, 1..32 = insert
 
         // Usati solo dal thread della UI
         juce::String name;
@@ -182,7 +184,7 @@ public:
 
     //==============================================================================
     /** Progetto nuovo: tutto vuoto e valori di default. */
-    void resetProject()
+    void resetProject (bool keepMixerEffects = false)
     {
         for (int p = 0; p < numPatterns; ++p)
         {
@@ -200,6 +202,12 @@ public:
         for (int c = 0; c < numDrumTypes; ++c)
             makeDrumChannel (c, c);
         makeSynthChannel (defaultChannels - 1);
+
+        // Mixer: ogni canale del progetto nuovo ha la sua traccia insert
+        for (int t = 0; t < mixer::numTracks; ++t)
+            resetTrack (t, keepMixerEffects);
+        for (int c = 0; c < defaultChannels; ++c)
+            channels[(size_t) c].mixerTrack.store (c + 1);
 
         bpm.store (120.0);
         swing.store (0.0f);
@@ -235,6 +243,7 @@ public:
         ch.reverb.store (0.0f);
         ch.delay.store (0.0f);
         ch.humanize.store (0.15f);
+        ch.mixerTrack.store (0);
         ch.sample.store (nullptr);
         ch.sampleName.clear();
         ch.touchSound();
@@ -364,6 +373,7 @@ public:
         }
         if (index == n) order.push_back (-1);
         applyOrder (order);
+        channels[(size_t) index].mixerTrack.store (findFreeInsert());
         return index;
     }
 
@@ -414,6 +424,132 @@ public:
                 order.push_back (i);
         order.insert (order.begin() + to, from);
         applyOrder (order);
+    }
+
+    //==============================================================================
+    // Mixer (thread della UI)
+
+    mixer::Track& getTrack (int t)                  { return tracks[(size_t) juce::jlimit (0, mixer::numTracks - 1, t)]; }
+    const mixer::Track& getTrack (int t) const      { return tracks[(size_t) juce::jlimit (0, mixer::numTracks - 1, t)]; }
+    int getChannelTrack (int c) const               { return channels[(size_t) c].mixerTrack.load(); }
+    void setChannelTrack (int c, int t)             { channels[(size_t) c].mixerTrack.store (juce::jlimit (0, mixer::numInserts, t)); }
+
+    /** La traccia non e' mai stata toccata (nessun effetto, volume e EQ di default, nessun nome). */
+    bool isTrackDefault (int t) const
+    {
+        auto& tr = getTrack (t);
+        for (auto& s : tr.slots)
+            if (s.type.load() != mixer::none)
+                return false;
+        return std::abs (tr.volume.load() - 1.0f) < 0.0001f && tr.pan.load() == 0.0f && ! tr.muted.load() && ! tr.solo.load()
+            && tr.eqLow.load() == 0.0f && tr.eqMid.load() == 0.0f && tr.eqHigh.load() == 0.0f && tr.name.isEmpty();
+    }
+
+    bool isTrackUsed (int t) const
+    {
+        if (t == 0) return true;
+        for (int c = 0; c < getNumChannels(); ++c)
+            if (channels[(size_t) c].mixerTrack.load() == t)
+                return true;
+        return ! isTrackDefault (t);
+    }
+
+    /** La prima traccia insert libera (nessun canale e nessuna regolazione); 0 = nessuna, va al Master. */
+    int findFreeInsert() const
+    {
+        for (int t = 1; t <= mixer::numInserts; ++t)
+            if (! isTrackUsed (t))
+                return t;
+        return 0;
+    }
+
+    juce::String getTrackName (int t) const
+    {
+        if (t <= 0) return "Master";
+        const auto& tr = getTrack (t);
+        if (tr.name.isNotEmpty()) return tr.name;
+        for (int c = 0; c < getNumChannels(); ++c)
+            if (channels[(size_t) c].mixerTrack.load() == t)
+                return channels[(size_t) c].name;
+        return "Insert " + juce::String (t);
+    }
+
+    juce::Colour getTrackColour (int t) const
+    {
+        if (t <= 0) return juce::Colour (0xffff9a3c);
+        if (const auto col = getTrack (t).colour; col != 0) return juce::Colour (col);
+        for (int c = 0; c < getNumChannels(); ++c)
+            if (channels[(size_t) c].mixerTrack.load() == t)
+                return juce::Colour (channels[(size_t) c].colour.load());
+        return juce::Colour (0xff6c7a89);
+    }
+
+    /** Mette un effetto in uno slot (none = lo toglie). L'effetto si crea qui, fuori dal thread audio. */
+    void setTrackEffect (int t, int slot, int type)
+    {
+        auto& s = getTrack (t).slots[(size_t) juce::jlimit (0, mixer::numSlots - 1, slot)];
+        type = juce::jlimit (0, mixer::numFxTypes - 1, type);
+        if (s.type.load() == type && (type == mixer::none) == (s.owned == nullptr))
+        {
+            resetEffectParams (s, type);
+            return;
+        }
+
+        auto fx = mixer::createEffect (type);
+        if (fx != nullptr)
+            fx->prepare (sampleRate.load());
+
+        std::unique_ptr<mixer::Effect> old;
+        {
+            const juce::SpinLock::ScopedLockType lock (structureLock);
+            resetEffectParams (s, type);
+            s.type.store (type);
+            s.bypass.store (false);
+            old = std::move (s.owned);
+            s.owned = std::move (fx);
+            s.effect = s.owned.get();
+        }
+    }   // il vecchio effetto viene distrutto qui, quando il thread audio non lo usa piu'
+
+    /** Scambia due slot di una traccia (per spostare un effetto su o giu'). */
+    void swapTrackEffects (int t, int a, int b)
+    {
+        if (a == b || a < 0 || b < 0 || a >= mixer::numSlots || b >= mixer::numSlots)
+            return;
+        auto& tr = getTrack (t);
+        auto& x = tr.slots[(size_t) a];
+        auto& y = tr.slots[(size_t) b];
+        const juce::SpinLock::ScopedLockType lock (structureLock);
+        const int tx = x.type.load(); x.type.store (y.type.load()); y.type.store (tx);
+        const bool bx = x.bypass.load(); x.bypass.store (y.bypass.load()); y.bypass.store (bx);
+        for (int p = 0; p < mixer::maxParams; ++p)
+        {
+            const float v = x.params[(size_t) p].load();
+            x.params[(size_t) p].store (y.params[(size_t) p].load());
+            y.params[(size_t) p].store (v);
+        }
+        std::swap (x.owned, y.owned);
+        x.effect = x.owned.get();
+        y.effect = y.owned.get();
+    }
+
+    void resetTrack (int t, bool keepEffects = false)
+    {
+        auto& tr = getTrack (t);
+        tr.volume.store (1.0f); tr.pan.store (0.0f);
+        tr.muted.store (false); tr.solo.store (false);
+        tr.eqLow.store (0.0f); tr.eqMid.store (0.0f); tr.eqMidFreq.store (1000.0f); tr.eqHigh.store (0.0f);
+        tr.name.clear();
+        tr.colour = 0;
+        if (! keepEffects)
+            for (int s = 0; s < mixer::numSlots; ++s)
+                setTrackEffect (t, s, mixer::none);
+    }
+
+    float takeTrackPeak (int t)
+    {
+        auto& tr = getTrack (t);
+        return juce::jmax (tr.peakL.exchange (0.0f), tr.peakR.exchange (0.0f));
     }
 
     //==============================================================================
@@ -840,6 +976,15 @@ public:
 
         metroPhase = 0.0; metroEnv = 0.0f;
 
+        // Mixer
+        for (int t = 0; t < mixer::numTracks; ++t)
+        {
+            trackEq[(size_t) t].reset();
+            for (auto& s : tracks[(size_t) t].slots)
+                if (s.effect != nullptr)
+                    s.effect->prepare (sr);
+        }
+
         // Strumenti: si preparano come farebbe una DAW con i plugin
         instBuffer.setSize (2, chunk);
         for (int c = 0; c < maxChannels; ++c)
@@ -989,6 +1134,13 @@ public:
             humanizeAmt[(size_t) c] = ch.humanize.load();
         }
 
+        // Mixer: la traccia di ogni canale, e se c'e' una traccia in solo
+        for (int c = 0; c < numActive; ++c)
+            trackOf[(size_t) c] = juce::jlimit (0, mixer::numInserts, channels[(size_t) c].mixerTrack.load());
+        anyTrackSolo = false;
+        for (int t = 1; t < mixer::numTracks; ++t)
+            anyTrackSolo = anyTrackSolo || tracks[(size_t) t].solo.load();
+
         // Elaborazione a blocchi da massimo 'chunk' campioni (gli effetti lavorano su buffer)
         int done = 0;
         while (done < numSamples)
@@ -1018,7 +1170,7 @@ private:
         const SampleData* sample;
         juce::AudioProcessor* instrument;
         juce::String name, sampleName, instrumentKind, pendingState;
-        int instrumentId, stepNote;
+        int instrumentId, stepNote, mixerTrack;
 
         struct PatternRows
         {
@@ -1061,6 +1213,7 @@ private:
         out.instrument = ch.instrument.load(); out.instrumentKind = ch.instrumentKind;
         out.instrumentId = ch.instrumentId; out.pendingState = ch.pendingState;
         out.stepNote = ch.stepNote.load();
+        out.mixerTrack = ch.mixerTrack.load();
 
         out.rows.resize ((size_t) juce::jlimit (1, numPatterns, patternLimit));
         for (int p = 0; p < (int) out.rows.size(); ++p)
@@ -1092,6 +1245,7 @@ private:
         ch.instrument.store (in.instrument); ch.instrumentKind = in.instrumentKind;
         ch.instrumentId = in.instrumentId; ch.pendingState = in.pendingState;
         ch.stepNote.store (in.stepNote);
+        ch.mixerTrack.store (in.mixerTrack);
         ch.touchSound();
 
         for (int p = 0; p < (int) in.rows.size(); ++p)
@@ -1167,6 +1321,13 @@ private:
         structureVersion.fetch_add (1);
     }
 
+    static void resetEffectParams (mixer::Slot& s, int type)
+    {
+        const auto& inf = mixer::info (type);
+        for (int p = 0; p < mixer::maxParams; ++p)
+            s.params[(size_t) p].store (p < inf.numParams ? inf.params[(size_t) p].defaultValue : 0.0f);
+    }
+
     void resetChannelVoices (double sr)
     {
         for (int c = 0; c < maxChannels; ++c)
@@ -1239,6 +1400,15 @@ private:
 
         float peak = 0.0f, maxReduction = 0.0f;
 
+        // Ingressi delle tracce del mixer: si azzerano quelle che ricevono qualcosa in questo blocco
+        trackFed.fill (false);
+        trackFed[0] = true;
+        for (int c = 0; c < numActive; ++c)
+            trackFed[(size_t) trackOf[(size_t) c]] = true;
+        for (int t = 0; t < mixer::numTracks; ++t)
+            if (trackFed[(size_t) t])
+                clearTrack (t, n);
+
         for (int s = 0; s < n; ++s)
         {
             currentSample = s;
@@ -1294,10 +1464,11 @@ private:
                     x = lp;
                 }
 
-                l   += x * gainL[(size_t) c];
-                r   += x * gainR[(size_t) c];
-                rev += x * sendRev[(size_t) c];
-                del += x * sendDel[(size_t) c];
+                const int t = trackOf[(size_t) c];
+                tL (t)[s]   += x * gainL[(size_t) c];
+                tR (t)[s]   += x * gainR[(size_t) c];
+                tRev (t)[s] += x * sendRev[(size_t) c];
+                tDel (t)[s] += x * sendDel[(size_t) c];
             }
 
             delIn[(size_t) s] = del;
@@ -1354,16 +1525,23 @@ private:
             const float sd2 = g * ch.delay.load() * 0.5f;
             const float* sl = view.getReadPointer (0);
             const float* sr_ = view.getReadPointer (1);
+            const int t = trackOf[(size_t) c];
+            float* outL = tL (t);
+            float* outR = tR (t);
+            float* outRev = tRev (t);
+            float* outDel = tDel (t);
 
             for (int s = 0; s < n; ++s)
             {
-                mixL[(size_t) s] += sl[s] * gl;
-                mixR[(size_t) s] += sr_[s] * gr;
-                revL[(size_t) s] += (sl[s] + sr_[s]) * sr2;
-                revR[(size_t) s]  = revL[(size_t) s];
-                delIn[(size_t) s] += (sl[s] + sr_[s]) * sd2;
+                outL[s] += sl[s] * gl;
+                outR[s] += sr_[s] * gr;
+                outRev[s] += (sl[s] + sr_[s]) * sr2;
+                outDel[s] += (sl[s] + sr_[s]) * sd2;
             }
         }
+
+        // Mixer: EQ ed effetti di ogni traccia, poi tutto nel Master
+        processMixer (sr, n);
 
         // Delay ping-pong con un po' di attenuazione degli acuti nei rimbalzi
         for (int s = 0; s < n; ++s)
@@ -1388,8 +1566,17 @@ private:
 
         for (int s = 0; s < n; ++s)
         {
-            float l = (mixL[(size_t) s] + revL[(size_t) s] * 0.6f) * masterGain;
-            float r = (mixR[(size_t) s] + revR[(size_t) s] * 0.6f) * masterGain;
+            mixL[(size_t) s] += revL[(size_t) s] * 0.6f;
+            mixR[(size_t) s] += revR[(size_t) s] * 0.6f;
+        }
+
+        // Effetti della traccia Master
+        runTrackChain (0, mixL.data(), mixR.data(), sr, n);
+
+        for (int s = 0; s < n; ++s)
+        {
+            float l = mixL[(size_t) s] * masterGain;
+            float r = mixR[(size_t) s] * masterGain;
 
             // Metronomo: va dritto in uscita, fuori dagli effetti e dal limiter
             float click = 0.0f;
@@ -1411,8 +1598,142 @@ private:
 
         if (peak > outputPeak.load())
             outputPeak.store (peak);
+        if (peak > tracks[0].peakL.load())
+        {
+            tracks[0].peakL.store (peak);
+            tracks[0].peakR.store (peak);
+        }
 
         limiterReduction.store (maxReduction);
+    }
+
+    float* trackBuffer (int t, int which) noexcept    { return trackBuffers.data() + ((size_t) t * 4 + (size_t) which) * (size_t) chunk; }
+    float* tL (int t) noexcept      { return trackBuffer (t, 0); }
+    float* tR (int t) noexcept      { return trackBuffer (t, 1); }
+    float* tRev (int t) noexcept    { return trackBuffer (t, 2); }
+    float* tDel (int t) noexcept    { return trackBuffer (t, 3); }
+
+    void clearTrack (int t, int n) noexcept
+    {
+        for (int w = 0; w < 4; ++w)
+            juce::FloatVectorOperations::clear (trackBuffer (t, w), n);
+    }
+
+    bool trackHasEffects (int t) const noexcept
+    {
+        for (auto& s : tracks[(size_t) t].slots)
+            if (s.effect != nullptr && ! s.bypass.load())
+                return true;
+        return false;
+    }
+
+    /** EQ ed effetti di una traccia, sul posto. */
+    void runTrackChain (int t, float* L, float* R, double sr, int n) noexcept
+    {
+        auto& tr = tracks[(size_t) t];
+        auto& eq = trackEq[(size_t) t];
+        eq.update (sr, tr.eqLow.load(), tr.eqMid.load(), tr.eqMidFreq.load(), tr.eqHigh.load());
+        eq.process (L, R, n);
+
+        mixer::Context ctx;
+        ctx.sampleRate = sr;
+        ctx.bpm = bpm.load();
+        for (auto& s : tr.slots)
+        {
+            if (s.effect == nullptr || s.bypass.load())
+                continue;
+            float params[mixer::maxParams];
+            for (int p = 0; p < mixer::maxParams; ++p)
+                params[p] = s.params[(size_t) p].load();
+
+            ctx.keyL = ctx.keyR = nullptr;
+            if (s.type.load() == mixer::sidechain)
+            {
+                const int src = juce::jlimit (1, mixer::numInserts, juce::roundToInt (params[0]));
+                if (src != t && keyReady[(size_t) src])
+                {
+                    ctx.keyL = keyBuffers.data() + (size_t) src * 2 * (size_t) chunk;
+                    ctx.keyR = ctx.keyL + chunk;
+                }
+            }
+            s.effect->process (L, R, n, params, ctx);
+        }
+    }
+
+    void processMixer (double sr, int n) noexcept
+    {
+        // Sidechain: si copia l'ingresso (prima degli effetti) delle tracce sorgente
+        keyReady.fill (false);
+        for (int t = 0; t < mixer::numTracks; ++t)
+            for (auto& s : tracks[(size_t) t].slots)
+                if (s.effect != nullptr && ! s.bypass.load() && s.type.load() == mixer::sidechain)
+                {
+                    const int src = juce::jlimit (1, mixer::numInserts, juce::roundToInt (s.params[0].load()));
+                    if (keyReady[(size_t) src])
+                        continue;
+                    float* k = keyBuffers.data() + (size_t) src * 2 * (size_t) chunk;
+                    if (trackFed[(size_t) src])
+                    {
+                        juce::FloatVectorOperations::copy (k, tL (src), n);
+                        juce::FloatVectorOperations::copy (k + chunk, tR (src), n);
+                    }
+                    else
+                    {
+                        juce::FloatVectorOperations::clear (k, n);
+                        juce::FloatVectorOperations::clear (k + chunk, n);
+                    }
+                    keyReady[(size_t) src] = true;
+                }
+
+        float* mL = tL (0);
+        float* mR = tR (0);
+        float* mRev = tRev (0);
+        float* mDel = tDel (0);
+
+        for (int t = 1; t < mixer::numTracks; ++t)
+        {
+            const bool fed = trackFed[(size_t) t];
+            if (! fed && ! trackHasEffects (t))
+                continue;              // traccia vuota: niente da fare
+            if (! fed)
+                clearTrack (t, n);     // solo le code degli effetti (riverbero, delay...)
+
+            float* L = tL (t);
+            float* R = tR (t);
+            runTrackChain (t, L, R, sr, n);
+
+            auto& tr = tracks[(size_t) t];
+            const bool silent = tr.muted.load() || (anyTrackSolo && ! tr.solo.load());
+            const float g = silent ? 0.0f : tr.volume.load();
+            const float pan = tr.pan.load();
+            const float gl = g * juce::jmin (1.0f, 1.0f - pan);
+            const float gr = g * juce::jmin (1.0f, 1.0f + pan);
+            float pl = 0.0f, pr = 0.0f;
+            const float* rv = tRev (t);
+            const float* dl = tDel (t);
+            for (int s = 0; s < n; ++s)
+            {
+                const float l = L[s] * gl, r = R[s] * gr;
+                pl = juce::jmax (pl, std::abs (l));
+                pr = juce::jmax (pr, std::abs (r));
+                mL[s] += l;
+                mR[s] += r;
+                mRev[s] += rv[s] * g;
+                mDel[s] += dl[s] * g;
+            }
+            if (pl > tr.peakL.load()) tr.peakL.store (pl);
+            if (pr > tr.peakR.load()) tr.peakR.store (pr);
+        }
+
+        // Il Master: canali collegati direttamente + tutte le tracce
+        for (int s = 0; s < n; ++s)
+        {
+            mixL[(size_t) s] += mL[s];
+            mixR[(size_t) s] += mR[s];
+            revL[(size_t) s] += mRev[s];
+            revR[(size_t) s] = revL[(size_t) s];
+            delIn[(size_t) s] += mDel[s];
+        }
     }
 
     /** Limiter con 1.5 ms di "anticipo": vede arrivare i picchi e abbassa il volume prima che passino. */
@@ -1787,6 +2108,15 @@ private:
     std::array<float, maxChannels> appliedFilter {}, gainL {}, gainR {}, sendRev {}, sendDel {}, humanizeAmt {};
     SamplerPool browserSampler;
     DrumVoice   browserDrum;
+
+    // Mixer
+    std::array<mixer::Track, mixer::numTracks> tracks;                 // impostazioni (UI) + effetti
+    std::array<mixer::TrackEq, mixer::numTracks> trackEq;              // stato del thread audio
+    std::array<int, maxChannels> trackOf {};
+    std::array<bool, mixer::numTracks> trackFed {}, keyReady {};
+    bool anyTrackSolo = false;
+    std::vector<float> trackBuffers = std::vector<float> ((size_t) mixer::numTracks * 4 * (size_t) chunk, 0.0f);
+    std::vector<float> keyBuffers   = std::vector<float> ((size_t) mixer::numTracks * 2 * (size_t) chunk, 0.0f);
     juce::Random rng;
     int    numActive            = defaultChannels;
     int    stepIndex            = -1;

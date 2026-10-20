@@ -143,6 +143,10 @@ MainComponent::MainComponent()
     addChildComponent (playlist);
 
     exportPanel.onClose = [this] { exportPanel.setVisible (false); };
+    mixerPanel.onClose = [this] { mixerPanel.setVisible (false); };
+    addChildComponent (mixerPanel);
+    mixerButton.onClick = [this] { if (mixerPanel.isVisible()) mixerPanel.setVisible (false); else openMixer(); };
+    addAndMakeVisible (mixerButton);
     exportPanel.getProjectJson = [this] { return ProjectIO::toJson (engine); };
     exportPanel.getProjectName = [this] { return projectName; };
     addChildComponent (exportPanel);
@@ -303,6 +307,10 @@ void MainComponent::layoutLandscape (juce::Rectangle<int> full)
     patternDisplay.setBounds (header.removeFromLeft (100));
     header.removeFromLeft (6);
     songSwitch.setBounds (header.removeFromLeft (92).withSizeKeepingCentre (92, juce::jmin (h, 30)));
+    header.removeFromLeft (6);
+    mixerButton.setVisible (true);
+    mixerButton.setButtonText ("MIXER");
+    mixerButton.setBounds (header.removeFromLeft (64).withSizeKeepingCentre (64, juce::jmin (h, 32)));
 
     meter.setBounds (header.removeFromRight (8));
     header.removeFromRight (6);
@@ -346,6 +354,15 @@ void MainComponent::layoutPortrait (juce::Rectangle<int> full)
     fileButton.setBounds (line1.removeFromRight (50));
     line1.removeFromRight (8);
     {
+        // Se c'e' posto, il pulsante del mixer (altrimenti e' nel MENU)
+        const bool roomForMixer = line1.getWidth() >= 64 + 50 + 6;
+        mixerButton.setVisible (roomForMixer);
+        mixerButton.setButtonText ("MIX");
+        if (roomForMixer)
+        {
+            mixerButton.setBounds (line1.removeFromRight (50).withSizeKeepingCentre (50, 30));
+            line1.removeFromRight (6);
+        }
         const int sw = juce::jmin (100, line1.getWidth());
         songSwitch.setBounds (line1.removeFromRight (sw).withSizeKeepingCentre (sw, 30));
     }
@@ -437,6 +454,7 @@ void MainComponent::layoutRack (juce::Rectangle<int> full, bool portrait)
     browser.setBounds (full);
     playlist.setBounds (full);
     exportPanel.setBounds (full);
+    mixerPanel.setBounds (full);
     if (synthPanel != nullptr)
         synthPanel->setBounds (getContentArea());   // BassForge usa tutto lo schermo
 }
@@ -604,6 +622,7 @@ void MainComponent::showFileMenu()
     menu.addItem (3, "Salva con nome...");
     menu.addSubMenu ("Elimina", deleteMenu, ! projects.isEmpty());
     menu.addSeparator();
+    menu.addItem (7, "Mixer...");
     menu.addItem (6, "Esporta audio (WAV / OGG)...");
     menu.addSeparator();
     menu.addSubMenu ("Impostazioni", createSettingsMenu());
@@ -636,6 +655,8 @@ void MainComponent::showFileMenu()
                                 self.showAudioInfo();
                             else if (result == 6)
                                 self.openExport();
+                            else if (result == 7)
+                                self.openMixer();
                             else if (result == 5000)
                             {
                                 Haptics::enabled() = ! Haptics::enabled();
@@ -889,6 +910,7 @@ void MainComponent::openPianoRoll (int channel)
     editor.setVisible (false);
     playlist.setVisible (false);
     exportPanel.setVisible (false);
+    mixerPanel.setVisible (false);
     pianoRoll.getGrid().rowLabel = [this] (int ch, int pitch) -> juce::String
     {
         if (auto* drums = dynamic_cast<DrumForgeAudioProcessor*> (engine.getInstrument (ch)))
@@ -906,6 +928,7 @@ void MainComponent::openEditor (int channel)
     pianoRoll.setVisible (false);
     playlist.setVisible (false);
     exportPanel.setVisible (false);
+    mixerPanel.setVisible (false);
     editor.setChannel (channel);
     editor.setVisible (true);
     editor.toFront (false);
@@ -1068,6 +1091,26 @@ void MainComponent::handleCommandLine (const juce::String& commandLine)
             c.colour = info->colour;
             applySoundChoice (-1, c);
         }
+
+    if (args.contains ("--mixer-demo"))   // test: qualche effetto nel mixer
+    {
+        engine.setTrackEffect (1, 0, mixer::compressor);
+        engine.setTrackEffect (1, 1, mixer::saturation);
+        engine.setTrackEffect (2, 0, mixer::reverb);
+        engine.setTrackEffect (4, 0, mixer::filter);
+        engine.setTrackEffect (4, 1, mixer::delay);
+        engine.setTrackEffect (7, 0, mixer::sidechain);
+        engine.setTrackEffect (7, 1, mixer::chorus);
+        engine.getTrack (7).eqLow.store (4.0f);
+        engine.getTrack (3).volume.store (0.6f);
+        engine.getTrack (5).muted.store (true);
+        engine.getTrack (5).pan.store (-0.4f);
+        engine.getTrack (0).slots[0].type.load();
+        engine.setTrackEffect (0, 0, mixer::compressor);
+    }
+
+    if (const int i = args.indexOf ("--mixer"); i >= 0)   // test: mixer (traccia degli effetti, -1 = strisce)
+        openMixer (args.size() > i + 1 ? args[i + 1].getIntValue() : -1);
 
     if (const int i = args.indexOf ("--add-kit"); i >= 0)   // test: kit di DrumForge (indice, 0 = DrumForge / 1 = canali separati)
     {
@@ -1387,9 +1430,22 @@ void MainComponent::openPlaylist()
     pianoRoll.setVisible (false);
     browser.setVisible (false);
     exportPanel.setVisible (false);
+    mixerPanel.setVisible (false);
     playlist.setBrush (engine.getCurrentPattern());
     playlist.setVisible (true);
     playlist.toFront (false);
+}
+
+void MainComponent::openMixer (int track)
+{
+    editor.setVisible (false);
+    pianoRoll.setVisible (false);
+    browser.setVisible (false);
+    playlist.setVisible (false);
+    exportPanel.setVisible (false);
+    mixerPanel.open (track);
+    mixerPanel.setVisible (true);
+    mixerPanel.toFront (false);
 }
 
 void MainComponent::openExport()
@@ -1398,6 +1454,7 @@ void MainComponent::openExport()
     pianoRoll.setVisible (false);
     browser.setVisible (false);
     playlist.setVisible (false);
+    mixerPanel.setVisible (false);
     exportPanel.open();
     exportPanel.setVisible (true);
     exportPanel.toFront (false);
@@ -1453,6 +1510,10 @@ void MainComponent::handleChannelCommand (int channel, int command)
 
         case ChannelRow::openPianoRoll:
             openPianoRoll (channel);
+            break;
+
+        case ChannelRow::openMixer:
+            openMixer (engine.getChannelTrack (channel));
             break;
 
         case ChannelRow::rename:
@@ -1521,6 +1582,7 @@ void MainComponent::openBrowser (int channel)
     pianoRoll.setVisible (false);
     playlist.setVisible (false);
     exportPanel.setVisible (false);
+    mixerPanel.setVisible (false);
     browser.openFor (channel);
     browser.setVisible (true);
     browser.toFront (false);

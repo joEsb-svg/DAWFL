@@ -12,7 +12,7 @@
 */
 namespace ProjectIO
 {
-    static constexpr int formatVersion = 4;   // 3: canali variabili; 4: uno strumento (synth) per canale
+    static constexpr int formatVersion = 5;   // 3: canali variabili; 4: uno strumento (synth) per canale; 5: mixer
     static constexpr const char* extension = ".dawfl";
 
     inline juce::File getRootFolder()
@@ -120,6 +120,7 @@ namespace ProjectIO
             o->setProperty ("reverb", ch.reverb.load());
             o->setProperty ("delay", ch.delay.load());
             o->setProperty ("humanize", ch.humanize.load());
+            o->setProperty ("mixer", ch.mixerTrack.load());
             if (ch.sampleName.isNotEmpty())
                 o->setProperty ("sample", ch.sampleName);
             channels.add (juce::var (o));
@@ -187,6 +188,47 @@ namespace ProjectIO
         if (engine.isSongMode())
             root->setProperty ("songMode", true);
 
+        // Mixer: solo le tracce modificate
+        juce::Array<juce::var> tracks;
+        for (int t = 0; t < mixer::numTracks; ++t)
+        {
+            if (engine.isTrackDefault (t))
+                continue;
+            const auto& tr = engine.getTrack (t);
+            auto* o = new juce::DynamicObject();
+            o->setProperty ("track", t);
+            if (tr.name.isNotEmpty()) o->setProperty ("name", tr.name);
+            if (tr.colour != 0)       o->setProperty ("colour", juce::String::toHexString ((juce::int64) tr.colour));
+            o->setProperty ("volume", tr.volume.load());
+            o->setProperty ("pan", tr.pan.load());
+            if (tr.muted.load()) o->setProperty ("muted", true);
+            if (tr.solo.load())  o->setProperty ("solo", true);
+            o->setProperty ("eq", juce::Array<juce::var> { tr.eqLow.load(), tr.eqMid.load(), tr.eqMidFreq.load(), tr.eqHigh.load() });
+
+            juce::Array<juce::var> fx;
+            for (int s = 0; s < mixer::numSlots; ++s)
+            {
+                const auto& slot = tr.slots[(size_t) s];
+                const int type = slot.type.load();
+                if (type == mixer::none)
+                    continue;
+                auto* f = new juce::DynamicObject();
+                f->setProperty ("slot", s);
+                f->setProperty ("type", mixer::info (type).id);
+                if (slot.bypass.load()) f->setProperty ("bypass", true);
+                juce::Array<juce::var> values;
+                for (int k = 0; k < mixer::info (type).numParams; ++k)
+                    values.add (slot.params[(size_t) k].load());
+                f->setProperty ("params", values);
+                fx.add (juce::var (f));
+            }
+            if (! fx.isEmpty())
+                o->setProperty ("fx", fx);
+            tracks.add (juce::var (o));
+        }
+        if (! tracks.isEmpty())
+            root->setProperty ("mixer", tracks);
+
         return juce::var (root);
     }
 
@@ -197,7 +239,7 @@ namespace ProjectIO
         if (app != "JLoop" && app != "DAWFL")   // accetta anche i progetti salvati col vecchio nome
             return false;
 
-        engine.resetProject();
+        engine.resetProject (true);   // gli effetti del mixer restano (si riusano se sono dello stesso tipo)
         engine.setBpm ((double) json.getProperty ("bpm", 120.0));
         engine.setSwing ((float) (double) json.getProperty ("swing", 0.0));
         engine.setMasterVolume ((float) (double) json.getProperty ("master", 1.0));
@@ -315,6 +357,68 @@ namespace ProjectIO
             engine.setClips (clips);
         }
         engine.setSongMode ((bool) json.getProperty ("songMode", false));
+
+        // Mixer. Nei progetti senza mixer (v1-v4) ogni canale va nella sua traccia insert.
+        for (int c = 0; c < engine.getNumChannels(); ++c)
+        {
+            int track = c + 1;
+            if (version >= 5)
+                if (auto* chs = json.getProperty ("channels", {}).getArray(); chs != nullptr && c < chs->size())
+                    track = (int) chs->getReference (c).getProperty ("mixer", 0);
+            engine.setChannelTrack (c, track);
+        }
+
+        std::array<std::array<int, mixer::numSlots>, mixer::numTracks> wanted {};   // tipo di effetto voluto per ogni slot
+        std::array<std::array<const juce::var*, mixer::numSlots>, mixer::numTracks> wantedFx {};
+        if (auto* tracks = json.getProperty ("mixer", {}).getArray())
+            for (auto& o : *tracks)
+            {
+                const int t = (int) o.getProperty ("track", -1);
+                if (t < 0 || t >= mixer::numTracks)
+                    continue;
+                auto& tr = engine.getTrack (t);
+                tr.name = o.getProperty ("name", {}).toString();
+                tr.colour = (juce::uint32) o.getProperty ("colour", "0").toString().getHexValue64();
+                tr.volume.store (juce::jlimit (0.0f, 2.0f, (float) o.getProperty ("volume", 1.0)));
+                tr.pan.store (juce::jlimit (-1.0f, 1.0f, (float) o.getProperty ("pan", 0.0)));
+                tr.muted.store ((bool) o.getProperty ("muted", false));
+                tr.solo.store ((bool) o.getProperty ("solo", false));
+                if (auto* eq = o.getProperty ("eq", {}).getArray(); eq != nullptr && eq->size() >= 4)
+                {
+                    tr.eqLow.store (juce::jlimit (-18.0f, 18.0f, (float) (*eq)[0]));
+                    tr.eqMid.store (juce::jlimit (-18.0f, 18.0f, (float) (*eq)[1]));
+                    tr.eqMidFreq.store (juce::jlimit (100.0f, 10000.0f, (float) (*eq)[2]));
+                    tr.eqHigh.store (juce::jlimit (-18.0f, 18.0f, (float) (*eq)[3]));
+                }
+                if (auto* fx = o.getProperty ("fx", {}).getArray())
+                    for (auto& f : *fx)
+                    {
+                        const int s = (int) f.getProperty ("slot", -1);
+                        if (s >= 0 && s < mixer::numSlots)
+                        {
+                            wanted[(size_t) t][(size_t) s] = mixer::typeFromId (f.getProperty ("type", {}).toString());
+                            wantedFx[(size_t) t][(size_t) s] = &f;
+                        }
+                    }
+            }
+
+        for (int t = 0; t < mixer::numTracks; ++t)
+            for (int s = 0; s < mixer::numSlots; ++s)
+            {
+                const int type = wanted[(size_t) t][(size_t) s];
+                engine.setTrackEffect (t, s, type);   // stesso tipo di prima: l'effetto resta, si azzerano i parametri
+                auto& slot = engine.getTrack (t).slots[(size_t) s];
+                if (auto* f = wantedFx[(size_t) t][(size_t) s]; f != nullptr && type != mixer::none)
+                {
+                    slot.bypass.store ((bool) f->getProperty ("bypass", false));
+                    if (auto* values = f->getProperty ("params", {}).getArray())
+                        for (int k = 0; k < juce::jmin (values->size(), mixer::info (type).numParams); ++k)
+                        {
+                            const auto& def = mixer::info (type).params[(size_t) k];
+                            slot.params[(size_t) k].store (juce::jlimit (def.minValue, def.maxValue, (float) (*values)[k]));
+                        }
+                }
+            }
 
         // Progetti v1-v3: un solo BassForge, con lo stato nella radice del file
         if (const auto legacy = json.getProperty ("bassforge", {}).toString(); legacy.isNotEmpty())

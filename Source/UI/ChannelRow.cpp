@@ -563,6 +563,20 @@ void ChannelRow::showRowMenu()
     menu.addItem (moveDown, juce::String (juce::CharPointer_UTF8 ("Sposta gi\xc3\xb9  \xe2\x96\xbc")), channel < numChannels - 1);
     menu.addSeparator();
     menu.addSubMenu ("Step", steps);
+
+    // Mixer: a quale traccia va il suono del canale
+    juce::PopupMenu route;
+    const int currentTrack = engine.getChannelTrack (channel);
+    const int freeTrack = engine.findFreeInsert();
+    for (int t = 0; t <= mixer::numInserts; ++t)
+        if (t == 0 || t == currentTrack || engine.isTrackUsed (t))
+            route.addColouredItem (mixerTrackBase + t, (t == 0 ? juce::String ("Master") : juce::String (t) + "  " + engine.getTrackName (t)),
+                                   engine.getTrackColour (t), true, t == currentTrack);
+    if (freeTrack > 0 && freeTrack != currentTrack)
+        route.addItem (mixerTrackBase + freeTrack, "Traccia nuova (" + juce::String (freeTrack) + ")");
+    route.addSeparator();
+    route.addItem (openMixer, "Apri nel mixer...");
+    menu.addSubMenu ("Mixer: " + (currentTrack == 0 ? juce::String ("Master") : "traccia " + juce::String (currentTrack)), route);
     menu.addSeparator();
     menu.addItem (remove, "Elimina canale", numChannels > 1);
 
@@ -609,6 +623,8 @@ void ChannelRow::showRowMenu()
                             }
                             else if (result == 210) e.fillRow (c, 4, 2);
                             else if (result > 200 && result < 300)  e.fillRow (c, result - 200);
+                            else if (result >= mixerTrackBase && result <= mixerTrackBase + mixer::numInserts)
+                                e.setChannelTrack (c, result - mixerTrackBase);
                             else if (result >= colourBase && result < colourBase + numColours)
                                 e.getChannel (c).colour.store (getPaletteColour (result - colourBase).getARGB());
                             else if (self.onCommand)

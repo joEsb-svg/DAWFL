@@ -11,6 +11,7 @@
 #include "SoundBrowser.h"
 #include "Playlist.h"
 #include "ExportPanel.h"
+#include "MixerPanel.h"
 #include "JLoopSplash.h"
 #include "Haptics.h"
 
@@ -76,6 +77,7 @@ private:
     void hideOverlays();
     void openPlaylist();
     void openExport();
+    void openMixer (int track = -1);
     void scrollToChannel (int channel);
     int shownStructure = -1;
     int scrollStartY = 0;
@@ -114,7 +116,7 @@ private:
 
     DawLookAndFeel lookAndFeel;
 
-    juce::TextButton fileButton { "MENU" }, kitButton;
+    juce::TextButton fileButton { "MENU" }, kitButton, mixerButton { "MIXER" };
     PlayButton playButton;
     LcdSelector bpmDisplay, patternDisplay;
     SegmentedControl modeSwitch  { { "STEP", "VEL", "PROB", "ROLL" } };
@@ -134,6 +136,7 @@ private:
     SoundBrowser browser { engine, sampleStore };
     Playlist playlist { engine };
     ExportPanel exportPanel { engine, sampleStore };
+    MixerPanel mixerPanel { engine };
     SegmentedControl songSwitch { { "PAT", "SONG" } };
 
     juce::Rectangle<float> headerArea, logoArea, swingCaption, masterCaption, kitCaption, rackArea;
