@@ -78,8 +78,10 @@ MainComponent::MainComponent()
     addAndMakeVisible (bpmDisplay);
 
     // --- Undo / redo / metronomo
-    undoButton.onClick = [this] { undo(); };
-    redoButton.onClick = [this] { redo(); };
+    undoButton.onClick = [this] { if (! undoButton.takeLongPress()) undo(); };
+    redoButton.onClick = [this] { if (! redoButton.takeLongPress()) redo(); };
+    undoButton.onLongPress = [this] { showUndoHistory(); };   // tieni premuto: la cronologia
+    redoButton.onLongPress = [this] { showUndoHistory(); };
     metroButton.setClickingTogglesState (true);
     metroButton.onClick = [this] { engine.setMetronome (metroButton.getToggleState()); };
     addAndMakeVisible (undoButton);
@@ -164,6 +166,11 @@ MainComponent::MainComponent()
     addChildComponent (mixerPanel);
     mixerButton.onClick = [this] { if (mixerPanel.isVisible()) mixerPanel.setVisible (false); else openMixer(); };
     addAndMakeVisible (mixerButton);
+    livePanel.onClose = [this] { livePanel.setVisible (false); };
+    livePanel.onChanged = [this] { userTouched.store (true); syncControlsFromEngine(); };
+    addChildComponent (livePanel);
+    liveButton.onClick = [this] { if (livePanel.isVisible()) livePanel.setVisible (false); else openLive(); };
+    addAndMakeVisible (liveButton);
     cpuBadge.onClick = [this] { showPerformanceMenu(); };
     addAndMakeVisible (cpuBadge);
     exportPanel.getProjectJson = [this] { return ProjectIO::toJson (engine); };
@@ -353,6 +360,9 @@ void MainComponent::layoutLandscape (juce::Rectangle<int> full)
     mixerButton.setVisible (true);
     mixerButton.setButtonText (narrow ? "MIX" : "MIXER");
     mixerButton.setBounds (header.removeFromLeft (narrow ? 50 : 64).withSizeKeepingCentre (narrow ? 50 : 64, juce::jmin (h, 32)));
+    header.removeFromLeft (4);
+    liveButton.setVisible (true);
+    liveButton.setBounds (header.removeFromLeft (narrow ? 46 : 56).withSizeKeepingCentre (narrow ? 46 : 56, juce::jmin (h, 32)));
 
     meter.setBounds (header.removeFromRight (8));
     header.removeFromRight (6);
@@ -399,6 +409,7 @@ void MainComponent::layoutPortrait (juce::Rectangle<int> full)
         // Se c'e' posto, il pulsante del mixer (altrimenti e' nel MENU)
         const bool roomForMixer = line1.getWidth() >= 64 + 50 + 6;
         mixerButton.setVisible (roomForMixer);
+        liveButton.setVisible (false);   // in verticale: MENU > Live
         mixerButton.setButtonText ("MIX");
         if (roomForMixer)
         {
@@ -504,6 +515,7 @@ void MainComponent::layoutRack (juce::Rectangle<int> full, bool portrait)
     playlist.setBounds (full);
     exportPanel.setBounds (full);
     mixerPanel.setBounds (full);
+    livePanel.setBounds (full);
     if (synthPanel != nullptr)
         synthPanel->setBounds (getContentArea());   // BassForge usa tutto lo schermo
     presetBrowser.setBounds (getContentArea());
@@ -745,10 +757,12 @@ void MainComponent::showFileMenu()
     menu.addSubMenu ("Elimina", deleteMenu, ! projects.isEmpty());
     menu.addSeparator();
     menu.addItem (7, "Mixer...");
+    menu.addItem (10, "Live (lancia i pattern)...");
     menu.addItem (6, "Esporta audio (WAV / OGG)...");
     menu.addSeparator();
     menu.addSubMenu ("Impostazioni", createSettingsMenu());
     menu.addItem (4, "Info audio");
+    menu.addItem (9, "Cronologia delle modifiche...");
     menu.addItem (8, "Guida rapida");
     menu.addSeparator();
     menu.addItem (-1, "JLoop versione " + juce::String (ProjectInfo::versionString), false);
@@ -782,6 +796,10 @@ void MainComponent::showFileMenu()
                                 self.openMixer();
                             else if (result == 8)
                                 self.showGuide();
+                            else if (result == 9)
+                                self.showUndoHistory();
+                            else if (result == 10)
+                                self.openLive();
                             else if (result >= 3000 && result < 4000)
                                 self.loadDemo (result - 3000);
                             else if (result >= 5000 && result < 6000)
@@ -854,7 +872,7 @@ void MainComponent::openProject (const juce::String& name)
         instruments->resolve();
         projectName = name;
         pageSwitch.setSelected (0);
-        undoStack.clear(); redoStack.clear(); lastSnapshot = takeSnapshot();
+        undoStack.clear(); redoStack.clear(); undoLabels.clear(); redoLabels.clear(); lastSnapshot = takeSnapshot();
         syncControlsFromEngine();
         saveSession();
     }
@@ -894,7 +912,7 @@ void MainComponent::newProject()
     projectName = untitled;
     pageSwitch.setSelected (0);
     modeSwitch.setSelected (0);
-    undoStack.clear(); redoStack.clear(); lastSnapshot = takeSnapshot();
+    undoStack.clear(); redoStack.clear(); undoLabels.clear(); redoLabels.clear(); lastSnapshot = takeSnapshot();
     editor.setVisible (false);
     pianoRoll.setVisible (false);
     synthPanel->onClose();
@@ -970,7 +988,7 @@ void MainComponent::loadDemo (int index)
     editor.setVisible (false);
     pianoRoll.setVisible (false);
     rebuildRows();
-    undoStack.clear(); redoStack.clear(); lastSnapshot = takeSnapshot();
+    undoStack.clear(); redoStack.clear(); undoLabels.clear(); redoLabels.clear(); lastSnapshot = takeSnapshot();
     syncControlsFromEngine();
     openPlaylist();
     saveSession();
@@ -1149,6 +1167,7 @@ void MainComponent::openSynthPanel (int channel)
 
 void MainComponent::openPianoRoll (int channel)
 {
+    livePanel.setVisible (false);
     editor.setVisible (false);
     playlist.setVisible (false);
     exportPanel.setVisible (false);
@@ -1167,6 +1186,7 @@ void MainComponent::openPianoRoll (int channel)
 
 void MainComponent::openEditor (int channel)
 {
+    livePanel.setVisible (false);
     pianoRoll.setVisible (false);
     playlist.setVisible (false);
     exportPanel.setVisible (false);
@@ -1241,10 +1261,15 @@ void MainComponent::checkForChanges()
     }
 
     undoStack.add (lastSnapshot);
+    undoLabels.add (undohistory::describe (lastSnapshot, now));
     if (undoStack.size() > 60)
+    {
         undoStack.remove (0);
+        undoLabels.remove (0);
+    }
 
     redoStack.clear();
+    redoLabels.clear();
     lastSnapshot = now;
     updateViews();
 }
@@ -1256,6 +1281,8 @@ void MainComponent::undo()
         return;
 
     redoStack.add (lastSnapshot);
+    redoLabels.add (undoLabels[undoLabels.size() - 1]);
+    undoLabels.remove (undoLabels.size() - 1);
     const auto previous = undoStack[undoStack.size() - 1];
     undoStack.remove (undoStack.size() - 1);
     applySnapshot (previous);
@@ -1267,9 +1294,61 @@ void MainComponent::redo()
         return;
 
     undoStack.add (lastSnapshot);
+    undoLabels.add (redoLabels[redoLabels.size() - 1]);
+    redoLabels.remove (redoLabels.size() - 1);
     const auto next = redoStack[redoStack.size() - 1];
     redoStack.remove (redoStack.size() - 1);
     applySnapshot (next);
+}
+
+void MainComponent::jumpInHistory (int steps)
+{
+    // Piu' passi in una volta: si applica solo l'istantanea finale (un passo alla volta sarebbe lento)
+    checkForChanges();
+    if (steps < 0)
+    {
+        steps = juce::jmin (-steps, undoStack.size());
+        if (steps == 0) return;
+        for (int i = 0; i < steps; ++i)
+        {
+            redoStack.add (lastSnapshot);
+            redoLabels.add (undoLabels[undoLabels.size() - 1]);
+            undoLabels.remove (undoLabels.size() - 1);
+            lastSnapshot = undoStack[undoStack.size() - 1];
+            undoStack.remove (undoStack.size() - 1);
+        }
+    }
+    else
+    {
+        steps = juce::jmin (steps, redoStack.size());
+        if (steps == 0) return;
+        for (int i = 0; i < steps; ++i)
+        {
+            undoStack.add (lastSnapshot);
+            undoLabels.add (redoLabels[redoLabels.size() - 1]);
+            redoLabels.remove (redoLabels.size() - 1);
+            lastSnapshot = redoStack[redoStack.size() - 1];
+            redoStack.remove (redoStack.size() - 1);
+        }
+    }
+    applySnapshot (lastSnapshot);
+    updateViews();
+}
+
+void MainComponent::showUndoHistory()
+{
+    checkForChanges();
+    auto panel = std::make_unique<UndoHistoryPanel> (undoLabels, redoLabels);
+    auto* raw = panel.get();
+    auto* overlay = CenteredOverlay::show (*this, std::move (panel), [raw] (int w) { return raw->preferredHeight (w); }, 520);
+    juce::Component::SafePointer<CenteredOverlay> safeOverlay (overlay);
+    juce::Component::SafePointer<MainComponent> safeThis (this);
+    raw->onDone = [safeOverlay] { if (safeOverlay != nullptr) safeOverlay->close(); };
+    raw->onJump = [safeThis, safeOverlay] (int steps)
+    {
+        if (safeThis != nullptr) safeThis->jumpInHistory (steps);
+        if (safeOverlay != nullptr) safeOverlay->close();
+    };
 }
 
 void MainComponent::handleCommandLine (const juce::String& commandLine)
@@ -1393,6 +1472,25 @@ void MainComponent::handleCommandLine (const juce::String& commandLine)
 
     if (const int i = args.indexOf ("--demo"); i >= 0)   // test: progetto demo (indice)
         loadDemo (args[i + 1].getIntValue());
+    if (const int i = args.indexOf ("--live"); i >= 0)   // test: modalita' live (pattern da lanciare, -1 = nessuno)
+    {
+        openLive();
+        if (args.size() > i + 1 && args[i + 1].getIntValue() >= 0)
+            livePanel.launchForTest (args[i + 1].getIntValue());
+        if (args.size() > i + 2)
+            engine.getChannel (args[i + 2].getIntValue()).muted.store (true);
+    }
+    if (args.contains ("--history"))   // test: qualche modifica e la cronologia
+    {
+        checkForChanges();
+        engine.setStepVelocity (0, 2, 100); checkForChanges();
+        engine.setBpm (132); checkForChanges();
+        engine.getChannel (1).volume.store (0.5f); checkForChanges();
+        engine.setNotes (6, { { 0, 24, 48, 100 } }); checkForChanges();
+        engine.setStepVelocity (3, 5, 100); engine.setStepVelocity (3, 7, 100); checkForChanges();
+        undo();
+        showUndoHistory();
+    }
     if (const int i = args.indexOf ("--guide"); i >= 0)  // test: guida rapida (pagina)
     {
         showGuide();
@@ -1715,6 +1813,7 @@ bool MainComponent::handleBackButton()
         return true;
     if (guide != nullptr) { closeGuide (-1); return true; }
     if (presetBrowser.isVisible()) { presetBrowser.setVisible (false); return true; }
+    if (livePanel.isVisible()) { livePanel.setVisible (false); return true; }
     if (mixerPanel.isVisible())
     {
         if (mixerPanel.getEffectsTrack() >= 0) mixerPanel.showEffects (-1);
@@ -1981,6 +2080,7 @@ void MainComponent::hideOverlays()
 
 void MainComponent::openPlaylist()
 {
+    livePanel.setVisible (false);
     editor.setVisible (false);
     pianoRoll.setVisible (false);
     browser.setVisible (false);
@@ -1993,6 +2093,7 @@ void MainComponent::openPlaylist()
 
 void MainComponent::openMixer (int track)
 {
+    livePanel.setVisible (false);
     editor.setVisible (false);
     pianoRoll.setVisible (false);
     browser.setVisible (false);
@@ -2003,8 +2104,22 @@ void MainComponent::openMixer (int track)
     mixerPanel.toFront (false);
 }
 
+void MainComponent::openLive()
+{
+    editor.setVisible (false);
+    pianoRoll.setVisible (false);
+    browser.setVisible (false);
+    playlist.setVisible (false);
+    exportPanel.setVisible (false);
+    mixerPanel.setVisible (false);
+    livePanel.setVisible (true);
+    livePanel.resized();
+    livePanel.toFront (false);
+}
+
 void MainComponent::openExport()
 {
+    livePanel.setVisible (false);
     editor.setVisible (false);
     pianoRoll.setVisible (false);
     browser.setVisible (false);
@@ -2133,6 +2248,7 @@ void MainComponent::handleChannelCommand (int channel, int command)
 
 void MainComponent::openBrowser (int channel)
 {
+    livePanel.setVisible (false);
     editor.setVisible (false);
     pianoRoll.setVisible (false);
     playlist.setVisible (false);

@@ -18,7 +18,8 @@ public:
         cards =
         {
             { "Benvenuto in JLoop", "Uno studio musicale in tasca, pensato come FL Studio. In pochi passi vedi dove sta tutto: "
-                                    "puoi chiudere questa guida quando vuoi e riaprirla da MENU > Guida rapida." },
+                                    "puoi chiudere questa guida quando vuoi e riaprirla da MENU > Guida rapida. "
+                                    "Tieni premuta la freccia dell'undo per la cronologia delle modifiche." },
             { "Il channel rack", "Ogni riga e' un suono. Tocca le caselle per accendere i colpi e premi Play. "
                                  "Tieni premuta una casella per riempire la riga con un ritmo pronto (4/4, ottavi, trap...)." },
             { "Suoni e strumenti", "Tocca il nome di un canale per cambiare suono o aprire lo strumento: BassForge, PolyForge, "
@@ -26,7 +27,8 @@ public:
             { "Il piano roll", "Per melodie e accordi. Scegli una scala (le note giuste si illuminano), disegna accordi con un tocco "
                                "o usa una progressione pronta. Nel pannello dello strumento, Arp accende l'arpeggiatore." },
             { "Pattern e playlist", "Fino a 99 pattern per progetto. Nella playlist li metti in fila per costruire la canzone; "
-                                    "le automazioni muovono volume, filtri ed effetti nel tempo. Il tasto rosso registra dalla tastiera MIDI." },
+                                    "le automazioni muovono volume, filtri ed effetti nel tempo. Con LIVE li lanci al volo, come con un controller. "
+                                    "Il tasto rosso registra dalla tastiera MIDI." },
             { "Mixer ed esportazione", "Nel Mixer ogni canale ha la sua traccia con effetti, EQ e sidechain. Da MENU > Esporta "
                                        "il mastering automatico rende il brano pronto da condividere, e puoi ritoccarlo prima." },
             { "Prova una demo", "Il modo piu' veloce per capire: apri una canzone di esempio, premi Play e smonta tutto. "

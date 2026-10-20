@@ -292,12 +292,40 @@ private:
 
 //==============================================================================
 /** Pulsante con un'icona disegnata (undo, redo, metronomo). */
-class IconButton : public juce::Button
+class IconButton : public juce::Button,
+                   private juce::Timer
 {
 public:
     enum class Icon { undo, redo, metronome };
 
     explicit IconButton (Icon i) : juce::Button ("icon"), icon (i) {}
+
+    /** Tenendo premuto (mezzo secondo): es. la cronologia delle modifiche. */
+    std::function<void()> onLongPress;
+
+    /** true se il tocco appena finito era una pressione lunga (il clic va ignorato). */
+    bool takeLongPress()        { const bool was = longPressFired; longPressFired = false; return was; }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        longPressFired = false;
+        if (onLongPress != nullptr)
+            startTimer (550);
+        juce::Button::mouseDown (e);
+    }
+
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        stopTimer();
+        juce::Button::mouseUp (e);
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (e.getDistanceFromDragStart() > 12)
+            stopTimer();
+        juce::Button::mouseDrag (e);
+    }
 
     void paintButton (juce::Graphics& g, bool isHighlighted, bool isDown) override
     {
@@ -343,7 +371,16 @@ public:
     }
 
 private:
+    void timerCallback() override
+    {
+        stopTimer();
+        longPressFired = true;
+        if (onLongPress != nullptr)
+            onLongPress();
+    }
+
     Icon icon;
+    bool longPressFired = false;
 };
 
 //==============================================================================

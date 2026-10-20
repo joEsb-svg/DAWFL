@@ -39,6 +39,9 @@ public:
 
     void setSnap (int ticks)        { snap = ticks; repaint(); }
 
+    /** I canali batteria (DrumForge) non si mostrano come fantasmi: le loro note sono pad, non melodie. */
+    bool isDrumKit (int c) const    { return engine.isSynth (c) && engine.getChannel (c).instrumentKind == "drumforge"; }
+
     void setRowHeight (float h)
     {
         const float centrePitch = pitchAtY ((float) getHeight() * 0.5f);
@@ -157,6 +160,26 @@ public:
             }
         }
 
+        // Note "fantasma": quelle degli altri canali nello stesso pattern, appena accennate
+        // (per scrivere la melodia sopra agli accordi e al basso senza andare a memoria)
+        if (ghostNotes)
+            for (int other = 0; other < engine.getNumChannels(); ++other)
+            {
+                if (other == channel || ! engine.hasNotes (other) || isDrumKit (other))
+                    continue;
+                const auto ghostColour = juce::Colour (engine.getChannel (other).colour.load());
+                for (auto& n : engine.getNotes (other))
+                {
+                    auto r = noteBounds (n);
+                    if (! r.intersects (grid.toFloat()))
+                        continue;
+                    g.setColour (ghostColour.withAlpha (0.22f));
+                    g.fillRoundedRectangle (r, 2.0f);
+                    g.setColour (ghostColour.withAlpha (0.6f));
+                    g.drawRoundedRectangle (r.reduced (0.5f), 2.0f, 1.0f);
+                }
+            }
+
         // Note
         const auto colour = juce::Colour (engine.getChannel (channel).colour.load());
         for (auto& n : engine.getNotes (channel))
@@ -209,6 +232,9 @@ public:
 
     //==============================================================================
     // Selezione e strumenti (agiscono sulle note selezionate, o su tutte se non ce ne sono)
+
+    void setGhostNotes (bool on)    { ghostNotes = on; repaint(); }
+    bool getGhostNotes() const      { return ghostNotes; }
 
     void setSelectMode (bool on)    { selectMode = on; if (! on) selection.clear(); repaint(); }
 
@@ -661,6 +687,7 @@ private:
     SequencerEngine& engine;
     int channel = 0;
     int snap = SequencerEngine::ticksPerStep;           // 1/16
+    bool ghostNotes = true;
     int lastLength = SequencerEngine::ticksPerStep * 2;  // 1/8
     float rowHeight = 20.0f;
     float scrollX = 0.0f, scrollY = 0.0f, startScrollX = 0.0f, startScrollY = 0.0f;
@@ -715,6 +742,8 @@ public:
         chordButton->setClickingTogglesState (true);
         chordTypeButton = addTool ("Triade", [this] { grid.setChordType ((grid.getChordType() + 1) % theory::numChordTypes); }, 76);
         addTool ("Progressioni", [this] { showProgressionPanel(); }, 100);
+        ghostButton = addTool ("Fantasmi", [this] { grid.setGhostNotes (! grid.getGhostNotes()); }, 80);
+        ghostButton->setClickingTogglesState (true);
         selectButton = addTool ("Seleziona", [this] { grid.setSelectMode (! grid.isSelectMode()); grid.setChordMode (false); }, 82);
         selectButton->setClickingTogglesState (true);
         addTool ("Tutto", [this] { grid.setSelectMode (true); grid.selectAll(); });
@@ -745,6 +774,7 @@ public:
     void updateTools()
     {
         chordButton->setToggleState (grid.isChordMode(), juce::dontSendNotification);
+        ghostButton->setToggleState (grid.getGhostNotes(), juce::dontSendNotification);
         chordTypeButton->setButtonText (theory::chordTypeName (grid.getChordType()));
         chordTypeButton->setEnabled (grid.isChordMode());
         const int st = engine.getScaleType();
@@ -883,7 +913,7 @@ private:
     juce::Viewport toolView;
     juce::Component toolStrip;
     juce::OwnedArray<juce::TextButton> tools;
-    juce::TextButton* selectButton = nullptr, *scaleButton = nullptr, *chordButton = nullptr, *chordTypeButton = nullptr;
+    juce::TextButton* selectButton = nullptr, *scaleButton = nullptr, *chordButton = nullptr, *chordTypeButton = nullptr, *ghostButton = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoRoll)
 };

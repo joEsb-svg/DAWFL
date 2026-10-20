@@ -14,7 +14,14 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.27)
+## Stato attuale (v0.28)
+
+**Novita' della 0.28 (comodita' d'uso)**
+- Cronologia delle modifiche: tieni premuta la freccia dell'undo (o MENU > Cronologia): ogni passo ha un nome
+  ("Step: Cassa (Pattern 1)", "Tempo: 128 BPM", "Mix: Basso"...) e si torna a qualsiasi punto con un tocco
+- Piano roll: note "fantasma" degli altri canali dello stesso pattern (pulsante Fantasmi)
+- Modalita' LIVE: pad grandi per lanciare i pattern (a fine giro o subito) e pulsanti per spegnere
+  e accendere i canali al volo
 
 **Novita' della 0.27 (audio piu' pulito e processore piu' leggero)**
 - Percussioni della libreria rigenerate con molto meno riverbero e code piu' corte (94 suoni)

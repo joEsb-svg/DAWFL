@@ -779,6 +779,9 @@ public:
             playingPattern.store (currentPattern.load());
     }
 
+    /** Modalita' live: il pattern scelto parte al prossimo step invece che a fine giro. */
+    void switchPatternNow()                     { switchNow.store (true); }
+
     int getCurrentPattern() const               { return currentPattern.load(); }
     int getPlayingPattern() const               { return playingPattern.load(); }
 
@@ -2167,7 +2170,8 @@ private:
             ++patternLoops;   // per le note registrate tenute oltre la fine del giro
 
         // Fine del giro: se nel frattempo e' stato scelto un altro pattern, si passa a quello
-        if (stepIndex == 0 && playingPattern.load() != currentPattern.load())
+        // (o subito, se richiesto dalla modalita' live: il ritmo continua dallo stesso punto)
+        if (switchNow.exchange (false) || (stepIndex == 0 && playingPattern.load() != currentPattern.load()))
             playingPattern.store (currentPattern.load());
 
         auto& pattern = patterns[(size_t) playingPattern.load()];
@@ -2576,6 +2580,7 @@ private:
     DrumVoice   browserDrum;
 
     std::atomic<bool> panicRequested { false };
+    std::atomic<bool> switchNow { false };
     std::atomic<int> scaleRoot { 9 }, scaleType { 0 };
 
     // Automazioni

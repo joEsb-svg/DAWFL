@@ -16,6 +16,8 @@
 #include "JLoopSplash.h"
 #include "DemoProjects.h"
 #include "QuickGuide.h"
+#include "UndoHistory.h"
+#include "LivePanel.h"
 #include "Haptics.h"
 
 //==============================================================================
@@ -55,6 +57,9 @@ private:
     void newProject();
     void loadDemo (int index);
     void showGuide();
+    void showUndoHistory();
+    void openLive();
+    void jumpInHistory (int steps);
     void closeGuide (int demo);
     void showAudioInfo();
     void showMessage (const juce::String& title, const juce::String& message);
@@ -125,6 +130,7 @@ private:
     void undo();
     void redo();
     juce::StringArray undoStack, redoStack;
+    juce::StringArray undoLabels, redoLabels;   // il nome di ogni passo (cronologia)
     juce::String lastSnapshot;
     int snapshotCounter = 0;
 
@@ -147,6 +153,8 @@ private:
     std::unique_ptr<SynthPanel> synthPanel;
     std::unique_ptr<JLoopSplash> splash;
     std::unique_ptr<QuickGuide> guide;
+    LivePanel livePanel { engine };
+    juce::TextButton liveButton { "LIVE" };
     void openSynthPanel (int channel);
     void showPresetMenu (int channel, juce::Component& target);
     juce::AudioDeviceManager deviceManager;
