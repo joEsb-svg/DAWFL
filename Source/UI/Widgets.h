@@ -427,3 +427,42 @@ private:
     float load = 0.0f;
     bool warning = false, lowPower = false;
 };
+
+//==============================================================================
+/** Pulsante di registrazione: cerchio rosso; acceso = lampeggia mentre registra. */
+class RecordButton : public juce::Button
+{
+public:
+    RecordButton() : juce::Button ("Rec") {}
+
+    void setBlink (bool on)     { if (on != blink) { blink = on; repaint(); } }
+
+    void paintButton (juce::Graphics& g, bool isHighlighted, bool isDown) override
+    {
+        auto r = getLocalBounds().toFloat();
+        const bool armed = getToggleState();
+        auto base = Theme::raised;
+        if (isDown)             base = base.darker (0.25f);
+        else if (isHighlighted) base = base.brighter (0.06f);
+        Theme::drawRaised (g, r, base);
+
+        const float d = juce::jmin (r.getHeight(), r.getWidth()) * 0.34f;
+        auto dot = juce::Rectangle<float> (d, d).withCentre (r.getCentre());
+        const auto red = juce::Colour (0xffe0483e);
+        if (armed && blink)
+        {
+            g.setColour (red.withAlpha (0.3f));
+            g.fillEllipse (dot.expanded (d * 0.35f));
+        }
+        g.setColour (armed ? red : red.withMultipliedSaturation (0.5f).withMultipliedBrightness (0.7f));
+        g.fillEllipse (dot);
+        if (armed)
+        {
+            g.setColour (red);
+            g.fillRect (r.reduced (5.0f, 0.0f).removeFromBottom (2.0f));
+        }
+    }
+
+private:
+    bool blink = false;
+};

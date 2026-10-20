@@ -313,9 +313,12 @@ public:
     /** Aspetta che il thread audio finisca il blocco in corso (dopo, i puntatori vecchi sono liberi). */
     void waitForAudioBlock()    { const juce::SpinLock::ScopedLockType lock (structureLock); }
 
-    /** Nota suonata dal vivo (tastiera a schermo). velocity 0 = rilascio. */
+    struct LiveEvent { int channel = 0, note = 0; float velocity = 0.0f; };
+
+    /** Nota suonata dal vivo (tastiera a schermo, pad, tastiera MIDI). velocity 0 = rilascio. */
     void liveNote (int channel, int note, float velocity)
     {
+        const juce::SpinLock::ScopedLockType lock (liveWriteLock);   // scrivono la UI e il thread MIDI
         int s1, n1, s2, n2;
         liveFifo.prepareToWrite (1, s1, n1, s2, n2);
         if (n1 + n2 == 0)
@@ -555,6 +558,26 @@ public:
         if (! keepEffects)
             for (int s = 0; s < mixer::numSlots; ++s)
                 setTrackEffect (t, s, mixer::none);
+    }
+
+    //==============================================================================
+    // Registrazione dal vivo: le note suonate mentre il pattern gira finiscono nel pattern
+
+    struct RecordedNote { int channel = 0, pattern = 0, start = 0, length = 0, pitch = 60, velocity = 100; };
+
+    void setRecording (bool on)         { recording.store (on); }
+    bool isRecording() const            { return recording.load(); }
+
+    /** Le note registrate dal thread audio, da mettere nel pattern (thread della UI). */
+    std::vector<RecordedNote> popRecordedNotes()
+    {
+        std::vector<RecordedNote> out;
+        int s1, n1, s2, n2;
+        recFifo.prepareToRead (recFifo.getNumReady(), s1, n1, s2, n2);
+        for (int i = 0; i < n1; ++i) out.push_back (recEvents[(size_t) (s1 + i)]);
+        for (int i = 0; i < n2; ++i) out.push_back (recEvents[(size_t) (s2 + i)]);
+        recFifo.finishedRead (n1 + n2);
+        return out;
     }
 
     //==============================================================================
@@ -1144,8 +1167,16 @@ public:
             liveFifo.prepareToRead (ready, s1, n1, s2, n2);
             auto handle = [this] (const LiveEvent& ev)
             {
-                if (ev.channel < 0 || ev.channel >= numActive || instruments[(size_t) ev.channel] == nullptr || ev.note < 0 || ev.note > 127)
+                if (ev.channel < 0 || ev.channel >= numActive || ev.note < 0 || ev.note > 127)
                     return;
+                recordLiveEvent (ev);
+                if (instruments[(size_t) ev.channel] == nullptr)
+                {
+                    // Campioni e batteria: il colpo parte subito (il rilascio non serve)
+                    if (ev.velocity > 0.0f && channels[(size_t) ev.channel].type.load() != synth)
+                        triggerChannel (ev.channel, juce::jlimit (0.05f, 1.0f, ev.velocity), 0.0f, ev.note, -1, true);
+                    return;
+                }
                 auto& midi = instMidi[(size_t) ev.channel];
                 if (ev.velocity > 0.0f)
                 {
@@ -1185,6 +1216,9 @@ public:
         }
 
         // Stop: spegne tutte le note degli strumenti e sfuma i campioni tenuti
+        if (wasPlaying && ! playing.load())
+            flushRecording();
+
         if (wasPlaying && ! playing.load())
         {
             for (int c = 0; c < numActive; ++c)
@@ -1742,6 +1776,73 @@ private:
         limiterReduction.store (maxReduction);
     }
 
+    /** Tick del pattern che sta suonando, contando anche i giri (per le note tenute a cavallo della fine). */
+    juce::int64 recordPosition() const noexcept
+    {
+        const int len = juce::jmax (1, patterns[(size_t) playingPattern.load()].length.load() * ticksPerStep);
+        // Il prossimo tick, meno il tempo che manca per arrivarci
+        const int next = tickInStep == 0 ? (juce::jmax (0, stepIndex) + 1) * ticksPerStep : juce::jmax (0, stepIndex) * ticksPerStep + tickInStep;
+        const double tickLength = juce::jmax (1.0, currentStepLength / ticksPerStep);
+        const auto pos = (juce::int64) std::llround ((double) next - samplesUntilNextTick / tickLength);
+        return (juce::int64) patternLoops * len + juce::jmax ((juce::int64) 0, pos);
+    }
+
+    void recordLiveEvent (const LiveEvent& ev) noexcept
+    {
+        auto& start = recStart[(size_t) ev.channel][(size_t) ev.note];
+        const bool active = recording.load() && playing.load() && ! inSong && stepIndex >= 0;
+
+        if (ev.velocity > 0.0f)
+        {
+            if (! active)
+                return;
+            start = recordPosition();
+            recVelocity[(size_t) ev.channel][(size_t) ev.note] = ev.velocity;
+            recPattern[(size_t) ev.channel][(size_t) ev.note] = playingPattern.load();
+            return;
+        }
+
+        if (start >= 0)
+        {
+            pushRecorded (ev.channel, ev.note, playing.load() ? recordPosition() : start + ticksPerStep);
+            start = -1;
+        }
+    }
+
+    void pushRecorded (int channel, int note, juce::int64 endPosition) noexcept
+    {
+        const int pattern = recPattern[(size_t) channel][(size_t) note];
+        const int len = juce::jmax (1, patterns[(size_t) pattern].length.load() * ticksPerStep);
+        const auto start = recStart[(size_t) channel][(size_t) note];
+        RecordedNote r;
+        r.channel = channel;
+        r.pattern = pattern;
+        r.start = (int) (start % len);
+        r.length = (int) juce::jlimit ((juce::int64) ticksPerStep / 2, (juce::int64) len, endPosition - start);
+        r.pitch = note;
+        r.velocity = juce::jlimit (1, 127, juce::roundToInt (recVelocity[(size_t) channel][(size_t) note] * 127.0f));
+
+        int s1, n1, s2, n2;
+        recFifo.prepareToWrite (1, s1, n1, s2, n2);
+        if (n1 + n2 > 0)
+        {
+            recEvents[(size_t) (n1 > 0 ? s1 : s2)] = r;
+            recFifo.finishedWrite (1);
+        }
+    }
+
+    /** Allo stop: le note ancora tenute finiscono li'. */
+    void flushRecording() noexcept
+    {
+        for (int c = 0; c < maxChannels; ++c)
+            for (int n = 0; n < 128; ++n)
+                if (recStart[(size_t) c][(size_t) n] >= 0)
+                {
+                    pushRecorded (c, n, recordPosition());
+                    recStart[(size_t) c][(size_t) n] = -1;
+                }
+    }
+
     void applyAutomation (double tick) noexcept
     {
         using namespace automation;
@@ -1979,6 +2080,8 @@ private:
         auto& playPat = patterns[(size_t) playingPattern.load()];
         const int length = playPat.length.load();
         stepIndex = (stepIndex + 1) % length;
+        if (stepIndex == 0)
+            ++patternLoops;   // per le note registrate tenute oltre la fine del giro
 
         // Fine del giro: se nel frattempo e' stato scelto un altro pattern, si passa a quello
         if (stepIndex == 0 && playingPattern.load() != currentPattern.load())
@@ -2317,6 +2420,16 @@ private:
     // Automazioni
     std::array<automation::Lane, automation::maxLanes> lanes;
 
+    // Registrazione dal vivo
+    std::atomic<bool> recording { false };
+    juce::SpinLock liveWriteLock;
+    juce::int64 patternLoops = 0;
+    std::array<std::array<juce::int64, 128>, maxChannels> recStart = [] { std::array<std::array<juce::int64, 128>, maxChannels> a {}; for (auto& r : a) r.fill (-1); return a; }();
+    std::array<std::array<float, 128>, maxChannels> recVelocity {};
+    std::array<std::array<int, 128>, maxChannels> recPattern {};
+    juce::AbstractFifo recFifo { 512 };
+    std::array<RecordedNote, 512> recEvents {};
+
     // Mastering
     mastering::Params masteringParams;
     mastering::Chain masteringChain;
@@ -2351,7 +2464,6 @@ private:
     std::array<int, maxChannels> instActiveNotes {}, instPreviewNote {}, instPreviewLeft {};
 
     // Note dal vivo (tastiera a schermo): coda senza lock UI -> audio
-    struct LiveEvent { int channel = 0, note = 0; float velocity = 0.0f; };
     juce::AbstractFifo liveFifo { 256 };
     std::array<LiveEvent, 256> liveEvents {};
     double samplesUntilNextTick = 0.0;

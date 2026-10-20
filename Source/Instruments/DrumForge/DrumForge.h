@@ -161,6 +161,9 @@ public:
 
     /** Suona un pad dall'interfaccia (al prossimo blocco audio). */
     void hitPad (int pad, float velocity = 0.9f);
+
+    /** Se impostato (dall'app), i tocchi sui pad passano di qui: true = gestito (es. per registrarli). */
+    std::function<bool (int pad, float velocity)> onPadHit;
     /** 0..1: quanto e' "acceso" il pad (l'interfaccia lo fa lampeggiare). */
     float getPadActivity (int pad) const;
     void decayPadActivity (float factor);

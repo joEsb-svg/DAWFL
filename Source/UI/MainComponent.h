@@ -19,7 +19,8 @@
 //==============================================================================
 /** La schermata principale: barra del trasporto + channel rack. */
 class MainComponent : public juce::Component,
-                      private juce::Timer
+                      private juce::Timer,
+                      private juce::MidiInputCallback
 {
 public:
     MainComponent();
@@ -95,6 +96,18 @@ private:
     void showPerformanceMenu();
     void updateCpuBadge();
     void restoreSession();
+
+    // Registrazione dal vivo e tastiere MIDI
+    void toggleRecording();
+    void placeRecordedNotes();
+    void setLiveTarget (int channel);
+    void scanMidiInputs();
+    void handleIncomingMidiMessage (juce::MidiInput*, const juce::MidiMessage&) override;
+    std::atomic<int> liveTarget { -1 };
+    std::atomic<bool> midiActivity { false };
+    juce::StringArray midiDeviceNames;
+    int recordQuantize = 12, midiScanCounter = 0;
+    bool recordHintShown = false;
     int cpuCounter = 0, lastXRuns = 0, highLoadTicks = 0, glitchesThisSession = 0;
     juce::uint32 lastXRunTime = 0, dirtySince = 0;
     bool performanceHintShown = false, sessionDirty = false, recoveredFromBackup = false;
@@ -141,6 +154,7 @@ private:
     juce::TextButton fileButton { "MENU" }, kitButton, mixerButton { "MIXER" };
     CpuBadge cpuBadge;
     PlayButton playButton;
+    RecordButton recordButton;
     LcdSelector bpmDisplay, patternDisplay;
     SegmentedControl modeSwitch  { { "STEP", "VEL", "PROB", "ROLL" } };
     IconButton undoButton { IconButton::Icon::undo }, redoButton { IconButton::Icon::redo },

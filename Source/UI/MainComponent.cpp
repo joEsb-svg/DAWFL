@@ -67,6 +67,9 @@ MainComponent::MainComponent()
     };
     addAndMakeVisible (playButton);
 
+    recordButton.onClick = [this] { toggleRecording(); };
+    addAndMakeVisible (recordButton);
+
     bpmDisplay.caption = "Tempo";
     bpmDisplay.getText = [this] { return juce::String (juce::roundToInt (engine.getBpm())); };
     bpmDisplay.onStep  = [this] (int d) { engine.setBpm (std::round (engine.getBpm()) + d); };
@@ -199,6 +202,8 @@ MainComponent::MainComponent()
     // --- Audio: 0 ingressi, 2 uscite (stereo)
     audioError = deviceManager.initialiseWithDefaultDevices (0, 2);
     deviceManager.addAudioCallback (&engine);
+    deviceManager.addMidiInputDeviceCallback ({}, this);   // tutte le tastiere MIDI attive
+    scanMidiInputs();
     loadSettings();
 
     juce::Desktop::getInstance().addGlobalMouseListener (&touchWatcher);
@@ -233,6 +238,7 @@ MainComponent::~MainComponent()
     juce::Desktop::getInstance().removeGlobalMouseListener (&touchWatcher);
     stopTimer();
     saveSession();
+    deviceManager.removeMidiInputDeviceCallback ({}, this);
     deviceManager.removeAudioCallback (&engine);
     deviceManager.closeAudioDevice();
     juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
@@ -277,9 +283,12 @@ void MainComponent::paint (juce::Graphics& g)
         logo.setJustification (juce::Justification::bottomLeft);
         logo.draw (g, top);
 
-        g.setColour (Theme::textDim);
-        g.setFont (Theme::font (11.5f));
-        g.drawFittedText (projectName, r.toNearestInt(), juce::Justification::topLeft, 1);
+        g.setColour (engine.isRecording() ? juce::Colour (0xffe0483e) : Theme::textDim);
+        g.setFont (Theme::font (11.5f, engine.isRecording()));
+        const int target = liveTarget.load();
+        g.drawFittedText (engine.isRecording() && target >= 0 && target < engine.getNumChannels()
+                              ? "REC: " + engine.getChannel (target).name : projectName,
+                          r.toNearestInt(), juce::Justification::topLeft, 1);
     }
 
     Theme::drawCaption (g, "Swing",  swingCaption);
@@ -326,6 +335,8 @@ void MainComponent::layoutLandscape (juce::Rectangle<int> full)
     redoButton.setBounds (header.removeFromLeft (h));
     header.removeFromLeft (narrow ? 6 : 10);
     playButton.setBounds (header.removeFromLeft (juce::roundToInt (h * 1.25)));
+    header.removeFromLeft (3);
+    recordButton.setBounds (header.removeFromLeft (h));
     header.removeFromLeft (6);
     bpmDisplay.setBounds (header.removeFromLeft (narrow ? 88 : 100));
     header.removeFromLeft (6);
@@ -397,8 +408,10 @@ void MainComponent::layoutPortrait (juce::Rectangle<int> full)
     auto line2 = full.removeFromTop (lineH).reduced (0, 2);
     const int h2 = line2.getHeight();
     playButton.setBounds (line2.removeFromLeft (h2));
+    line2.removeFromLeft (3);
+    recordButton.setBounds (line2.removeFromLeft (juce::roundToInt (h2 * 0.8)));
     line2.removeFromLeft (4);
-    const int lcdW = juce::jmin (96, (line2.getWidth() - 3 * 40) / 2 - 4);
+    const int lcdW = juce::jmin (92, (line2.getWidth() - 3 * 40) / 2 - 10);
     bpmDisplay.setBounds (line2.removeFromLeft (lcdW));
     line2.removeFromLeft (4);
     patternDisplay.setBounds (line2.removeFromLeft (lcdW));
@@ -613,6 +626,22 @@ void MainComponent::timerCallback()
         autosaveCounter = 0;
         sessionDirty = false;
         saveSession();
+    }
+
+    // Registrazione: le note suonate entrano nel pattern
+    if (engine.isRecording() || recordButton.getToggleState())
+    {
+        placeRecordedNotes();
+        recordButton.setBlink ((juce::Time::getMillisecondCounter() / 400) % 2 == 0);
+        if (recordButton.getToggleState() != engine.isRecording())
+            recordButton.setToggleState (engine.isRecording(), juce::dontSendNotification);
+    }
+
+    // Tastiere MIDI collegate (USB o Bluetooth): si attivano da sole
+    if (++midiScanCounter >= 80)
+    {
+        midiScanCounter = 0;
+        scanMidiInputs();
     }
 
     // Processore e scatti audio, 4 volte al secondo
@@ -980,6 +1009,17 @@ void MainComponent::openSynthPanel (int channel)
     editor.setVisible (false);
     pianoRoll.setVisible (false);
     synthPanel->setBounds (getContentArea());
+    setLiveTarget (channel);
+    if (auto* drums = dynamic_cast<DrumForgeAudioProcessor*> (engine.getInstrument (channel)))
+    {
+        // I pad toccati passano dal motore: cosi' si possono registrare
+        drums->onPadHit = [this, channel] (int pad, float velocity)
+        {
+            engine.liveNote (channel, df::firstNote + pad, velocity);
+            engine.liveNote (channel, df::firstNote + pad, 0.0f);
+            return true;
+        };
+    }
     synthPanel->open (channel);
     synthPanel->setVisible (true);
     synthPanel->toFront (false);
@@ -1292,6 +1332,7 @@ void MainComponent::loadSettings()
 
     Haptics::enabled() = settings->getBoolValue ("haptics", true);
     perf::lowPowerFlag().store (settings->getBoolValue ("lowPower", false));
+    recordQuantize = settings->getIntValue ("recordQuantize", 12);
     cpuBadge.setLowPower (perf::lowPower());
 
     if (const int buffer = settings->getIntValue ("bufferSize", 0); buffer > 0)
@@ -1308,6 +1349,122 @@ void MainComponent::setBufferSize (int samples)
         settings->setValue ("bufferSize", samples);
         settings->saveIfNeeded();
     }
+}
+
+void MainComponent::setLiveTarget (int channel)
+{
+    if (channel >= 0 && channel < engine.getNumChannels() && liveTarget.exchange (channel) != channel && engine.isRecording())
+        repaint (logoArea.toNearestInt());
+}
+
+void MainComponent::toggleRecording()
+{
+    Haptics::tick (this);
+    if (engine.isRecording())
+    {
+        engine.setRecording (false);
+        recordButton.setToggleState (false, juce::dontSendNotification);
+        placeRecordedNotes();
+        repaint (logoArea.toNearestInt());
+        return;
+    }
+
+    // La registrazione va nel pattern: in modalita' SONG si passa a PAT
+    if (engine.isSongMode())
+    {
+        engine.setSongMode (false);
+        songSwitch.setSelected (0);
+        playlist.setVisible (false);
+    }
+
+    if (liveTarget.load() < 0 || liveTarget.load() >= engine.getNumChannels())
+        liveTarget.store (juce::jmax (0, engine.getSynthChannel()));
+
+    engine.setRecording (true);
+    recordButton.setToggleState (true, juce::dontSendNotification);
+    if (! engine.isPlaying())
+        engine.setPlaying (true);
+    repaint (logoArea.toNearestInt());
+
+    if (! recordHintShown)
+    {
+        recordHintShown = true;
+        showMessage ("Registrazione",
+                     "Suona con la tastiera del synth, i pad di DrumForge o una tastiera MIDI collegata: le note entrano nel pattern "
+                     "del canale scelto (in alto, sotto il logo). Per cambiare canale tocca il suo nome.\n"
+                     "Le note vengono allineate alla griglia (1/16); si cambia da MENU > Impostazioni.");
+    }
+}
+
+void MainComponent::placeRecordedNotes()
+{
+    const auto notes = engine.popRecordedNotes();
+    if (notes.empty())
+        return;
+
+    const int grid = recordQuantize;   // tick: 0 = libero
+    for (const auto& r : notes)
+    {
+        if (r.channel < 0 || r.channel >= engine.getNumChannels())
+            continue;
+        auto& pat = engine.getPattern (r.pattern);
+        const int len = pat.length.load() * SequencerEngine::ticksPerStep;
+        int start = r.start, length = r.length;
+        if (grid > 0)
+        {
+            start = (int) std::round ((double) start / grid) * grid % len;
+            length = juce::jmax (grid / 2, (int) std::round ((double) length / grid) * grid);
+        }
+
+        // Batteria e campioni sulla loro nota naturale, in un canale senza note: diventano step
+        const bool drumLike = ! engine.isSynth (r.channel) || dynamic_cast<DrumForgeAudioProcessor*> (engine.getInstrument (r.channel)) != nullptr;
+        if (! engine.isSynth (r.channel) && r.pitch == engine.getChannelRootNote (r.channel) && pat.noteCount[(size_t) r.channel].load() == 0)
+        {
+            const int step = (int) std::round ((double) start / SequencerEngine::ticksPerStep) % pat.length.load();
+            pat.velocity[(size_t) r.channel][(size_t) step].store ((uint8_t) r.velocity);
+            continue;
+        }
+
+        auto list = engine.getNotes (r.pattern, r.channel);
+        if (drumLike)
+            length = juce::jmax (length, SequencerEngine::ticksPerStep);
+        // Un colpo nello stesso punto e sulla stessa nota sostituisce quello vecchio
+        list.erase (std::remove_if (list.begin(), list.end(), [&] (const SequencerEngine::NoteData& n) { return n.start == start && n.pitch == r.pitch; }), list.end());
+        if ((int) list.size() < SequencerEngine::maxNotes)
+            list.push_back ({ start, juce::jlimit (1, 511, length), r.pitch, r.velocity });
+        engine.setNotes (r.pattern, r.channel, list);
+    }
+
+    for (auto* row : rows)
+        row->repaint();
+    if (pianoRoll.isVisible())
+        pianoRoll.repaint();
+    userTouched.store (true);   // un passo di undo
+}
+
+void MainComponent::scanMidiInputs()
+{
+    auto devices = juce::MidiInput::getAvailableDevices();
+    for (auto& d : devices)
+        if (! deviceManager.isMidiInputDeviceEnabled (d.identifier))
+        {
+            deviceManager.setMidiInputDeviceEnabled (d.identifier, true);
+            if (! midiDeviceNames.contains (d.name))
+                midiDeviceNames.add (d.name);
+        }
+}
+
+void MainComponent::handleIncomingMidiMessage (juce::MidiInput*, const juce::MidiMessage& m)
+{
+    // Thread MIDI: solo note, verso il canale scelto
+    const int target = liveTarget.load();
+    if (target < 0)
+        return;
+    if (m.isNoteOn())
+        engine.liveNote (target, m.getNoteNumber(), m.getFloatVelocity());
+    else if (m.isNoteOff())
+        engine.liveNote (target, m.getNoteNumber(), 0.0f);
+    midiActivity.store (true);
 }
 
 void MainComponent::updateCpuBadge()
@@ -1374,6 +1531,21 @@ void MainComponent::handleSettingsResult (int result)
         engine.panic();
         updateViews();
     }
+    else if (result >= 5200 && result <= 5203)
+    {
+        static const int grids[] = { 0, 6, 12, 24 };
+        recordQuantize = grids[result - 5200];
+        settings->setValue ("recordQuantize", recordQuantize);
+        settings->saveIfNeeded();
+    }
+    else if (result == 5300)
+    {
+        juce::RuntimePermissions::request (juce::RuntimePermissions::bluetoothMidi, [] (bool granted)
+        {
+            if (granted)
+                juce::BluetoothMidiDevicePairingDialogue::open();
+        });
+    }
     else if (result > 5000 && result < 6000)
         setBufferSize (result - 5000);
 }
@@ -1423,6 +1595,22 @@ juce::PopupMenu MainComponent::createSettingsMenu()
 
     menu.addItem (5000, "Vibrazione al tocco", true, Haptics::enabled());
     menu.addItem (5100, "Risparmio (meno voci nei synth)", true, perf::lowPower());
+
+    juce::PopupMenu quant;
+    quant.addItem (5200, "Libera (come la suoni)", true, recordQuantize == 0);
+    quant.addItem (5201, "1/32", true, recordQuantize == 6);
+    quant.addItem (5202, "1/16", true, recordQuantize == 12);
+    quant.addItem (5203, "1/8", true, recordQuantize == 24);
+    menu.addSubMenu ("Registrazione: allinea le note", quant);
+
+    juce::PopupMenu midi;
+    for (auto& d : juce::MidiInput::getAvailableDevices())
+        midi.addItem (-1, d.name, false, true);
+    if (midi.getNumItems() == 0)
+        midi.addItem (-1, "(nessuna tastiera MIDI collegata)", false);
+    midi.addSeparator();
+    midi.addItem (5300, "Collega una tastiera Bluetooth...");
+    menu.addSubMenu ("Tastiere MIDI", midi);
     menu.addSubMenu ("Buffer audio (latenza)", buffers, buffers.getNumItems() > 0);
     return menu;
 }
@@ -1600,11 +1788,12 @@ void MainComponent::rebuildRows()
         row->onOpenEditor = [this] (int ch)
         {
             Haptics::tick (this);
+            setLiveTarget (ch);
             if (engine.isSynth (ch)) openSynthPanel (ch); else openEditor (ch);
         };
-        row->onTap = [this] { Haptics::tick (this); };
+        row->onTap = [this, c] { Haptics::tick (this); setLiveTarget (c); };
         row->onLongPress = [this] { Haptics::tick (this); };
-        row->onOpenPianoRoll = [this] (int ch) { Haptics::tick (this); openPianoRoll (ch); };
+        row->onOpenPianoRoll = [this] (int ch) { Haptics::tick (this); setLiveTarget (ch); openPianoRoll (ch); };
         row->onCommand = [this] (int ch, int command) { handleChannelCommand (ch, command); };
         row->onScrollDrag = [this] (float delta, bool started)
         {

@@ -14,7 +14,7 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.23)
+## Stato attuale (v0.24)
 
 **Canali (channel rack)**
 - Fino a 32 canali: "+ Strumento" aggiunge un canale scegliendo il suono dal browser
@@ -51,6 +51,26 @@ Gli aggiornamenti si installano sopra la versione precedente.
 - Salvando un progetto con lo stesso nome, la versione precedente resta come copia (.bak)
 - Tasto Indietro di Android: chiude il pannello aperto (mixer, piano roll, synth...) invece di uscire
 - Tastiera dei synth con gli stessi nomi delle note del piano roll (Do centrale = C4)
+
+**Automazioni** (Playlist > Automazioni)
+- Curve nel tempo della canzone che muovono i controlli da soli (in modalita' SONG): volume del master,
+  canali (volume, panorama, filtro, riverbero, delay, intonazione), tracce del mixer (volume, pan, EQ),
+  parametri degli effetti del mixer e qualsiasi manopola dei synth
+- "+ Automazione": scegli da dove (master, canale, traccia del mixer) e cosa; parte dal valore attuale
+- Tocca per aggiungere un punto, trascinalo, toccalo per toglierlo; forme pronte (sale, scende,
+  sale e scende, onde) su 1-16 battute; accendi/spegni
+- Le curve seguono i canali quando li sposti
+
+**Registrazione dal vivo**
+- Pulsante REC (cerchio rosso) accanto a Play: parte il pattern e le note suonate entrano nel pattern
+  del canale scelto (l'ultimo toccato; il nome compare sotto il logo)
+- Si registra con la tastiera dei synth, i pad di DrumForge e le tastiere MIDI USB o Bluetooth
+  (si attivano da sole; Bluetooth: MENU > Impostazioni > Tastiere MIDI)
+- Note allineate alla griglia (1/16, 1/8, 1/32 o libere); i colpi di batteria sulla nota naturale diventano step
+
+**Strumenti del piano roll** (seconda riga, scorre col dito)
+- Seleziona (tocca le note o disegna un riquadro), Tutto, Copia, Incolla, Duplica, Quantizza, Legato,
+  trasponi (-12 -1 +1 +12), Vel -/+, Elimina; senza selezione agiscono su tutte le note
 
 **Mastering** (MENU > Esporta audio)
 - "Automatico": JLoop calcola la canzone, misura il volume percepito (LUFS, come Spotify e YouTube),

@@ -31,6 +31,7 @@ public:
 
     void setChannel (int c)
     {
+        if (c != channel) selection.clear();
         channel = c;
         repaint();
     }
@@ -147,9 +148,14 @@ public:
             if (! r.intersects (grid.toFloat()))
                 continue;
 
-            const bool selected = dragIndex >= 0 && n == dragNote;
+            const bool selected = (dragIndex >= 0 && n == dragNote) || isSelected (n);
             auto fill = colour.interpolatedWith (Theme::stepOn, 0.35f).withMultipliedBrightness (0.65f + 0.35f * (float) n.velocity / 127.0f);
             Theme::drawRaised (g, r, selected ? fill.brighter (0.3f) : fill, 2.0f);
+            if (isSelected (n))
+            {
+                g.setColour (Theme::accent);
+                g.drawRoundedRectangle (r.reduced (0.5f), 2.0f, 2.0f);
+            }
 
             // Maniglia per allungare
             g.setColour (Theme::bg.withAlpha (0.45f));
@@ -167,12 +173,126 @@ public:
             }
         }
 
+        if (dragMode == DragMode::band && moved)
+        {
+            const auto band = juce::Rectangle<float> (downPos, lastPos);
+            g.setColour (Theme::accent.withAlpha (0.15f));
+            g.fillRect (band);
+            g.setColour (Theme::accent);
+            g.drawRect (band, 1.0f);
+        }
+
         paintKeyboard (g);
     }
 
     void resized() override
     {
         clampScroll();
+    }
+
+    //==============================================================================
+    // Selezione e strumenti (agiscono sulle note selezionate, o su tutte se non ce ne sono)
+
+    void setSelectMode (bool on)    { selectMode = on; if (! on) selection.clear(); repaint(); }
+    bool isSelectMode() const       { return selectMode; }
+    int getSelectionSize() const    { return (int) selection.size(); }
+
+    void selectAll()                { selection = engine.getNotes (channel); repaint(); }
+    void clearSelection()           { selection.clear(); repaint(); }
+
+    void copySelection()
+    {
+        auto notes = targets();
+        clipboard().clear();
+        if (notes.empty()) return;
+        int first = notes.front().start;
+        for (auto& n : notes) first = juce::jmin (first, n.start);
+        for (auto n : notes) { n.start -= first; clipboard().push_back (n); }
+    }
+
+    /** Incolla all'inizio della parte visibile (agganciato alla griglia). */
+    void paste()
+    {
+        if (clipboard().empty()) return;
+        const int at = snapTickDown ((int) (scrollX / pixelsPerTick()));
+        std::vector<SequencerEngine::NoteData> pasted;
+        for (auto n : clipboard())
+        {
+            n.start += at;
+            if (n.start < lengthTicks()) { n.length = juce::jmin (n.length, lengthTicks() - n.start); pasted.push_back (n); }
+        }
+        addNotes (pasted);
+    }
+
+    /** Copia le note subito dopo se stesse (es. una battuta -> la battuta dopo). */
+    void duplicate()
+    {
+        auto notes = targets();
+        if (notes.empty()) return;
+        int first = notes.front().start, last = 0;
+        for (auto& n : notes) { first = juce::jmin (first, n.start); last = juce::jmax (last, n.start + n.length); }
+        const int span = juce::jmax (snap, (int) std::ceil ((double) (last - first) / snap) * snap);
+        std::vector<SequencerEngine::NoteData> copies;
+        for (auto n : notes)
+        {
+            n.start += span;
+            if (n.start < lengthTicks()) { n.length = juce::jmin (n.length, lengthTicks() - n.start); copies.push_back (n); }
+        }
+        addNotes (copies);
+    }
+
+    /** Allinea l'inizio (e la durata) delle note alla griglia scelta. */
+    void quantize()
+    {
+        transform ([this] (SequencerEngine::NoteData& n)
+        {
+            n.start = juce::jlimit (0, lengthTicks() - snap, snapTick (n.start));
+            n.length = juce::jlimit (snap, lengthTicks() - n.start, snapTick (n.length));
+        });
+    }
+
+    void transpose (int semitones)
+    {
+        transform ([semitones] (SequencerEngine::NoteData& n) { n.pitch = juce::jlimit (lowestNote, highestNote, n.pitch + semitones); });
+        if (auto t = targets(); ! t.empty())
+            engine.previewChannel (channel, t.front().pitch);
+    }
+
+    void changeVelocity (int amount)
+    {
+        transform ([amount] (SequencerEngine::NoteData& n) { n.velocity = juce::jlimit (1, 127, n.velocity + amount); });
+    }
+
+    /** Ogni nota dura fino all'inizio della successiva (suono continuo). */
+    void legato()
+    {
+        auto notes = engine.getNotes (channel);
+        const auto chosen = targets();
+        for (auto& n : notes)
+        {
+            if (std::find (chosen.begin(), chosen.end(), n) == chosen.end()) continue;
+            int next = lengthTicks();
+            for (auto& m : notes)
+                if (m.start > n.start) next = juce::jmin (next, m.start);
+            const auto before = n;
+            n.length = juce::jmax (snap / 2, next - n.start);
+            for (auto& s : selection) if (s == before) s = n;
+        }
+        engine.setNotes (channel, notes);
+        if (onEdit) onEdit();
+        repaint();
+    }
+
+    void deleteSelection()
+    {
+        auto notes = engine.getNotes (channel);
+        const auto chosen = targets();
+        notes.erase (std::remove_if (notes.begin(), notes.end(), [&chosen] (auto& n) { return std::find (chosen.begin(), chosen.end(), n) != chosen.end(); }),
+                     notes.end());
+        engine.setNotes (channel, notes);
+        selection.clear();
+        if (onEdit) onEdit();
+        repaint();
     }
 
     //==============================================================================
@@ -204,13 +324,21 @@ public:
                 dragNote = notes[(size_t) i];
                 originalNote = dragNote;
                 const float handle = juce::jmax (14.0f, r.getWidth() * 0.3f);
-                dragMode = e.position.x > r.getRight() - handle ? DragMode::resize : DragMode::move;
+                if (selectMode)
+                {
+                    // Trascinare una nota selezionata sposta tutte le selezionate
+                    dragMode = isSelected (dragNote) ? DragMode::moveSelection : DragMode::move;
+                    originalSelection = selection;
+                    originalNotes = notes;
+                }
+                else
+                    dragMode = e.position.x > r.getRight() - handle ? DragMode::resize : DragMode::move;
                 repaint();
                 return;
             }
         }
 
-        dragMode = DragMode::emptyArea;
+        dragMode = selectMode ? DragMode::band : DragMode::emptyArea;
     }
 
     void mouseDrag (const juce::MouseEvent& e) override
@@ -220,9 +348,33 @@ public:
             return;
 
         moved = true;
+        lastPos = e.position;
 
         switch (dragMode)
         {
+            case DragMode::band:
+                repaint();
+                break;
+
+            case DragMode::moveSelection:
+            {
+                const int dt = snapTick ((int) std::round (delta.x / pixelsPerTick()));
+                const int dp = -(int) std::round (delta.y / rowHeight);
+                auto notes = originalNotes;
+                std::vector<SequencerEngine::NoteData> moved_;
+                for (auto& n : notes)
+                    if (std::find (originalSelection.begin(), originalSelection.end(), n) != originalSelection.end())
+                    {
+                        n.start = juce::jlimit (0, lengthTicks() - n.length, n.start + dt);
+                        n.pitch = juce::jlimit (lowestNote, highestNote, n.pitch + dp);
+                        moved_.push_back (n);
+                    }
+                engine.setNotes (channel, notes);
+                selection = moved_;
+                repaint();
+                break;
+            }
+
             case DragMode::scrollKeyboard:
             case DragMode::emptyArea:
                 scrollX = startScrollX - (dragMode == DragMode::emptyArea ? delta.x : 0.0f);
@@ -262,9 +414,43 @@ public:
 
     void mouseUp (const juce::MouseEvent& e) override
     {
+        if (dragMode == DragMode::band && moved)
+        {
+            // Selezione a riquadro
+            const auto band = juce::Rectangle<float> (downPos, e.position);
+            selection.clear();
+            for (auto& n : engine.getNotes (channel))
+                if (noteBounds (n).intersects (band))
+                    selection.push_back (n);
+            dragMode = DragMode::none;
+            repaint();
+            return;
+        }
+
         if (moved || dragMode == DragMode::scrollKeyboard)
         {
+            if (dragMode == DragMode::moveSelection && onEdit) onEdit();
             dragIndex = -1;
+            dragMode = DragMode::none;
+            repaint();
+            return;
+        }
+
+        if (selectMode)
+        {
+            // Tocco: una nota entra o esce dalla selezione; sul vuoto si toglie la selezione
+            if (dragIndex >= 0)
+            {
+                if (isSelected (dragNote))
+                    selection.erase (std::remove (selection.begin(), selection.end(), dragNote), selection.end());
+                else
+                    selection.push_back (dragNote);
+                engine.previewChannel (channel, dragNote.pitch);
+            }
+            else
+                selection.clear();
+            dragIndex = -1;
+            dragMode = DragMode::none;
             repaint();
             return;
         }
@@ -306,7 +492,50 @@ public:
     }
 
 private:
-    enum class DragMode { none, move, resize, emptyArea, scrollKeyboard };
+    enum class DragMode { none, move, resize, emptyArea, scrollKeyboard, band, moveSelection };
+
+    static std::vector<SequencerEngine::NoteData>& clipboard()  { static std::vector<SequencerEngine::NoteData> c; return c; }
+
+    bool isSelected (const SequencerEngine::NoteData& n) const
+    {
+        return std::find (selection.begin(), selection.end(), n) != selection.end();
+    }
+
+    std::vector<SequencerEngine::NoteData> targets() const
+    {
+        return selection.empty() ? engine.getNotes (channel) : selection;
+    }
+
+    void addNotes (const std::vector<SequencerEngine::NoteData>& extra)
+    {
+        auto notes = engine.getNotes (channel);
+        for (auto& n : extra)
+            if ((int) notes.size() < SequencerEngine::maxNotes && std::find (notes.begin(), notes.end(), n) == notes.end())
+                notes.push_back (n);
+        engine.setNotes (channel, notes);
+        selection = extra;   // le note nuove restano selezionate (si possono spostare subito)
+        if (onEdit) onEdit();
+        repaint();
+    }
+
+    template <typename Fn>
+    void transform (Fn&& fn)
+    {
+        auto notes = engine.getNotes (channel);
+        const auto chosen = targets();
+        std::vector<SequencerEngine::NoteData> changed;
+        for (auto& n : notes)
+            if (std::find (chosen.begin(), chosen.end(), n) != chosen.end())
+            {
+                fn (n);
+                changed.push_back (n);
+            }
+        engine.setNotes (channel, notes);
+        if (! selection.empty())
+            selection = changed;
+        if (onEdit) onEdit();
+        repaint();
+    }
 
     juce::Rectangle<int> getGridArea() const    { return getLocalBounds().withTrimmedLeft (keyboardWidth); }
 
@@ -404,8 +633,9 @@ private:
 
     DragMode dragMode = DragMode::none;
     int dragIndex = -1;
-    bool moved = false;
-    juce::Point<float> downPos;
+    bool moved = false, selectMode = false;
+    juce::Point<float> downPos, lastPos;
+    std::vector<SequencerEngine::NoteData> selection, originalSelection, originalNotes;
     SequencerEngine::NoteData dragNote, originalNote;
 };
 
@@ -434,9 +664,49 @@ public:
             grid.repaint();
         };
         closeButton.onClick = [this] { if (onClose) onClose(); };
+
+        // Strumenti (seconda riga, scorre col dito se lo schermo e' stretto)
+        auto addTool = [this] (const juce::String& text, std::function<void()> fn, int width = 64)
+        {
+            auto* b = tools.add (new juce::TextButton (text));
+            b->onClick = [this, fn] { fn(); updateTools(); };
+            b->getProperties().set ("w", width);
+            toolStrip.addAndMakeVisible (b);
+            return b;
+        };
+        selectButton = addTool ("Seleziona", [this] { grid.setSelectMode (! grid.isSelectMode()); }, 82);
+        selectButton->setClickingTogglesState (true);
+        addTool ("Tutto", [this] { grid.setSelectMode (true); grid.selectAll(); });
+        addTool ("Copia", [this] { grid.copySelection(); });
+        addTool ("Incolla", [this] { grid.paste(); }, 68);
+        addTool ("Duplica", [this] { grid.duplicate(); }, 68);
+        addTool ("Quantizza", [this] { grid.quantize(); }, 82);
+        addTool ("Legato", [this] { grid.legato(); });
+        addTool ("-12", [this] { grid.transpose (-12); }, 46);
+        addTool ("-1", [this] { grid.transpose (-1); }, 40);
+        addTool ("+1", [this] { grid.transpose (1); }, 40);
+        addTool ("+12", [this] { grid.transpose (12); }, 46);
+        addTool ("Vel -", [this] { grid.changeVelocity (-12); }, 56);
+        addTool ("Vel +", [this] { grid.changeVelocity (12); }, 56);
+        addTool ("Elimina", [this] { grid.deleteSelection(); }, 70);
+        grid.addMouseListener (this, false);   // dopo ogni tocco sulla griglia si aggiorna "Sel. (n)"
+        toolView.setViewedComponent (&toolStrip, false);
+        toolView.setScrollBarsShown (false, false);
+        toolView.setScrollOnDragMode (juce::Viewport::ScrollOnDragMode::all);
+        addAndMakeVisible (toolView);
+        updateTools();
     }
 
     std::function<void()> onClose;
+
+    void mouseUp (const juce::MouseEvent&) override     { updateTools(); }
+
+    void updateTools()
+    {
+        selectButton->setToggleState (grid.isSelectMode(), juce::dontSendNotification);
+        const int sel = grid.getSelectionSize();
+        selectButton->setButtonText (sel > 0 ? "Sel. (" + juce::String (sel) + ")" : juce::String ("Seleziona"));
+    }
 
     void setChannel (int c)
     {
@@ -481,9 +751,33 @@ public:
         zoomOut.setBounds (bar.removeFromRight (32).reduced (0, 1));
         bar.removeFromRight (10);
 
-        snapCaption = bar.removeFromLeft (52).toFloat();
-        bar.removeFromLeft (6);
-        snapSwitch.setBounds (bar.removeFromLeft (juce::jmin (260, bar.getWidth())).reduced (0, 1));
+        if (bar.getWidth() >= 200)
+        {
+            snapCaption = bar.removeFromLeft (52).toFloat();
+            bar.removeFromLeft (6);
+            snapSwitch.setBounds (bar.removeFromLeft (juce::jmin (260, bar.getWidth())).reduced (0, 1));
+        }
+        else
+        {
+            // Schermo stretto (verticale): la griglia ha una riga sua
+            r.removeFromTop (4);
+            auto snapRow = r.removeFromTop (28);
+            snapCaption = snapRow.removeFromLeft (52).toFloat();
+            snapRow.removeFromLeft (6);
+            snapSwitch.setBounds (snapRow.reduced (0, 1));
+        }
+
+        r.removeFromTop (4);
+        auto toolRow = r.removeFromTop (30);
+        toolView.setBounds (toolRow);
+        int x = 0;
+        for (auto* b : tools)
+        {
+            const int w = (int) b->getProperties()["w"];
+            b->setBounds (x, 1, w, toolRow.getHeight() - 2);
+            x += w + 4;
+        }
+        toolStrip.setSize (juce::jmax (x, toolRow.getWidth()), toolRow.getHeight());
 
         r.removeFromTop (4);
         grid.setBounds (r);
@@ -513,6 +807,10 @@ private:
     SegmentedControl snapSwitch { { "1/4", "1/8", "1/16", "1/32", "1/16T" } };
     juce::TextButton channelButton, zoomOut { "-" }, zoomIn { "+" }, clearButton { "Svuota" }, closeButton { "Chiudi" };
     juce::Rectangle<float> colourMark, snapCaption;
+    juce::Viewport toolView;
+    juce::Component toolStrip;
+    juce::OwnedArray<juce::TextButton> tools;
+    juce::TextButton* selectButton = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoRoll)
 };

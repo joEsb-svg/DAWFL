@@ -579,6 +579,8 @@ void DrumForgeAudioProcessor::hitPad (int pad, float velocity)
 {
     if (pad < 0 || pad >= df::numPads)
         return;
+    if (onPadHit && onPadHit (pad, velocity))
+        return;
     pendingVelocity[(size_t) pad].store (velocity);
     pendingHits.fetch_or (1u << pad);
 }
