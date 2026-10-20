@@ -26,8 +26,21 @@ from registry import SOUNDS  # noqa: E402
 OUT = os.path.join(ROOT, "Resources", "Library")
 
 
+PERCUSSION_WORDS = ("kick", "snare", "clap", "hat", "rim", "tom", "perc", "ride", "crash", "cymbal", "shaker", "conga",
+                    "bongo", "clave", "cowbell", "tamb", "snap", "stick", "brush", "djembe", "cabasa", "guiro", "wood",
+                    "triangle", "splash", "china", "maracas")
+
+
+def is_percussion(entry):
+    sid = entry["id"]
+    if sid.startswith("fx_") or sid == "marimba":
+        return False
+    return any(w in sid for w in PERCUSSION_WORDS) or sid.endswith(("_ch", "_oh"))
+
+
 def render(index):
     entry = SOUNDS[index]
+    dsp.PERCUSSION["on"] = is_percussion(entry)
     x = np.asarray(entry["fn"](), dtype=float)
     if not np.all(np.isfinite(x)):
         raise RuntimeError(entry["id"] + ": valori non validi")
@@ -106,7 +119,10 @@ def update_jucer():
 
 def main():
     os.makedirs(OUT, exist_ok=True)
-    ids = set(sys.argv[1:])
+    args = sys.argv[1:]
+    if args == ["--percussion"]:
+        args = [s["id"] for s in SOUNDS if is_percussion(s)]
+    ids = set(args)
     ids_all = [s["id"] for s in SOUNDS]
     assert len(ids_all) == len(set(ids_all)), "id duplicati"
     todo = [i for i, s in enumerate(SOUNDS) if not ids or s["id"] in ids]

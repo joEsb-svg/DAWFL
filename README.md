@@ -14,7 +14,17 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.26)
+## Stato attuale (v0.27)
+
+**Novita' della 0.27 (audio piu' pulito e processore piu' leggero)**
+- Percussioni della libreria rigenerate con molto meno riverbero e code piu' corte (94 suoni)
+- Un colpo a step ferma la coda del colpo precedente sullo stesso canale (anche i pad di DrumForge):
+  le code non si sommano piu' in un rumore di fondo
+- DrumForge: mandate al riverbero dei kit dimezzate
+- Processore: gli strumenti fermi non si calcolano, riverbero/delay generali e catene del mixer
+  si spengono quando tacciono, seni veloci negli LFO e nei chorus, inviluppi e unison ricalcolati
+  solo quando cambiano, le voci finite si liberano prima
+- Primo avvio: buffer audio di circa 10 ms (meno lavoro per il processore e niente gracchiare)
 
 **Novita' della 0.26 (fase 3: comporre e imparare)**
 - Piano roll: scala del progetto (10 scale: le note in scala si illuminano), accordi con un tocco

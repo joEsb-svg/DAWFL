@@ -67,7 +67,11 @@ namespace bf
             {
                 const float m = 0.5f * (L[i] + R[i]), s = 0.5f * (L[i] - R[i]);
                 line[(size_t) w] = m;
-                const float lfo = (float) std::sin(phase);
+                // seno veloce (parabola corretta): una sin() in doppia precisione a ogni campione costava troppo
+                float x = (float) (phase * (1.0 / (2.0 * kPi)));
+                x = x < 0.5f ? x : x - 1.0f;
+                float lfo = 8.0f * x - 16.0f * x * std::fabs(x);
+                lfo = 0.225f * (lfo * std::fabs(lfo) - lfo) + lfo;
                 phase += dPhase; if (phase > 2.0 * kPi) phase -= 2.0 * kPi;
                 const float dA = read(base + depth * lfo), dB = read(base - depth * lfo);
                 const float side = hp.process(s * width + amount * 0.5f * (dA - dB));

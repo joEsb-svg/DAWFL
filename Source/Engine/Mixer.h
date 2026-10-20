@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "Performance.h"
 #include <array>
 #include <atomic>
 #include <cmath>
@@ -487,8 +488,8 @@ namespace mixer
                 buffer[1][(size_t) pos] = R[i];
                 phase += p[0] / sr;
                 if (phase >= 1.0) phase -= 1.0;
-                const float mL = (float) std::sin (juce::MathConstants<double>::twoPi * phase);
-                const float mR = (float) std::sin (juce::MathConstants<double>::twoPi * (phase + 0.25));
+                const float mL = perf::fastSin ((float) phase);
+                const float mR = perf::fastSin ((float) phase + 0.25f);
                 const float wl = read (buffer[0], base + depth * mL, size);
                 const float wr = read (buffer[1], base + depth * mR, size);
                 L[i] = L[i] * (1.0f - 0.4f * mix) + wr * 0.8f * mix;

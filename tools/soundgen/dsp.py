@@ -346,7 +346,16 @@ def reverb_ir(length, tau, bright=6000, seed=11, predelay=0.012):
     return ir / np.sqrt(np.sum(ir ** 2))
 
 
+# Percussioni: riverbero molto ridotto (le code si sommavano colpo dopo colpo e "sporcavano" il mix).
+# Lo imposta generate.py prima di creare ogni suono di batteria / percussione.
+PERCUSSION = {"on": False}
+
+
 def reverb(x, mix=0.2, length=1.5, tau=0.35, bright=6000, seed=11, tail=True):
+    if PERCUSSION["on"]:
+        mix *= 0.3
+        tau *= 0.45
+        length = max(0.3, length * 0.5)
     ir = reverb_ir(length, tau, bright, seed)
     wet = sg.fftconvolve(x, ir)
     if not tail:
@@ -404,6 +413,8 @@ def pad_to(x, d):
 
 def finish(x, hpf=25.0, max_len=None, gate_db=-62.0, peak=0.89):
     x = np.asarray(x, dtype=float)
+    if PERCUSSION["on"]:
+        gate_db = max(gate_db, -50.0)   # coda inudibile tagliata: meno sovrapposizioni
     if hpf:
         x = hp(x, hpf, order=2)
     if max_len is not None:

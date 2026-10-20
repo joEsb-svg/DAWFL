@@ -176,15 +176,27 @@ namespace pf
             uni[o] = juce::jlimit (1, perf::lowPower() ? perf::lowPowerUnison : maxUnison, p.unison[o]);
             gain[o] = p.level[o] / std::sqrt ((float) uni[o]);
             const float base = (o == 0 ? f0 : f0 * p.osc2Ratio) * invSr;
+            if (cacheUni[o] != uni[o] || cacheDetune[o] != p.detune[o] || cacheSpread != p.spread)
+            {
+                cacheUni[o] = uni[o];
+                cacheDetune[o] = p.detune[o];
+                for (int u = 0; u < uni[o]; ++u)
+                {
+                    const float pos = uni[o] == 1 ? 0.0f : -1.0f + 2.0f * (float) u / (float) (uni[o] - 1);
+                    uniRatio[o][u] = cents (p.detune[o] * 45.0f * pos);
+                    const float pan = pos * p.spread;
+                    uniPanL[o][u] = std::sqrt (0.5f * (1.0f - pan));
+                    uniPanR[o][u] = std::sqrt (0.5f * (1.0f + pan));
+                }
+            }
             for (int u = 0; u < uni[o]; ++u)
             {
-                const float pos = uni[o] == 1 ? 0.0f : -1.0f + 2.0f * (float) u / (float) (uni[o] - 1);
-                dt[o][u] = juce::jmin (0.45f, base * cents (p.detune[o] * 45.0f * pos));
-                const float pan = pos * p.spread;
-                panL[o][u] = std::sqrt (0.5f * (1.0f - pan));
-                panR[o][u] = std::sqrt (0.5f * (1.0f + pan));
+                dt[o][u] = juce::jmin (0.45f, base * uniRatio[o][u]);
+                panL[o][u] = uniPanL[o][u];
+                panR[o][u] = uniPanR[o][u];
             }
         }
+        cacheSpread = p.spread;
         const float pw0 = juce::jlimit (0.05f, 0.95f, p.pw[0] + lfo * p.lfoPwm * 0.4f);
         const float pw1 = juce::jlimit (0.05f, 0.95f, p.pw[1] + lfo * p.lfoPwm * 0.4f);
         const float subDt = f0 * 0.5f * invSr;
@@ -209,6 +221,11 @@ namespace pf
         const int type = p.filterType;
         const float pws[2] { pw0, pw1 };
 
+        // Senza unison (o senza apertura stereo) sinistra e destra sono uguali: si calcola un canale solo
+        // (filtri e saturazione costano la meta')
+        bool mono = p.spread < 0.001f || (uni[0] <= 1 && uni[1] <= 1);
+        const int stageType = type == 0 || type == 1 ? 0 : type;
+
         for (int i = 0; i < n; ++i)
         {
             const float a = amp.next();
@@ -231,15 +248,16 @@ namespace pf
                     float& t = phase[(size_t) o][(size_t) u];
                     const float x = osc (w, t, dt[o][u], pws[o]) * gain[o];
                     l += x * panL[o][u];
-                    r += x * panR[o][u];
+                    if (! mono) r += x * panR[o][u];
                     t += dt[o][u];
                     if (t >= 1.0f) t -= 1.0f;
                 }
             }
+            if (mono) r = l;
 
             if (p.sub > 0.0001f)
             {
-                const float s = std::sin (juce::MathConstants<float>::twoPi * subPhase) * p.sub * 0.8f;
+                const float s = perf::fastSin (subPhase) * p.sub * 0.8f;
                 l += s; r += s;
                 subPhase += subDt;
                 if (subPhase >= 1.0f) subPhase -= 1.0f;
@@ -255,16 +273,19 @@ namespace pf
             if (p.drive > 0.001f)
             {
                 l = std::tanh (l * driveGain) * driveNorm;
-                r = std::tanh (r * driveGain) * driveNorm;
+                r = mono ? l : std::tanh (r * driveGain) * driveNorm;
             }
 
-            const int stageType = type == 0 || type == 1 ? 0 : type;
             l = filtersL[0].process (l, stageType);
-            r = filtersR[0].process (r, stageType);
             if (type == 0)
-            {
                 l = filtersL[1].process (l, 0);
-                r = filtersR[1].process (r, 0);
+            if (mono)
+                r = l;
+            else
+            {
+                r = filtersR[0].process (r, stageType);
+                if (type == 0)
+                    r = filtersR[1].process (r, 0);
             }
 
             const float out = a * velGain * trem * 0.3f;
@@ -461,8 +482,8 @@ namespace pf
                 chorusR[(size_t) chorusPos] = R[i];
                 chorusPhase += 0.45 / sr;
                 if (chorusPhase >= 1.0) chorusPhase -= 1.0;
-                const float modL = (float) std::sin (juce::MathConstants<double>::twoPi * chorusPhase);
-                const float modR = (float) std::sin (juce::MathConstants<double>::twoPi * (chorusPhase + 0.25));
+                const float modL = perf::fastSin ((float) chorusPhase);
+                const float modR = perf::fastSin ((float) chorusPhase + 0.25f);
                 auto read = [&] (const std::vector<float>& buf, float delaySamples)
                 {
                     float idx = (float) chorusPos - delaySamples;

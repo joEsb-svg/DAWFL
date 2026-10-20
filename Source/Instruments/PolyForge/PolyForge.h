@@ -99,6 +99,10 @@ namespace pf
 
         void set (double sr, float a, float d, float s, float r)
         {
+            // Ricalcolato solo se cambia qualcosa (viene chiamato ogni 16 campioni per ogni voce)
+            if (a == lastA && d == lastD && s == lastS && r == lastR && sr == lastSr)
+                return;
+            lastA = a; lastD = d; lastS = s; lastR = r; lastSr = sr;
             attackInc = (float) (1.0 / (juce::jmax (0.0005, (double) a) * sr));
             decayCoef = (float) std::exp (-4.6 / (juce::jmax (0.001, (double) d) * sr));    // -40 dB nel tempo indicato
             releaseCoef = (float) std::exp (-4.6 / (juce::jmax (0.001, (double) r) * sr));
@@ -120,14 +124,18 @@ namespace pf
                     break;
                 case decay:
                     value = sustainLevel + (value - sustainLevel) * decayCoef;
-                    if (value - sustainLevel < 0.0005f) { value = sustainLevel; stage = sustain; }
+                    if (value - sustainLevel < 0.0005f)
+                    {
+                        value = sustainLevel;
+                        stage = sustainLevel < 0.0005f ? idle : sustain;   // sustain a zero: la nota e' finita (FM, pluck)
+                    }
                     break;
                 case sustain:
                     value = sustainLevel;
                     break;
                 case release:
                     value *= releaseCoef;
-                    if (value < 0.00005f) { value = 0.0f; stage = idle; }
+                    if (value < 0.0003f) { value = 0.0f; stage = idle; }   // -70 dB: inudibile, la voce si libera
                     break;
                 case idle:
                 default:
@@ -137,6 +145,8 @@ namespace pf
         }
 
         Stage stage = idle;
+        float lastA = -1.0f, lastD = -1.0f, lastS = -1.0f, lastR = -1.0f;
+        double lastSr = 0.0;
         float value = 0.0f, attackInc = 0.01f, decayCoef = 0.999f, releaseCoef = 0.999f, sustainLevel = 1.0f;
     };
 
@@ -232,6 +242,10 @@ namespace pf
         std::array<std::array<float, maxUnison>, 2> phase {};
         float subPhase = 0.0f;
         std::array<Svf, 2> filtersL, filtersR;   // 2 stadi (24 dB) per canale
+        // Unison: rapporti di intonazione e panorama, ricalcolati solo se cambiano le regolazioni
+        float uniRatio[2][maxUnison] {}, uniPanL[2][maxUnison] {}, uniPanR[2][maxUnison] {};
+        int   cacheUni[2] { -1, -1 };
+        float cacheDetune[2] { -1.0f, -1.0f }, cacheSpread = -1.0f;
         int counter = 0;
         uint32_t noiseState = 22222u;
     };

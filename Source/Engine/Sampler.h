@@ -46,10 +46,16 @@ public:
         @param gateTicks   dopo quanti tick del sequencer sfumare (-1 = suona fino alla fine)
         @param humanize    piccole variazioni di forza e di tempo
     */
-    void trigger (float velocity, float semitones, int gateTicks, float humanize, float randomA, float randomB)
+    void trigger (float velocity, float semitones, int gateTicks, float humanize, float randomA, float randomB, bool cutPrevious = false)
     {
         if (sample == nullptr || sample->audio.getNumSamples() < 2)
             return;
+
+        // Colpo a step: ferma (in pochi ms) quelli ancora in corso, cosi' le code non si sommano in un rumore di fondo
+        if (cutPrevious)
+            for (auto& o : voices)
+                if (o.active)
+                    o.cut = true;
 
         auto& v = voices[(size_t) pickVoice()];
         float vel = velocity;
@@ -66,6 +72,7 @@ public:
         v.env       = 1.0f;
         v.release   = 1.0f;
         v.releasing = false;
+        v.cut       = false;
         v.gateTicks = gateTicks;
         v.delay     = delay;
         v.age       = ++ageCounter;
@@ -92,6 +99,14 @@ public:
     {
         for (auto& v : voices)
             v.active = false;
+    }
+
+    int activeVoices() const noexcept
+    {
+        int count = 0;
+        for (auto& v : voices)
+            count += v.active ? 1 : 0;
+        return count;
     }
 
     bool isActive() const noexcept
@@ -137,7 +152,9 @@ public:
 
             sum += x * v.level * v.env * v.release;
             v.env *= fade;
-            if (v.releasing)
+            if (v.cut)
+                v.release *= cutCoef;
+            else if (v.releasing)
                 v.release *= releaseCoef;
             any = true;
         }
@@ -171,7 +188,7 @@ private:
     {
         double pos = 0.0, step = 1.0;
         float  level = 1.0f, env = 1.0f, release = 1.0f;
-        bool   active = false, releasing = false;
+        bool   active = false, releasing = false, cut = false;
         int    gateTicks = -1, delay = 0;
         uint32_t age = 0;
     };
@@ -197,6 +214,7 @@ private:
 
         const double rel = sample != nullptr ? juce::jmax (0.005, (double) sample->release) : 0.15;
         releaseCoef = (float) std::exp (-1.0 / (rel * 0.35 * sr));   // ~ -25 dB al tempo di rilascio
+        cutCoef = (float) std::exp (-1.0 / (0.006 * sr));             // colpo interrotto: sfuma in ~20 ms senza click
 
         const double cutoff = 20000.0 * std::pow (2.0, 3.5 * (double) juce::jmin (0.0f, shape.tone));
         lowCoef = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * juce::jlimit (150.0, sr * 0.45, cutoff) / sr));
@@ -212,6 +230,6 @@ private:
     std::array<Voice, numVoices> voices {};
     uint32_t ageCounter = 0;
     double baseStep = 1.0;
-    float fade = 1.0f, releaseCoef = 0.999f, lowCoef = 1.0f, shelfCoef = 0.3f, driveAmount = 1.0f, driveNorm = 1.0f;
+    float fade = 1.0f, releaseCoef = 0.999f, cutCoef = 0.99f, lowCoef = 1.0f, shelfCoef = 0.3f, driveAmount = 1.0f, driveNorm = 1.0f;
     float lowState = 0.0f, shelfState = 0.0f;
 };

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "../../Engine/Performance.h"
 #include <vector>
 
 //==============================================================================
@@ -50,8 +51,8 @@ namespace forge
                     chorusR[(size_t) chorusPos] = R[i];
                     chorusPhase += 0.45 / sr;
                     if (chorusPhase >= 1.0) chorusPhase -= 1.0;
-                    const float modL = (float) std::sin (juce::MathConstants<double>::twoPi * chorusPhase);
-                    const float modR = (float) std::sin (juce::MathConstants<double>::twoPi * (chorusPhase + 0.25));
+                    const float modL = perf::fastSin ((float) chorusPhase);
+                    const float modR = perf::fastSin ((float) chorusPhase + 0.25f);
                     const float wl = read (chorusL, base + depth * modL);
                     const float wr = read (chorusR, base + depth * modR);
                     L[i] = L[i] * (1.0f - 0.35f * p.chorus) + wr * 0.7f * p.chorus;

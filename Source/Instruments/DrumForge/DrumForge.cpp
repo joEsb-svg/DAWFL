@@ -201,7 +201,7 @@ namespace df
             set (padId (p, "Pan"), pad.pan);
             set (padId (p, "Cutoff"), pad.cutoff);
             set (padId (p, "Choke"), (float) pad.choke);
-            set (padId (p, "Reverb"), pad.reverb);
+            set (padId (p, "Reverb"), pad.reverb * 0.5f);   // poco riverbero: i colpi restano asciutti e definiti
             apvts.state.setProperty ("sample" + juce::String (p), SampleStore::libraryName (pad.sample), nullptr);
             apvts.state.setProperty ("name" + juce::String (p), juce::String (juce::CharPointer_UTF8 (pad.label)), nullptr);
         }
@@ -279,6 +279,11 @@ namespace df
             for (auto& v : voices)
                 if (v.sample != nullptr && v.choke == p.choke)
                     v.choking = true;
+
+        // Lo stesso pad ritoccato ferma il colpo precedente (come le drum machine): le code non si accumulano
+        for (auto& v : voices)
+            if (v.sample != nullptr && v.pad == pad)
+                v.choking = true;
 
         // Voce libera, o la piu' vecchia (in "Risparmio" meta' delle voci)
         const size_t limit = perf::lowPower() ? voices.size() / 2 : voices.size();
@@ -583,6 +588,7 @@ void DrumForgeAudioProcessor::hitPad (int pad, float velocity)
         return;
     pendingVelocity[(size_t) pad].store (velocity);
     pendingHits.fetch_or (1u << pad);
+    perf::wake();
 }
 
 float DrumForgeAudioProcessor::getPadActivity (int pad) const

@@ -1482,6 +1482,19 @@ void MainComponent::loadSettings()
 
     if (const int buffer = settings->getIntValue ("bufferSize", 0); buffer > 0)
         setBufferSize (buffer);
+    else if (auto* device = deviceManager.getCurrentAudioDevice())
+    {
+        // Primo avvio: buffer di circa 10 ms. Quello minimo del telefono (2-4 ms) fa lavorare il processore
+        // molto di piu' (tante chiamate piccole) e fa gracchiare l'audio; 10 ms di ritardo non si sentono.
+        const double sr = device->getCurrentSampleRate() > 0 ? device->getCurrentSampleRate() : 48000.0;
+        const int target = (int) (sr * 0.010);
+        int best = device->getCurrentBufferSizeSamples();
+        for (int size : device->getAvailableBufferSizes())
+            if (size >= target && (best < target || size < best))
+                best = size;
+        if (best > device->getCurrentBufferSizeSamples())
+            setBufferSize (best);
+    }
 }
 
 void MainComponent::setBufferSize (int samples)

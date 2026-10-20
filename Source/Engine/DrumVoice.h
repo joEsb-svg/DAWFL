@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "Performance.h"
 #include <cmath>
 #include <cstdint>
 #include "SoundLibrary.h"
@@ -200,7 +201,7 @@ public:
         if (p.toneLevel > 0.0f)
         {
             const double freq = (p.toneEnd + (p.toneStart - p.toneEnd) * pitchEnv) * detuneRatio;
-            sig += (float) std::sin (phase) * toneEnv * p.toneLevel;
+            sig += perf::fastSin ((float) (phase * (1.0 / juce::MathConstants<double>::twoPi))) * toneEnv * p.toneLevel;
 
             phase += juce::MathConstants<double>::twoPi * freq / sr;
             if (phase > juce::MathConstants<double>::twoPi)

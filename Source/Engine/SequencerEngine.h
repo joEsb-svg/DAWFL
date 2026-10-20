@@ -13,6 +13,7 @@
 #include "Mixer.h"
 #include "Mastering.h"
 #include "Automation.h"
+#include "Performance.h"
 
 //==============================================================================
 /**
@@ -317,6 +318,7 @@ public:
         instOffTicks[(size_t) c].fill (0);
         instActiveNotes[(size_t) c] = 0;
         instPreviewNote[(size_t) c] = -1;
+        perf::wake();
         instMidi[(size_t) c].clear();
     }
 
@@ -341,6 +343,8 @@ public:
     // Canali: quanti sono, aggiungi / clona / sposta / elimina
 
     int getNumChannels() const                  { return numActiveChannels.load(); }
+    /** Per i test: voci del campionatore ancora in corso su un canale. */
+    int getSamplerVoicesForTest (int c) const   { return samplers[(size_t) c].activeVoices(); }
 
     /** Il primo canale con uno strumento (-1 se non c'e'). */
     int getSynthChannel() const
@@ -1445,6 +1449,7 @@ private:
     /** Nuovo ordine dei canali: order[nuovo] = vecchio indice, oppure -1 per un canale nuovo e vuoto. */
     void applyOrder (const std::vector<int>& order)
     {
+        perf::wake();   // i canali cambiano posto: gli strumenti si ricalcolano
         // Copia fatta fuori dal lock (solo la UI scrive questi dati)
         const int n = getNumChannels();
         const int limit = patternDataLimit();   // con 99 pattern si copiano solo quelli che contengono qualcosa
@@ -1601,6 +1606,11 @@ private:
             if (trackFed[(size_t) t])
                 clearTrack (t, n);
 
+        // Tipo dei canali letto una volta per blocco (non a ogni campione: sui telefoni le letture atomiche costano)
+        std::array<bool, maxChannels> sampleChannel {};
+        for (int c = 0; c < numActive; ++c)
+            sampleChannel[(size_t) c] = channels[(size_t) c].type.load (std::memory_order_relaxed) != synth;
+
         for (int s = 0; s < n; ++s)
         {
             currentSample = s;
@@ -1639,7 +1649,7 @@ private:
 
             for (int c = 0; c < numActive; ++c)
             {
-                if (channels[(size_t) c].type.load() == synth)
+                if (! sampleChannel[(size_t) c])
                     continue;
 
                 auto& voice = voices[(size_t) c];
@@ -1681,6 +1691,11 @@ private:
         }
 
         // Strumenti: ognuno suona il blocco con i suoi eventi MIDI (gia' alla posizione giusta nel blocco)
+        if (const auto w = perf::wakeCounter().load (std::memory_order_relaxed); w != lastWake)
+        {
+            lastWake = w;
+            instIdleSamples.fill (0);
+        }
         for (int c = 0; c < numActive; ++c)
         {
             auto* proc = instruments[(size_t) c];
@@ -1705,8 +1720,19 @@ private:
 
             juce::AudioBuffer<float> view (instBuffer.getArrayOfWritePointers(), 2, n);
             view.clear();
+
+            // Strumento fermo (nessuna nota in arrivo e uscita silenziosa da un po'): non si calcola.
+            // Uno strumento acceso ma muto costava quasi quanto uno che suona.
+            auto& idle = instIdleSamples[(size_t) c];
+            if (midi.isEmpty() && idle > (int) (sr * 0.3))
+                continue;
+
             proc->processBlock (view, midi);
             midi.clear();
+            {
+                const float outPeak = juce::jmax (view.getMagnitude (0, 0, n), view.getMagnitude (1, 0, n));
+                idle = outPeak > 1.0e-5f ? 0 : juce::jmin (idle + n, 1 << 28);
+            }
 
             auto& ch = channels[(size_t) c];
             const float g   = gainL[(size_t) c] == 0.0f && gainR[(size_t) c] == 0.0f ? 0.0f : ch.volume.load();
@@ -1736,7 +1762,11 @@ private:
         processMixer (sr, n);
 
         // Delay ping-pong con un po' di attenuazione degli acuti nei rimbalzi
-        for (int s = 0; s < n; ++s)
+        // (calcolato solo se arriva qualcosa o se gli echi suonano ancora)
+        const float delInPeak = juce::FloatVectorOperations::findMaximum (delIn.data(), n) - juce::FloatVectorOperations::findMinimum (delIn.data(), n);
+        const bool delayOn = delInPeak > 1.0e-6f || delayOutPeak > 1.0e-5f;
+        if (delayOn) delayOutPeak = 0.0f;
+        for (int s = 0; delayOn && s < n; ++s)
         {
             const float del = delIn[(size_t) s];
             const size_t size = delayBuffer[0].size();
@@ -1752,14 +1782,20 @@ private:
 
             mixL[(size_t) s] += dl;
             mixR[(size_t) s] += dr;
+            delayOutPeak = juce::jmax (delayOutPeak, std::abs (dl), std::abs (dr));
         }
 
-        reverb.processStereo (revL.data(), revR.data(), n);
-
-        for (int s = 0; s < n; ++s)
+        const float revInPeak = juce::FloatVectorOperations::findMaximum (revL.data(), n) - juce::FloatVectorOperations::findMinimum (revL.data(), n);
+        if (revInPeak > 1.0e-6f || reverbOutPeak > 1.0e-5f)
         {
-            mixL[(size_t) s] += revL[(size_t) s] * 0.6f;
-            mixR[(size_t) s] += revR[(size_t) s] * 0.6f;
+            reverb.processStereo (revL.data(), revR.data(), n);
+            reverbOutPeak = 0.0f;
+            for (int s = 0; s < n; ++s)
+            {
+                mixL[(size_t) s] += revL[(size_t) s] * 0.6f;
+                mixR[(size_t) s] += revR[(size_t) s] * 0.6f;
+                reverbOutPeak = juce::jmax (reverbOutPeak, std::abs (revL[(size_t) s]), std::abs (revR[(size_t) s]));
+            }
         }
 
         // Effetti della traccia Master
@@ -1965,6 +2001,20 @@ private:
     void runTrackChain (int t, float* L, float* R, double sr, int n) noexcept
     {
         auto& tr = tracks[(size_t) t];
+
+        // Niente in ingresso e le code degli effetti (riverbero, delay) finite: silenzio, non serve calcolare
+        bool hasEffects = false;
+        for (auto& s : tr.slots)
+            hasEffects = hasEffects || (s.effect != nullptr && ! s.bypass.load (std::memory_order_relaxed));
+        const float inPeak = juce::jmax (juce::FloatVectorOperations::findMaximum (L, n) - juce::FloatVectorOperations::findMinimum (L, n),
+                                         juce::FloatVectorOperations::findMaximum (R, n) - juce::FloatVectorOperations::findMinimum (R, n));
+        auto& outPeak = trackOutPeak[(size_t) t];
+        if (inPeak <= 1.0e-6f && (outPeak <= 1.0e-5f || ! hasEffects))
+        {
+            outPeak = 0.0f;
+            return;
+        }
+
         auto& eq = trackEq[(size_t) t];
         eq.update (sr, tr.eqLow.load(), tr.eqMid.load(), tr.eqMidFreq.load(), tr.eqHigh.load());
         eq.process (L, R, n);
@@ -1992,6 +2042,9 @@ private:
             }
             s.effect->process (L, R, n, params, ctx);
         }
+
+        outPeak = juce::jmax (juce::FloatVectorOperations::findMaximum (L, n) - juce::FloatVectorOperations::findMinimum (L, n),
+                              juce::FloatVectorOperations::findMaximum (R, n) - juce::FloatVectorOperations::findMinimum (R, n));
     }
 
     void processMixer (double sr, int n) noexcept
@@ -2444,7 +2497,7 @@ private:
             // intero; le note del piano roll degli strumenti "tenuti" sfumano alla loro fine.
             const float semis = midiNote < 0 ? 0.0f : (float) (midiNote - sample->rootNote);
             const int gate = (fromNote && midiNote >= 0 && sample->gated && lengthTicks > 0) ? lengthTicks : -1;
-            smp.trigger (velocity, semis, gate, humanize, rng.nextFloat() * 2.0f - 1.0f, rng.nextFloat() * 2.0f - 1.0f);
+            smp.trigger (velocity, semis, gate, humanize, rng.nextFloat() * 2.0f - 1.0f, rng.nextFloat() * 2.0f - 1.0f, ! fromNote);
         }
         else
         {
@@ -2586,6 +2639,10 @@ private:
 
     std::array<float, chunk> mixL {}, mixR {}, revL {}, revR {}, delIn {};
     juce::Reverb reverb;
+    float reverbOutPeak = 0.0f, delayOutPeak = 0.0f;               // per saltare riverbero e delay quando tacciono
+    std::array<int, maxChannels> instIdleSamples {};
+    unsigned lastWake = 0;               // da quanto ogni strumento e' in silenzio
+    std::array<float, mixer::numTracks> trackOutPeak {};           // uscita degli effetti di ogni traccia (code)
     std::vector<float> delayBuffer[2];
     size_t delayWrite = 0;
     float  delayLp[2] { 0.0f, 0.0f };
