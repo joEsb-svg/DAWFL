@@ -73,6 +73,8 @@ namespace ProjectIO
         root->setProperty ("version", formatVersion);
         root->setProperty ("bpm", engine.getBpm());
         root->setProperty ("swing", engine.getSwing());
+        if (engine.getScaleType() > 0)
+            root->setProperty ("scale", juce::Array<juce::var> { engine.getScaleRoot(), engine.getScaleType() });
         root->setProperty ("master", engine.getMasterVolume());
         root->setProperty ("currentPattern", engine.getCurrentPattern());
 
@@ -121,6 +123,8 @@ namespace ProjectIO
             o->setProperty ("delay", ch.delay.load());
             o->setProperty ("humanize", ch.humanize.load());
             o->setProperty ("mixer", ch.mixerTrack.load());
+            if (ch.arpOn.load() || ch.arpMode.load() != 0 || ch.arpRate.load() != 12)
+                o->setProperty ("arp", juce::Array<juce::var> { ch.arpOn.load(), ch.arpMode.load(), ch.arpRate.load(), ch.arpOctaves.load(), ch.arpGate.load() });
             if (ch.sampleName.isNotEmpty())
                 o->setProperty ("sample", ch.sampleName);
             channels.add (juce::var (o));
@@ -284,6 +288,8 @@ namespace ProjectIO
         engine.resetProject (true);   // gli effetti del mixer restano (si riusano se sono dello stesso tipo)
         engine.setBpm ((double) json.getProperty ("bpm", 120.0));
         engine.setSwing ((float) (double) json.getProperty ("swing", 0.0));
+        if (auto* sc = json.getProperty ("scale", {}).getArray(); sc != nullptr && sc->size() >= 2)
+            engine.setScale ((int) (*sc)[0], (int) (*sc)[1]);
         engine.setMasterVolume ((float) (double) json.getProperty ("master", 1.0));
 
         const int version = (int) json.getProperty ("version", 1);
@@ -452,6 +458,16 @@ namespace ProjectIO
                 if (auto* chs = json.getProperty ("channels", {}).getArray(); chs != nullptr && c < chs->size())
                     track = (int) chs->getReference (c).getProperty ("mixer", 0);
             engine.setChannelTrack (c, track);
+            if (auto* chs = json.getProperty ("channels", {}).getArray(); chs != nullptr && c < chs->size())
+                if (auto* arp = chs->getReference (c).getProperty ("arp", {}).getArray(); arp != nullptr && arp->size() >= 5)
+                {
+                    auto& ch = engine.getChannel (c);
+                    ch.arpOn.store ((bool) (*arp)[0]);
+                    ch.arpMode.store (juce::jlimit (0, 4, (int) (*arp)[1]));
+                    ch.arpRate.store (juce::jlimit (3, 96, (int) (*arp)[2]));
+                    ch.arpOctaves.store (juce::jlimit (1, 3, (int) (*arp)[3]));
+                    ch.arpGate.store (juce::jlimit (0.05f, 1.0f, (float) (double) (*arp)[4]));
+                }
         }
 
         std::array<std::array<int, mixer::numSlots>, mixer::numTracks> wanted {};   // tipo di effetto voluto per ogni slot

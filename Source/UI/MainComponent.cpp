@@ -218,6 +218,8 @@ MainComponent::MainComponent()
         {
             safe->removeChildComponent (safe->splash.get());
             safe->splash.reset();
+            if (safe->settings != nullptr && ! safe->settings->getBoolValue ("guideShown", false))
+                safe->showGuide();
         }
     };
     addAndMakeVisible (*splash);
@@ -298,6 +300,9 @@ void MainComponent::paint (juce::Graphics& g)
 
 void MainComponent::resized()
 {
+    if (guide != nullptr)
+        guide->setBounds (getLocalBounds());
+
     if (splash != nullptr)
     {
         splash->setBounds (getLocalBounds());
@@ -728,8 +733,13 @@ void MainComponent::showFileMenu()
 
     juce::PopupMenu menu;
     menu.addSectionHeader ("Progetto: " + projectName);
+    juce::PopupMenu demoMenu;
+    for (int i = 0; i < (int) demos::list().size(); ++i)
+        demoMenu.addItem (3000 + i, juce::String (demos::list()[(size_t) i].name) + "  -  " + demos::list()[(size_t) i].description);
+
     menu.addItem (1, "Nuovo progetto");
     menu.addSubMenu ("Apri", openMenu);
+    menu.addSubMenu ("Progetti demo", demoMenu);
     menu.addItem (2, "Salva", true);
     menu.addItem (3, "Salva con nome...");
     menu.addSubMenu ("Elimina", deleteMenu, ! projects.isEmpty());
@@ -739,6 +749,7 @@ void MainComponent::showFileMenu()
     menu.addSeparator();
     menu.addSubMenu ("Impostazioni", createSettingsMenu());
     menu.addItem (4, "Info audio");
+    menu.addItem (8, "Guida rapida");
     menu.addSeparator();
     menu.addItem (-1, "JLoop versione " + juce::String (ProjectInfo::versionString), false);
 
@@ -769,6 +780,10 @@ void MainComponent::showFileMenu()
                                 self.openExport();
                             else if (result == 7)
                                 self.openMixer();
+                            else if (result == 8)
+                                self.showGuide();
+                            else if (result >= 3000 && result < 4000)
+                                self.loadDemo (result - 3000);
                             else if (result >= 5000 && result < 6000)
                                 self.handleSettingsResult (result);
                             else if (result >= 2000)
@@ -886,6 +901,113 @@ void MainComponent::newProject()
     syncControlsFromEngine();
     saveSession();
     repaint();
+}
+
+void MainComponent::loadDemo (int index)
+{
+    if (index < 0 || index >= (int) demos::list().size())
+        return;
+
+    engine.setPlaying (false);
+    synthPanel->onClose();
+    engine.resetProject();
+    engine.setNumChannels (1);          // la demo parte da un canale solo (il primo viene riusato)
+    engine.resetChannel (0);
+    engine.getChannel (0).mixerTrack.store (1);
+    instruments->resolve();
+
+    bool firstUsed = false;
+    auto takeChannel = [this, &firstUsed]
+    {
+        if (! firstUsed) { firstUsed = true; return 0; }
+        return engine.addChannel();
+    };
+
+    demos::Host host;
+    host.addSample = [this, takeChannel] (const char* id, const char* label, float tune, float levelDb, float pan) mutable
+    {
+        auto* data = sampleStore.load (SampleStore::libraryName (id));
+        if (data == nullptr)
+            return -1;
+        const int channel = takeChannel();
+        if (channel < 0)
+            return -1;
+        auto& ch = engine.getChannel (channel);
+        ch.type.store (SequencerEngine::drumOrSample);
+        ch.sampleName = SampleStore::libraryName (id);
+        ch.sample.store (data);
+        if (auto* entry = SampleStore::findLibraryEntry (id))
+            ch.colour.store (entry->colour);
+        ch.name = juce::String (juce::CharPointer_UTF8 (label));
+        ch.customName = true;
+        ch.pitch.store (tune);
+        ch.pan.store (pan);
+        ch.volume.store (0.8f * juce::Decibels::decibelsToGain (levelDb));
+        ch.touchSound();
+        return channel;
+    };
+    host.addInstrument = [this, takeChannel] (const char* kind, const char* name, const char* preset) mutable
+    {
+        auto* info = Instruments::find (kind);
+        const int channel = info != nullptr ? takeChannel() : -1;
+        if (channel < 0)
+            return -1;
+        engine.makeInstrumentChannel (channel, info->id, name, info->colour);
+        instruments->resolve();
+        auto* proc = engine.getInstrument (channel);
+        const auto presets = Instruments::factoryPresets (proc);
+        if (const int p = presets.indexOf (preset); p >= 0)
+            Instruments::loadFactory (proc, p);
+        auto& ch = engine.getChannel (channel);
+        ch.name = juce::String (juce::CharPointer_UTF8 (name));
+        ch.customName = true;
+        return channel;
+    };
+
+    demos::build (engine, index, host);
+
+    projectName = juce::String ("Demo ") + demos::list()[(size_t) index].name;
+    editor.setVisible (false);
+    pianoRoll.setVisible (false);
+    rebuildRows();
+    undoStack.clear(); redoStack.clear(); lastSnapshot = takeSnapshot();
+    syncControlsFromEngine();
+    openPlaylist();
+    saveSession();
+    repaint();
+}
+
+void MainComponent::showGuide()
+{
+    if (guide != nullptr)
+        return;
+    juce::StringArray names;
+    for (auto& d : demos::list())
+        names.add (d.name);
+    guide = std::make_unique<QuickGuide> (names);
+    guide->onFinished = [safe = juce::Component::SafePointer<MainComponent> (this)] (int demo)
+    {
+        if (safe != nullptr)
+            juce::MessageManager::callAsync ([safe, demo] { if (safe != nullptr) safe->closeGuide (demo); });
+    };
+    addAndMakeVisible (*guide);
+    guide->setBounds (getLocalBounds());
+    guide->toFront (true);
+}
+
+void MainComponent::closeGuide (int demo)
+{
+    if (guide == nullptr)
+        return;
+    removeChildComponent (guide.get());
+    guide.reset();
+    if (settings != nullptr)
+    {
+        settings->setValue ("guideShown", true);
+        settings->saveIfNeeded();
+    }
+    if (demo >= 0)
+        loadDemo (demo);
 }
 
 void MainComponent::showPatternMenu()
@@ -1251,12 +1373,31 @@ void MainComponent::handleCommandLine (const juce::String& commandLine)
     if (const int i = args.indexOf ("--roll"); i >= 0)
         openPianoRoll (juce::jlimit (0, engine.getNumChannels() - 1, args[i + 1].getIntValue()));
 
+    if (const int i = args.indexOf ("--scale"); i >= 0 && args.size() > i + 2)   // test: scala del progetto
+        engine.setScale (args[i + 1].getIntValue(), args[i + 2].getIntValue());
+    if (args.contains ("--scale-panel") && pianoRoll.isVisible())
+        pianoRoll.showScalePanelForTest();
+    if (args.contains ("--prog-panel") && pianoRoll.isVisible())
+        pianoRoll.showProgressionPanelForTest();
+
     if (const int i = args.indexOf ("--open-synth"); i >= 0)       // test: pannello di uno strumento (canale, scheda)
     {
         openSynthPanel (args[i + 1].getIntValue());
         if (args.size() > i + 2)
             if (auto* pfEditor = dynamic_cast<ForgeEditorBase*> (synthPanel->getEditorForTest()))
                 pfEditor->showTab (args[i + 2].getIntValue());
+    }
+
+    if (args.contains ("--arp-panel") && synthPanel != nullptr && synthPanel->isVisible())   // test: arpeggiatore
+        synthPanel->showArpPanelForTest();
+
+    if (const int i = args.indexOf ("--demo"); i >= 0)   // test: progetto demo (indice)
+        loadDemo (args[i + 1].getIntValue());
+    if (const int i = args.indexOf ("--guide"); i >= 0)  // test: guida rapida (pagina)
+    {
+        showGuide();
+        if (guide != nullptr && args.size() > i + 1)
+            guide->show (args[i + 1].getIntValue());
     }
 
     if (const int i = args.indexOf ("--presets"); i >= 0)   // test: browser dei preset (canale)
@@ -1559,6 +1700,7 @@ bool MainComponent::handleBackButton()
     // Chiude il pannello in primo piano, come il tasto Indietro di ogni app Android
     if (splash != nullptr)
         return true;
+    if (guide != nullptr) { closeGuide (-1); return true; }
     if (presetBrowser.isVisible()) { presetBrowser.setVisible (false); return true; }
     if (mixerPanel.isVisible())
     {

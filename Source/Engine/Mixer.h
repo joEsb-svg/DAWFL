@@ -320,7 +320,9 @@ namespace mixer
         void process (float* L, float* R, int n, const float* p, const Context&) override
         {
             const float drive = 1.0f + p[0] * 14.0f;
-            const float norm = 1.0f / std::tanh (juce::jmin (3.0f, drive));
+            // Volume compensato: un segnale a livello tipico (0.3) esce allo stesso livello con qualunque drive
+            // (prima il drive alzava il volume fino a +20 dB e il limiter del master schiacciava tutto)
+            const float norm = 0.3f / std::tanh (0.3f * drive);
             const float coef = 1.0f - (float) std::exp (-juce::MathConstants<double>::twoPi * p[1] / sr);
             const float mix = p[2], out = juce::Decibels::decibelsToGain (p[3]);
             float* ch[2] { L, R };

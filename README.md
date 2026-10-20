@@ -14,7 +14,19 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.25)
+## Stato attuale (v0.26)
+
+**Novita' della 0.26 (fase 3: comporre e imparare)**
+- Piano roll: scala del progetto (10 scale: le note in scala si illuminano), accordi con un tocco
+  (triade, settima, add9, sus2, sus4, power: diatonici sulla scala), 11 progressioni pronte
+  (pop, emozionale, jazz, epica, EDM, trap, techno...)
+- Arpeggiatore per ogni strumento (pulsante "Arp" nel pannello dello strumento): su, giu', su e giu',
+  casuale, accordo; da 1/32 a 1/4; 1-3 ottave; durata delle note. Salvato nel progetto
+- Progetti demo (MENU > Progetti demo): Techno, House, Trap, Drum and Bass, Lo-Fi. Batteria a step,
+  basso, accordi e melodia con gli strumenti di JLoop, 5 pattern con nome, playlist con intro / drop /
+  pausa / finale, sidechain e riverbero nel mixer, automazione del filtro
+- Guida rapida al primo avvio (7 schede, riapribile da MENU > Guida rapida); l'ultima propone le demo
+- Mixer: la saturazione ora compensa il volume (prima il drive alzava molto il livello)
 
 **Canali (channel rack)**
 - Tieni premuto uno step: riempimento automatico della riga (come in FL Studio): ogni 1/2/3/4/8/16 step

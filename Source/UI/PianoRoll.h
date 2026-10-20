@@ -5,6 +5,7 @@
 #include "../Engine/SequencerEngine.h"
 #include "Theme.h"
 #include "Widgets.h"
+#include "MusicPanels.h"
 
 //==============================================================================
 /**
@@ -96,8 +97,24 @@ public:
                 continue;
 
             auto row = juce::Rectangle<float> ((float) grid.getX(), y, (float) grid.getWidth(), rowHeight);
-            g.setColour (isBlackKey (pitch) ? Theme::bg.darker (0.25f) : Theme::panel);
-            g.fillRect (row);
+            const int scaleType = engine.getScaleType(), scaleRoot = engine.getScaleRoot();
+            if (scaleType > 0)
+            {
+                // Con una scala: le note della scala chiare, le altre scure, la tonica colorata
+                const bool in = theory::inScale (pitch, scaleRoot, scaleType);
+                g.setColour (in ? Theme::panel.brighter (0.05f) : Theme::bg.darker (0.35f));
+                g.fillRect (row);
+                if ((pitch - scaleRoot) % 12 == 0)
+                {
+                    g.setColour (Theme::accent.withAlpha (0.10f));
+                    g.fillRect (row);
+                }
+            }
+            else
+            {
+                g.setColour (isBlackKey (pitch) ? Theme::bg.darker (0.25f) : Theme::panel);
+                g.fillRect (row);
+            }
             g.setColour (Theme::border.withAlpha (pitch % 12 == 0 ? 1.0f : 0.45f));
             g.drawHorizontalLine ((int) (y + rowHeight), (float) grid.getX(), (float) grid.getRight());
         }
@@ -194,6 +211,11 @@ public:
     // Selezione e strumenti (agiscono sulle note selezionate, o su tutte se non ce ne sono)
 
     void setSelectMode (bool on)    { selectMode = on; if (! on) selection.clear(); repaint(); }
+
+    void setChordMode (bool on)     { chordMode = on; if (on) setSelectMode (false); }
+    bool isChordMode() const        { return chordMode; }
+    void setChordType (int t)       { chordType = t; }
+    int getChordType() const        { return chordType; }
     bool isSelectMode() const       { return selectMode; }
     int getSelectionSize() const    { return (int) selection.size(); }
 
@@ -475,7 +497,20 @@ public:
                 n.pitch = juce::jlimit (lowestNote, highestNote, (int) pitchAtY (e.position.y));
                 n.velocity = SequencerEngine::defaultVelocity;
 
-                if ((int) notes.size() < SequencerEngine::maxNotes)
+                if (chordMode)
+                {
+                    // Un tocco = un accordo intero, costruito sulla scala
+                    for (int p : theory::chordAt (n.pitch, engine.getScaleRoot(), engine.getScaleType(), chordType))
+                        if ((int) notes.size() < SequencerEngine::maxNotes && p >= 0 && p <= 127)
+                        {
+                            auto cn = n;
+                            cn.pitch = p;
+                            notes.push_back (cn);
+                        }
+                    engine.setNotes (channel, notes);
+                    engine.previewChannel (channel, n.pitch);
+                }
+                else if ((int) notes.size() < SequencerEngine::maxNotes)
                 {
                     notes.push_back (n);
                     engine.setNotes (channel, notes);
@@ -633,7 +668,8 @@ private:
 
     DragMode dragMode = DragMode::none;
     int dragIndex = -1;
-    bool moved = false, selectMode = false;
+    bool moved = false, selectMode = false, chordMode = false;
+    int chordType = theory::triad;
     juce::Point<float> downPos, lastPos;
     std::vector<SequencerEngine::NoteData> selection, originalSelection, originalNotes;
     SequencerEngine::NoteData dragNote, originalNote;
@@ -674,7 +710,12 @@ public:
             toolStrip.addAndMakeVisible (b);
             return b;
         };
-        selectButton = addTool ("Seleziona", [this] { grid.setSelectMode (! grid.isSelectMode()); }, 82);
+        scaleButton = addTool ("Scala", [this] { showScalePanel(); }, 104);
+        chordButton = addTool ("Accordi", [this] { grid.setChordMode (! grid.isChordMode()); }, 72);
+        chordButton->setClickingTogglesState (true);
+        chordTypeButton = addTool ("Triade", [this] { grid.setChordType ((grid.getChordType() + 1) % theory::numChordTypes); }, 76);
+        addTool ("Progressioni", [this] { showProgressionPanel(); }, 100);
+        selectButton = addTool ("Seleziona", [this] { grid.setSelectMode (! grid.isSelectMode()); grid.setChordMode (false); }, 82);
         selectButton->setClickingTogglesState (true);
         addTool ("Tutto", [this] { grid.setSelectMode (true); grid.selectAll(); });
         addTool ("Copia", [this] { grid.copySelection(); });
@@ -703,6 +744,13 @@ public:
 
     void updateTools()
     {
+        chordButton->setToggleState (grid.isChordMode(), juce::dontSendNotification);
+        chordTypeButton->setButtonText (theory::chordTypeName (grid.getChordType()));
+        chordTypeButton->setEnabled (grid.isChordMode());
+        const int st = engine.getScaleType();
+        scaleButton->setButtonText (st > 0 ? juce::String (theory::noteName (engine.getScaleRoot())) + " "
+                                             + juce::String (theory::scales()[(size_t) st].name).toLowerCase().substring (0, 9)
+                                           : juce::String ("Scala..."));
         selectButton->setToggleState (grid.isSelectMode(), juce::dontSendNotification);
         const int sel = grid.getSelectionSize();
         selectButton->setButtonText (sel > 0 ? "Sel. (" + juce::String (sel) + ")" : juce::String ("Seleziona"));
@@ -715,10 +763,13 @@ public:
         channelButton.setButtonText (engine.getChannel (c).name
                                      + juce::String (juce::CharPointer_UTF8 ("  \xe2\x96\xbe")));
         grid.centreOnContent();
+        updateTools();
         repaint();
     }
 
     int getChannel() const          { return channel; }
+    void showScalePanelForTest()        { showScalePanel(); }
+    void showProgressionPanelForTest()  { showProgressionPanel(); }
     PianoRollGrid& getGrid()        { return grid; }
 
     void paint (juce::Graphics& g) override
@@ -784,6 +835,28 @@ public:
     }
 
 private:
+    void showScalePanel()
+    {
+        auto panel = std::make_unique<ScalePanel> (engine);
+        auto* raw = panel.get();
+        juce::Component::SafePointer<PianoRoll> safe (this);
+        raw->onChanged = [safe] { if (safe != nullptr) { safe->grid.repaint(); safe->updateTools(); } };
+        auto* overlay = CenteredOverlay::show (*this, std::move (panel), [raw] (int w) { return raw->preferredHeight (w); }, 560);
+        juce::Component::SafePointer<CenteredOverlay> safeOverlay (overlay);
+        raw->onDone = [safeOverlay] { if (safeOverlay != nullptr) safeOverlay->close(); };
+    }
+
+    void showProgressionPanel()
+    {
+        auto panel = std::make_unique<ProgressionPanel> (engine, channel);
+        auto* raw = panel.get();
+        juce::Component::SafePointer<PianoRoll> safe (this);
+        raw->onApplied = [safe] { if (safe != nullptr) { safe->grid.centreOnContent(); safe->grid.repaint(); safe->updateTools(); } };
+        auto* overlay = CenteredOverlay::show (*this, std::move (panel), [raw] (int w) { return raw->preferredHeight (w); }, 600);
+        juce::Component::SafePointer<CenteredOverlay> safeOverlay (overlay);
+        raw->onDone = [safeOverlay] { if (safeOverlay != nullptr) safeOverlay->close(); };
+    }
+
     void showChannelMenu()
     {
         juce::PopupMenu menu;
@@ -810,7 +883,7 @@ private:
     juce::Viewport toolView;
     juce::Component toolStrip;
     juce::OwnedArray<juce::TextButton> tools;
-    juce::TextButton* selectButton = nullptr;
+    juce::TextButton* selectButton = nullptr, *scaleButton = nullptr, *chordButton = nullptr, *chordTypeButton = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoRoll)
 };

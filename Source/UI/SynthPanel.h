@@ -6,6 +6,7 @@
 #include "../Instruments/Instruments.h"
 #include "../Instruments/Common/ForgeEditorBase.h"
 #include "Theme.h"
+#include "MusicPanels.h"
 
 //==============================================================================
 /**
@@ -21,8 +22,9 @@ class SynthPanel : public juce::Component,
 public:
     explicit SynthPanel (SequencerEngine& e) : engine (e)
     {
-        for (auto* b : { &presetButton, &mixButton, &keysButton, &closeButton })
+        for (auto* b : { &presetButton, &arpButton, &mixButton, &keysButton, &closeButton })
             addAndMakeVisible (b);
+        arpButton.onClick = [this] { showArpPanel(); };
 
         closeButton.onClick = [this] { if (onClose) onClose(); };
         mixButton.onClick   = [this] { if (onOpenMix) onOpenMix(); };
@@ -111,8 +113,13 @@ public:
         shownProcessor = nullptr;
     }
 
+    void showArpPanelForTest()  { showArpPanel(); }
+
     void refreshPresetName()
     {
+        const bool arp = channel >= 0 && engine.getChannel (channel).arpOn.load();
+        arpButton.setButtonText (arp ? "Arp ON" : "Arp");
+        arpButton.setColour (juce::TextButton::buttonColourId, arp ? Theme::accent.darker (0.3f) : Theme::raised);
         const bool kit = dynamic_cast<DrumForgeAudioProcessor*> (engine.getInstrument (channel)) != nullptr;
         presetButton.setButtonText ((kit ? "Kit: " : "Preset: ") + Instruments::presetName (engine.getInstrument (channel))
                                     + juce::String (juce::CharPointer_UTF8 ("  \xe2\x96\xbe")));
@@ -150,6 +157,8 @@ public:
         bar.removeFromRight (6);
         mixButton.setBounds (bar.removeFromRight (compact ? 44 : 60));
         bar.removeFromRight (6);
+        arpButton.setBounds (bar.removeFromRight (compact ? 48 : 70));
+        bar.removeFromRight (6);
         keysButton.setBounds (bar.removeFromRight (compact ? 70 : 84));
         bar.removeFromRight (10);
         presetButton.setBounds (bar.removeFromLeft (juce::jmin (300, bar.getWidth())));
@@ -174,12 +183,26 @@ private:
         engine.liveNote (channel, note, 0.0f);
     }
 
+    void showArpPanel()
+    {
+        if (channel < 0)
+            return;
+        auto panel = std::make_unique<ArpPanel> (engine, channel);
+        auto* raw = panel.get();
+        juce::Component::SafePointer<SynthPanel> safe (this);
+        raw->onChanged = [safe] { if (safe != nullptr) safe->refreshPresetName(); };
+        auto* overlay = CenteredOverlay::show (*this, std::move (panel), [raw] (int w) { return raw->preferredHeight (w); }, 560);
+        juce::Component::SafePointer<CenteredOverlay> safeOverlay (overlay);
+        raw->onDone = [safeOverlay] { if (safeOverlay != nullptr) safeOverlay->close(); };
+    }
+
     SequencerEngine& engine;
     int channel = -1;
     juce::AudioProcessor* shownProcessor = nullptr;
     std::unique_ptr<juce::AudioProcessorEditor> editor;
     juce::MidiKeyboardState keyboardState;
     juce::MidiKeyboardComponent keyboard { keyboardState, juce::MidiKeyboardComponent::horizontalKeyboard };
+    juce::TextButton arpButton { "Arp" };
     juce::TextButton presetButton, mixButton { "Mix" }, keysButton { "Tastiera" }, closeButton { "Chiudi" };
     juce::Rectangle<float> barArea;
     static constexpr float titleWidth = 150.0f;

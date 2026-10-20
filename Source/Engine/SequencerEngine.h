@@ -105,6 +105,13 @@ public:
         std::atomic<int> stepNote { synthStepNote };   // nota suonata dagli step (DrumForge: 36, il primo pad)
         std::atomic<int> mixerTrack { 0 };             // traccia del mixer: 0 = Master, 1..32 = insert
 
+        // Arpeggiatore (solo canali strumento): le note tenute suonano una alla volta, a tempo
+        std::atomic<bool>  arpOn      { false };
+        std::atomic<int>   arpMode    { 0 };       // 0 su, 1 giu', 2 su e giu', 3 casuale, 4 accordo ripetuto
+        std::atomic<int>   arpRate    { 12 };      // tick tra una nota e l'altra (12 = 1/16)
+        std::atomic<int>   arpOctaves { 1 };       // 1..3
+        std::atomic<float> arpGate    { 0.6f };    // durata delle note (frazione del passo)
+
         // Usati solo dal thread della UI
         juce::String name;
         bool customName = false;                 // rinominato dall'utente: cambiando suono il nome resta
@@ -213,6 +220,8 @@ public:
 
         bpm.store (120.0);
         swing.store (0.0f);
+        scaleRoot.store (9);     // La
+        scaleType.store (0);     // nessuna scala
         masterVolume.store (1.0f);
         masteringParams.reset();
         for (int l = 0; l < automation::maxLanes; ++l)
@@ -249,6 +258,7 @@ public:
         ch.delay.store (0.0f);
         ch.humanize.store (0.15f);
         ch.mixerTrack.store (0);
+        ch.arpOn.store (false); ch.arpMode.store (0); ch.arpRate.store (12); ch.arpOctaves.store (1); ch.arpGate.store (0.6f);
         ch.sample.store (nullptr);
         ch.sampleName.clear();
         ch.touchSound();
@@ -559,6 +569,13 @@ public:
             for (int s = 0; s < mixer::numSlots; ++s)
                 setTrackEffect (t, s, mixer::none);
     }
+
+    //==============================================================================
+    // Scala del progetto (per il piano roll: righe evidenziate, accordi, progressioni)
+
+    int getScaleRoot() const                { return scaleRoot.load(); }
+    int getScaleType() const                { return scaleType.load(); }
+    void setScale (int root, int type)      { scaleRoot.store (((root % 12) + 12) % 12); scaleType.store (juce::jmax (0, type)); }
 
     //==============================================================================
     // Registrazione dal vivo: le note suonate mentre il pattern gira finiscono nel pattern
@@ -1177,6 +1194,13 @@ public:
                         triggerChannel (ev.channel, juce::jlimit (0.05f, 1.0f, ev.velocity), 0.0f, ev.note, -1, true);
                     return;
                 }
+                if (channels[(size_t) ev.channel].arpOn.load() && playing.load())
+                {
+                    // Dal vivo con l'arpeggiatore: tenuta finche' non si alza il dito
+                    arpHeld[(size_t) ev.channel][(size_t) ev.note] = ev.velocity > 0.0f ? arpLiveHold : 0;
+                    arpVelocity[(size_t) ev.channel][(size_t) ev.note] = ev.velocity;
+                    return;
+                }
                 auto& midi = instMidi[(size_t) ev.channel];
                 if (ev.velocity > 0.0f)
                 {
@@ -1318,7 +1342,9 @@ private:
         const SampleData* sample;
         juce::AudioProcessor* instrument;
         juce::String name, sampleName, instrumentKind, pendingState;
-        int instrumentId, stepNote, mixerTrack;
+        int instrumentId, stepNote, mixerTrack, arpMode, arpRate, arpOctaves;
+        bool arpOn;
+        float arpGate;
 
         struct PatternRows
         {
@@ -1362,6 +1388,8 @@ private:
         out.instrumentId = ch.instrumentId; out.pendingState = ch.pendingState;
         out.stepNote = ch.stepNote.load();
         out.mixerTrack = ch.mixerTrack.load();
+        out.arpOn = ch.arpOn.load(); out.arpMode = ch.arpMode.load(); out.arpRate = ch.arpRate.load();
+        out.arpOctaves = ch.arpOctaves.load(); out.arpGate = ch.arpGate.load();
 
         out.rows.resize ((size_t) juce::jlimit (1, numPatterns, patternLimit));
         for (int p = 0; p < (int) out.rows.size(); ++p)
@@ -1394,6 +1422,8 @@ private:
         ch.instrumentId = in.instrumentId; ch.pendingState = in.pendingState;
         ch.stepNote.store (in.stepNote);
         ch.mixerTrack.store (in.mixerTrack);
+        ch.arpOn.store (in.arpOn); ch.arpMode.store (in.arpMode); ch.arpRate.store (in.arpRate);
+        ch.arpOctaves.store (in.arpOctaves); ch.arpGate.store (in.arpGate);
         ch.touchSound();
 
         for (int p = 0; p < (int) in.rows.size(); ++p)
@@ -2229,6 +2259,68 @@ private:
         {
             playPatternNotes (patterns[(size_t) playingPattern.load()], tick);
         }
+
+        runArpeggiators();
+        ++arpClock;
+    }
+
+    /** Arpeggiatori: a ogni passo suona la nota successiva tra quelle tenute. */
+    void runArpeggiators() noexcept
+    {
+        for (int c = 0; c < numActive; ++c)
+        {
+            auto& ch = channels[(size_t) c];
+            if (! ch.arpOn.load() || instruments[(size_t) c] == nullptr)
+                continue;
+
+            auto& held = arpHeld[(size_t) c];
+            int notes[128 * 3];
+            int count = 0;
+            float velocity = 0.0f;
+            const int octaves = juce::jlimit (1, 3, ch.arpOctaves.load());
+            for (int n = 0; n < 128; ++n)
+                if (held[(size_t) n] > 0)
+                    velocity = juce::jmax (velocity, arpVelocity[(size_t) c][(size_t) n]);
+            for (int o = 0; o < octaves; ++o)
+                for (int n = 0; n < 128; ++n)
+                    if (held[(size_t) n] > 0 && n + o * 12 <= 127)
+                        notes[count++] = n + o * 12;
+
+            const int rate = juce::jlimit (3, 96, ch.arpRate.load());
+            if (count > 0 && arpClock % rate == 0)
+            {
+                const int mode = ch.arpMode.load();
+                const int len = juce::jmax (1, (int) std::round ((float) rate * juce::jlimit (0.05f, 1.0f, ch.arpGate.load())));
+                auto& pos = arpPosition[(size_t) c];
+                if (mode == 4)
+                {
+                    for (int i = 0; i < count; ++i)   // accordo ripetuto
+                        instNoteOnRaw (c, notes[i], velocity, len);
+                }
+                else
+                {
+                    int index = 0;
+                    if (mode == 0)      index = pos % count;
+                    else if (mode == 1) index = count - 1 - pos % count;
+                    else if (mode == 2) { const int cycle = juce::jmax (1, 2 * count - 2); const int p = pos % cycle; index = p < count ? p : cycle - p; }
+                    else                index = (int) (rng.nextFloat() * (float) count) % count;
+                    instNoteOnRaw (c, notes[index], velocity, len);
+                }
+                ++pos;
+            }
+
+            // Le note del piano roll e degli step finiscono quando finisce la loro durata
+            bool any = false;
+            for (int n = 0; n < 128; ++n)
+                if (held[(size_t) n] > 0)
+                {
+                    if (held[(size_t) n] < arpLiveHold)
+                        --held[(size_t) n];
+                    any = any || held[(size_t) n] > 0;
+                }
+            if (! any)
+                arpPosition[(size_t) c] = 0;   // nuovo accordo: ricomincia dalla prima nota
+        }
     }
 
     /** Fa partire le note del piano roll di un pattern che iniziano a questo tick. */
@@ -2259,6 +2351,19 @@ private:
         if (note < 0 || note > 127)
             return;
 
+        // Arpeggiatore acceso (e il tempo scorre): la nota viene "tenuta", l'arpeggiatore la suonera' a tempo
+        if (channels[(size_t) c].arpOn.load() && playing.load())
+        {
+            arpHeld[(size_t) c][(size_t) note] = juce::jmax (1, lengthTicks);
+            arpVelocity[(size_t) c][(size_t) note] = velocity;
+            channels[(size_t) c].triggerCount.fetch_add (1);
+            return;
+        }
+        instNoteOnRaw (c, note, velocity, lengthTicks);
+    }
+
+    void instNoteOnRaw (int c, int note, float velocity, int lengthTicks)
+    {
         auto& midi = instMidi[(size_t) c];
         auto& offs = instOffTicks[(size_t) c];
         if (offs[(size_t) note] > 0)
@@ -2286,6 +2391,8 @@ private:
 
     void instAllNotesOff (int c)
     {
+        arpHeld[(size_t) c].fill (0);
+        arpPosition[(size_t) c] = 0;
         auto& midi = instMidi[(size_t) c];
         auto& offs = instOffTicks[(size_t) c];
         for (int note = 0; note < 128; ++note)
@@ -2416,9 +2523,17 @@ private:
     DrumVoice   browserDrum;
 
     std::atomic<bool> panicRequested { false };
+    std::atomic<int> scaleRoot { 9 }, scaleType { 0 };
 
     // Automazioni
     std::array<automation::Lane, automation::maxLanes> lanes;
+
+    // Arpeggiatori (thread audio)
+    static constexpr int arpLiveHold = 1 << 30;
+    std::array<std::array<int, 128>, maxChannels> arpHeld {};
+    std::array<std::array<float, 128>, maxChannels> arpVelocity {};
+    std::array<int, maxChannels> arpPosition {};
+    juce::int64 arpClock = 0;
 
     // Registrazione dal vivo
     std::atomic<bool> recording { false };

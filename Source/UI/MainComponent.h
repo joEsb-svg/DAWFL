@@ -14,6 +14,8 @@
 #include "MixerPanel.h"
 #include "PresetBrowser.h"
 #include "JLoopSplash.h"
+#include "DemoProjects.h"
+#include "QuickGuide.h"
 #include "Haptics.h"
 
 //==============================================================================
@@ -51,6 +53,9 @@ private:
     void openProject (const juce::String& name);
     void deleteProject (const juce::String& name);
     void newProject();
+    void loadDemo (int index);
+    void showGuide();
+    void closeGuide (int demo);
     void showAudioInfo();
     void showMessage (const juce::String& title, const juce::String& message);
 
@@ -141,6 +146,7 @@ private:
     std::unique_ptr<Instruments::Host> instruments;      // gli strumenti dei canali (distrutti dopo il pannello)
     std::unique_ptr<SynthPanel> synthPanel;
     std::unique_ptr<JLoopSplash> splash;
+    std::unique_ptr<QuickGuide> guide;
     void openSynthPanel (int channel);
     void showPresetMenu (int channel, juce::Component& target);
     juce::AudioDeviceManager deviceManager;
