@@ -583,7 +583,7 @@ void MainComponent::timerCallback()
         pianoRoll.getGrid().setPlayTick (tick);
 
     if (playlist.isVisible())
-        playlist.getGrid().refresh();
+        playlist.refresh();
 
     if (songSwitch.getSelected() != (engine.isSongMode() ? 1 : 0))   // undo, caricamento progetto
         songSwitch.setSelected (engine.isSongMode() ? 1 : 0);
@@ -1245,10 +1245,22 @@ void MainComponent::handleCommandLine (const juce::String& commandLine)
         if (args.contains ("--play")) engine.setPlaying (true);
     }
 
+    if (args.contains ("--automation-demo"))   // test: due automazioni d'esempio
+    {
+        const int l1 = engine.addLane ({ automation::channelParam, 3, automation::chFilter, 0 });
+        engine.setLanePoints (l1, { { 0, 0.15f }, { 4 * 192, 1.0f }, { 5 * 192, 1.0f }, { 6 * 192, 0.3f } });
+        const int l2 = engine.addLane ({ automation::master, 0, 0, 0 });
+        engine.setLanePoints (l2, { { 0, 0.0f }, { 192, 0.8f }, { 8 * 192, 0.8f } });
+    }
+
     if (args.contains ("--playlist"))
     {
         engine.setSongMode (true);
         openPlaylist();
+        if (args.contains ("--automation"))
+            playlist.showAutomationForTest();
+        if (args.contains ("--automation-picker"))
+            playlist.showTargetPickerForTest();
     }
 
     if (args.contains ("--export"))

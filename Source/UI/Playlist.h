@@ -5,6 +5,7 @@
 #include "../Engine/SequencerEngine.h"
 #include "Theme.h"
 #include "Widgets.h"
+#include "AutomationView.h"
 
 //==============================================================================
 /** Colori dei pattern nella playlist (come in FL Studio, ogni pattern ha il suo). */
@@ -76,6 +77,8 @@ public:
     }
 
     float getBarWidth() const       { return barWidth; }
+    float getScrollX() const        { return scrollX; }
+    void setScrollX (float x)       { scrollX = x; clampScroll(); repaint(); }
 
     /** Chiamato dal timer della schermata: playhead e scorrimento automatico. */
     void refresh()
@@ -521,14 +524,37 @@ private:
 class Playlist : public juce::Component
 {
 public:
-    explicit Playlist (SequencerEngine& e) : engine (e), grid (e)
+    explicit Playlist (SequencerEngine& e)
+        : engine (e), grid (e),
+          autoView (e, [this] { return grid.getBarWidth(); }, [this] { return grid.getScrollX(); }, [this] (float x) { grid.setScrollX (x); }),
+          picker (e)
     {
         for (auto* b : { &brushButton, &zoomOut, &zoomIn, &clearButton, &closeButton })
             addAndMakeVisible (b);
 
+        // Pattern / Automazioni
+        addAndMakeVisible (modeSwitch);
+        modeSwitch.onChange = [this] (int) { updateMode(); };
+        addChildComponent (autoView);
+        addChildComponent (addLaneButton);
+        addChildComponent (picker);
+        addLaneButton.onClick = [this] { picker.setBounds (getLocalBounds()); picker.open(); };
+        picker.onChoose = [this] (automation::Target t)
+        {
+            const int lane = engine.addLane (t);
+            if (lane < 0)
+                return;
+            if (engine.getLanePoints (lane).empty())
+            {
+                // Si parte con una linea piatta al valore attuale, all'inizio della canzone
+                engine.setLanePoints (lane, { { 0, AutomationText::current (engine, t) } });
+            }
+            autoView.repaint();
+        };
+
         brushButton.onClick = [this] { showBrushMenu(); };
-        zoomOut.onClick = [this] { grid.setBarWidth (grid.getBarWidth() - 12.0f); };
-        zoomIn.onClick  = [this] { grid.setBarWidth (grid.getBarWidth() + 12.0f); };
+        zoomOut.onClick = [this] { grid.setBarWidth (grid.getBarWidth() - 12.0f); autoView.repaint(); };
+        zoomIn.onClick  = [this] { grid.setBarWidth (grid.getBarWidth() + 12.0f); autoView.repaint(); };
         clearButton.onClick = [this]
         {
             engine.setClips ({});
@@ -543,6 +569,18 @@ public:
 
     std::function<void()> onClose;
     PlaylistGrid& getGrid()         { return grid; }
+    AutomationView& getAutomationView()     { return autoView; }
+
+    /** Playhead e modifiche fatte altrove (chiamato dal timer della schermata). */
+    void refresh()
+    {
+        if (autoView.isVisible()) autoView.refresh();
+        else                      grid.refresh();
+    }
+
+    /** Solo per i test: mostra le automazioni. */
+    void showAutomationForTest()    { modeSwitch.setSelected (1); updateMode(); }
+    void showTargetPickerForTest()  { picker.setBounds (getLocalBounds()); picker.open(); }
 
     /** Il pennello parte dal pattern che si sta modificando. */
     void setBrush (int pattern)     { grid.setBrush (pattern); updateBrushButton(); }
@@ -562,7 +600,8 @@ public:
         g.setColour (Theme::textBright);
         g.setFont (Theme::font (16.0f, true));
         g.drawFittedText ("Playlist", title.toNearestInt(), juce::Justification::centredLeft, 1);
-        Theme::drawCaption (g, "Pennello", brushCaption, juce::Justification::centredRight);
+        if (! autoView.isVisible())
+            Theme::drawCaption (g, "Pennello", brushCaption, juce::Justification::centredRight);
     }
 
     void resized() override
@@ -580,16 +619,35 @@ public:
         zoomOut.setBounds (bar.removeFromRight (34).reduced (0, 2));
         bar.removeFromRight (8);
 
-        titleArea = bar.removeFromLeft (narrow ? 0 : 90).toFloat();
-        brushButton.setBounds (bar.removeFromRight (juce::jmin (150, bar.getWidth())).reduced (0, 2));
+        modeSwitch.setOptions (narrow ? juce::StringArray { "Clip", "Auto" } : juce::StringArray { "Pattern", "Automazioni" });
+        titleArea = bar.removeFromLeft (narrow ? 0 : 80).toFloat();
+        modeSwitch.setBounds (bar.removeFromLeft (juce::jmin (narrow ? 150 : 210, bar.getWidth() / 2)).reduced (0, 2));
+        bar.removeFromLeft (8);
+        const auto right = bar.removeFromRight (juce::jmin (150, bar.getWidth()));
+        brushButton.setBounds (right.reduced (0, 2));
+        addLaneButton.setBounds (right.reduced (0, 2));
         brushCaption = bar.toFloat().withTrimmedRight (6.0f);
         if (narrow) brushCaption = {};
 
         r.removeFromTop (4);
         grid.setBounds (r);
+        autoView.setBounds (r);
+        picker.setBounds (getLocalBounds());
     }
 
 private:
+    void updateMode()
+    {
+        const bool automationMode = modeSwitch.getSelected() == 1;
+        grid.setVisible (! automationMode);
+        autoView.setVisible (automationMode);
+        brushButton.setVisible (! automationMode);
+        clearButton.setVisible (! automationMode);
+        addLaneButton.setVisible (automationMode);
+        picker.setVisible (false);
+        repaint();
+    }
+
     void updateBrushButton()
     {
         brushButton.setButtonText (PatternColours::name (engine, grid.getBrush()) + juce::String (juce::CharPointer_UTF8 ("  \xe2\x96\xbe")));
@@ -617,6 +675,10 @@ private:
 
     SequencerEngine& engine;
     PlaylistGrid grid;
+    AutomationView autoView;
+    AutomationTargetPicker picker;
+    SegmentedControl modeSwitch { { "Pattern", "Automazioni" } };
+    juce::TextButton addLaneButton { "+ Automazione" };
     juce::TextButton brushButton, zoomOut { "-" }, zoomIn { "+" }, clearButton { "Svuota" }, closeButton { "Chiudi" };
     juce::Rectangle<float> titleArea, brushCaption;
 };

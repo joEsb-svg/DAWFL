@@ -229,6 +229,28 @@ namespace ProjectIO
         if (! tracks.isEmpty())
             root->setProperty ("mixer", tracks);
 
+        // Automazioni
+        {
+            juce::Array<juce::var> lanes;
+            for (int i = 0; i < automation::maxLanes; ++i)
+            {
+                if (! engine.isLaneUsed (i))
+                    continue;
+                const auto& l = engine.getLane (i);
+                auto* o = new juce::DynamicObject();
+                o->setProperty ("lane", i);
+                o->setProperty ("target", juce::Array<juce::var> { l.kind.load(), l.a.load(), l.b.load(), l.c.load() });
+                if (! l.enabled.load()) o->setProperty ("enabled", false);
+                juce::Array<juce::var> pts;
+                for (auto& p : engine.getLanePoints (i))
+                    pts.add (juce::Array<juce::var> { p.tick, juce::roundToInt (p.value * 10000.0f) });
+                o->setProperty ("points", pts);
+                lanes.add (juce::var (o));
+            }
+            if (! lanes.isEmpty())
+                root->setProperty ("automation", lanes);
+        }
+
         // Mastering
         {
             const auto& m = engine.getMastering();
@@ -377,6 +399,26 @@ namespace ProjectIO
             engine.setClips (clips);
         }
         engine.setSongMode ((bool) json.getProperty ("songMode", false));
+
+        // Automazioni
+        if (auto* lanes = json.getProperty ("automation", {}).getArray())
+            for (auto& o : *lanes)
+            {
+                const int i = (int) o.getProperty ("lane", -1);
+                auto* t = o.getProperty ("target", {}).getArray();
+                if (i < 0 || i >= automation::maxLanes || t == nullptr || t->size() < 4)
+                    continue;
+                auto& l = engine.getLane (i);
+                l.count.store (0);
+                l.setTarget ({ (int) (*t)[0], (int) (*t)[1], (int) (*t)[2], (int) (*t)[3] });
+                l.enabled.store ((bool) o.getProperty ("enabled", true));
+                std::vector<automation::Point> pts;
+                if (auto* arr = o.getProperty ("points", {}).getArray())
+                    for (auto& p : *arr)
+                        if (auto* f = p.getArray(); f != nullptr && f->size() >= 2)
+                            pts.push_back ({ (int) (*f)[0], (float) (int) (*f)[1] / 10000.0f });
+                engine.setLanePoints (i, pts);
+            }
 
         // Mastering
         if (const auto o = json.getProperty ("mastering", {}); o.isObject())

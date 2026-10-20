@@ -44,6 +44,8 @@
       <FILE id="FgEb01" name="ForgeEditorBase.h" compile="0" resource="0" file="Source/Instruments/Common/ForgeEditorBase.h"/>
       <FILE id="FgEb02" name="ForgeEditorBase.cpp" compile="1" resource="0" file="Source/Instruments/Common/ForgeEditorBase.cpp"/>
       <FILE id="PfmH01" name="Performance.h" compile="0" resource="0" file="Source/Engine/Performance.h"/>
+      <FILE id="AuH001" name="Automation.h" compile="0" resource="0" file="Source/Engine/Automation.h"/>
+      <FILE id="AuH002" name="AutomationView.h" compile="0" resource="0" file="Source/UI/AutomationView.h"/>
       <FILE id="MsH001" name="Mastering.h" compile="0" resource="0" file="Source/Engine/Mastering.h"/>
       <FILE id="MxH001" name="Mixer.h" compile="0" resource="0" file="Source/Engine/Mixer.h"/>
       <FILE id="PbH001" name="PresetBrowser.h" compile="0" resource="0" file="Source/UI/PresetBrowser.h"/>

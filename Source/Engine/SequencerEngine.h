@@ -12,6 +12,7 @@
 #include "Sampler.h"
 #include "Mixer.h"
 #include "Mastering.h"
+#include "Automation.h"
 
 //==============================================================================
 /**
@@ -214,6 +215,8 @@ public:
         swing.store (0.0f);
         masterVolume.store (1.0f);
         masteringParams.reset();
+        for (int l = 0; l < automation::maxLanes; ++l)
+            removeLane (l);
         currentPattern.store (0);
         setClips ({});
         songMode.store (false);
@@ -531,6 +534,12 @@ public:
             y.params[(size_t) p].store (v);
         }
         std::swap (x.owned, y.owned);
+        for (auto& l : lanes)   // le automazioni degli effetti seguono lo slot
+            if (l.kind.load() == automation::effectParam && l.a.load() == t)
+            {
+                if (l.b.load() == a) l.b.store (b);
+                else if (l.b.load() == b) l.b.store (a);
+            }
         x.effect = x.owned.get();
         y.effect = y.owned.get();
     }
@@ -546,6 +555,70 @@ public:
         if (! keepEffects)
             for (int s = 0; s < mixer::numSlots; ++s)
                 setTrackEffect (t, s, mixer::none);
+    }
+
+    //==============================================================================
+    // Automazioni (thread della UI)
+
+    automation::Lane& getLane (int i)               { return lanes[(size_t) juce::jlimit (0, automation::maxLanes - 1, i)]; }
+    const automation::Lane& getLane (int i) const   { return lanes[(size_t) juce::jlimit (0, automation::maxLanes - 1, i)]; }
+    bool isLaneUsed (int i) const                   { return getLane (i).kind.load() != automation::none; }
+
+    /** Nuova automazione (o quella che c'e' gia' per lo stesso bersaglio). -1 = piene. */
+    int addLane (const automation::Target& t)
+    {
+        for (int i = 0; i < automation::maxLanes; ++i)
+            if (isLaneUsed (i) && getLane (i).target() == t)
+                return i;
+        for (int i = 0; i < automation::maxLanes; ++i)
+            if (! isLaneUsed (i))
+            {
+                auto& l = lanes[(size_t) i];
+                l.count.store (0);
+                l.enabled.store (true);
+                l.setTarget (t);
+                return i;
+            }
+        return -1;
+    }
+
+    void removeLane (int i)
+    {
+        auto& l = getLane (i);
+        l.kind.store (automation::none);
+        l.count.store (0);
+        l.enabled.store (true);
+    }
+
+    std::vector<automation::Point> getLanePoints (int i) const
+    {
+        std::vector<automation::Point> pts;
+        const auto& l = getLane (i);
+        for (int k = 0; k < juce::jmin (l.count.load(), automation::maxPoints); ++k)
+            pts.push_back (automation::unpack (l.points[(size_t) k].load()));
+        return pts;
+    }
+
+    /** Sostituisce i punti (vengono ordinati nel tempo; due punti sullo stesso tick: vince l'ultimo). */
+    void setLanePoints (int i, std::vector<automation::Point> pts)
+    {
+        std::stable_sort (pts.begin(), pts.end(), [] (auto& x, auto& y) { return x.tick < y.tick; });
+        std::vector<automation::Point> clean;
+        for (auto& p : pts)
+        {
+            p.tick = juce::jlimit (0, maxBars * stepsPerBar * ticksPerStep, p.tick);
+            p.value = juce::jlimit (0.0f, 1.0f, p.value);
+            if (! clean.empty() && clean.back().tick == p.tick) clean.back() = p;
+            else clean.push_back (p);
+        }
+        if ((int) clean.size() > automation::maxPoints)
+            clean.resize ((size_t) automation::maxPoints);
+
+        auto& l = getLane (i);
+        l.count.store (0);   // il thread audio non legge punti a meta'
+        for (size_t k = 0; k < clean.size(); ++k)
+            l.points[k].store (automation::pack (clean[k]));
+        l.count.store ((int) clean.size());
     }
 
     /** Ferma subito ogni suono: note dei synth, campioni, code di riverbero e delay (pulsante "panico"). */
@@ -1153,6 +1226,10 @@ public:
             }
         }
 
+        // Automazioni (in modalita' SONG, mentre suona): muovono i controlli prima di leggerli
+        if (inSong && playing.load() && songStep >= 0)
+            applyAutomation ((double) songStep * ticksPerStep + tickInStep);
+
         // Parametri del mix letti una volta per blocco.
         bool anySolo = false;
         for (int c = 0; c < numActive; ++c)
@@ -1354,6 +1431,20 @@ private:
             channels[(size_t) c].instrument.store (nullptr);
 
         numActiveChannels.store (newCount);
+
+        // Automazioni dei canali: seguono il canale nella nuova posizione (canale eliminato: via la curva)
+        for (auto& l : lanes)
+        {
+            const int kind = l.kind.load();
+            if (kind != automation::channelParam && kind != automation::instrumentParam)
+                continue;
+            int moved = -1;
+            for (int c = 0; c < newCount && moved < 0; ++c)
+                if (order[(size_t) c] == l.a.load())
+                    moved = c;
+            if (moved < 0) { l.kind.store (automation::none); l.count.store (0); }
+            else           l.a.store (moved);
+        }
         structureChanged.store (true);
         structureVersion.fetch_add (1);
     }
@@ -1649,6 +1740,74 @@ private:
         }
 
         limiterReduction.store (maxReduction);
+    }
+
+    void applyAutomation (double tick) noexcept
+    {
+        using namespace automation;
+        for (auto& l : lanes)
+        {
+            const int kind = l.kind.load();
+            if (kind == none || ! l.enabled.load())
+                continue;
+            const float v = l.valueAt (tick);
+            if (v < 0.0f)
+                continue;
+            const int a = l.a.load(), b = l.b.load();
+
+            if (kind == master)
+                masterVolume.store (volumeGain (v, 3.5f));
+            else if (kind == channelParam && a >= 0 && a < numActive)
+            {
+                auto& ch = channels[(size_t) a];
+                switch (b)
+                {
+                    case chVolume: ch.volume.store (volumeGain (v, 0.0f)); break;
+                    case chPan:    ch.pan.store (-1.0f + 2.0f * v); break;
+                    case chFilter: ch.filter.store (v); break;
+                    case chReverb: ch.reverb.store (v); break;
+                    case chDelay:  ch.delay.store (v); break;
+                    case chPitch:
+                    {
+                        const float semis = std::round ((-12.0f + 24.0f * v) * 10.0f) / 10.0f;
+                        if (std::abs (semis - ch.pitch.load()) > 0.05f) { ch.pitch.store (semis); ch.touchSound(); }
+                        break;
+                    }
+                    default: break;
+                }
+            }
+            else if (kind == trackParam && a >= 0 && a < mixer::numTracks)
+            {
+                auto& tr = tracks[(size_t) a];
+                switch (b)
+                {
+                    case trVolume: tr.volume.store (volumeGain (v, 4.0f)); break;
+                    case trPan:    tr.pan.store (-1.0f + 2.0f * v); break;
+                    case trEqLow:  tr.eqLow.store (-15.0f + 30.0f * v); break;
+                    case trEqMid:  tr.eqMid.store (-15.0f + 30.0f * v); break;
+                    case trEqHigh: tr.eqHigh.store (-15.0f + 30.0f * v); break;
+                    default: break;
+                }
+            }
+            else if (kind == effectParam && a >= 0 && a < mixer::numTracks && b >= 0 && b < mixer::numSlots)
+            {
+                auto& slot = tracks[(size_t) a].slots[(size_t) b];
+                const auto& inf = mixer::info (slot.type.load());
+                const int p = l.c.load();
+                if (p >= 0 && p < inf.numParams)
+                    slot.params[(size_t) p].store (mixer::fromNormalised (inf.params[(size_t) p], v));
+            }
+            else if (kind == instrumentParam && a >= 0 && a < numActive)
+            {
+                if (auto* proc = instruments[(size_t) a])
+                {
+                    const auto& params = proc->getParameters();
+                    if (b >= 0 && b < params.size())
+                        if (auto* prm = params[b]; std::abs (prm->getValue() - v) > 0.0005f)
+                            prm->setValueNotifyingHost (v);
+                }
+            }
+        }
     }
 
     float* trackBuffer (int t, int which) noexcept    { return trackBuffers.data() + ((size_t) t * 4 + (size_t) which) * (size_t) chunk; }
@@ -2154,6 +2313,9 @@ private:
     DrumVoice   browserDrum;
 
     std::atomic<bool> panicRequested { false };
+
+    // Automazioni
+    std::array<automation::Lane, automation::maxLanes> lanes;
 
     // Mastering
     mastering::Params masteringParams;
