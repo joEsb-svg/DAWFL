@@ -377,3 +377,53 @@ public:
         g.drawText (on ? "ON" : "OFF", r.withTrimmedLeft (led.getRight() - r.getX() + 4.0f), juce::Justification::centred, false);
     }
 };
+
+//==============================================================================
+/** Quanto lavora il processore per l'audio (e se ci sono stati scatti). Toccalo per le opzioni. */
+class CpuBadge : public juce::Component
+{
+public:
+    std::function<void()> onClick;
+
+    void setState (float newLoad, bool newWarning)
+    {
+        newLoad = juce::jlimit (0.0f, 1.0f, newLoad);
+        if (std::abs (newLoad - load) > 0.01f || newWarning != warning)
+        {
+            load = newLoad;
+            warning = newWarning;
+            repaint();
+        }
+    }
+
+    void setLowPower (bool on)  { if (on != lowPower) { lowPower = on; repaint(); } }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat().reduced (1.0f, 1.0f);
+        Theme::drawSunken (g, r, Theme::lcdBg, Theme::corner);
+        const auto colour = load < 0.6f ? Theme::led : load < 0.85f ? juce::Colour (0xffe8c547) : juce::Colour (0xffe0483e);
+
+        auto inner = r.reduced (5.0f, 2.0f);
+        auto bar = inner.removeFromBottom (3.0f);
+        g.setColour (Theme::raised);
+        g.fillRoundedRectangle (bar, 2.0f);
+        g.setColour (colour);
+        g.fillRoundedRectangle (bar.withWidth (juce::jmax (2.0f, bar.getWidth() * load)), 2.0f);
+
+        g.setColour (warning ? juce::Colour (0xffe0483e) : Theme::text);
+        g.setFont (Theme::font (juce::jmin (12.0f, inner.getHeight() * 0.7f), true));
+        g.drawFittedText ((lowPower ? "ECO " : "CPU ") + juce::String (juce::roundToInt (load * 100.0f)) + "%" + (warning ? " !" : ""),
+                          inner.toNearestInt(), juce::Justification::centred, 1);
+    }
+
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        if (! e.mouseWasDraggedSinceMouseDown() && onClick)
+            onClick();
+    }
+
+private:
+    float load = 0.0f;
+    bool warning = false, lowPower = false;
+};

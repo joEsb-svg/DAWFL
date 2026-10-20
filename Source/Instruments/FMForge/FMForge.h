@@ -110,6 +110,7 @@ namespace fm
         void noteOn (int note, float velocity);
         void noteOff (int note);
         void allNotesOff();
+        void killAll()  { heldNotes.clear(); for (auto& v : voices) v.reset(); fx.reset(); }
         void render (juce::AudioBuffer<float>& buffer, int start, int n, const BlockParams& p, double bpm, double ppq, bool playing);
 
     private:
@@ -156,6 +157,7 @@ public:
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
+    void reset() override                           { synth.killAll(); }
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override
     {
         return layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo();

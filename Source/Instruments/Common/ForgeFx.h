@@ -30,6 +30,14 @@ namespace forge
             reverb.reset();
         }
 
+        void reset()
+        {
+            std::fill (chorusL.begin(), chorusL.end(), 0.0f); std::fill (chorusR.begin(), chorusR.end(), 0.0f);
+            std::fill (delayL.begin(), delayL.end(), 0.0f);   std::fill (delayR.begin(), delayR.end(), 0.0f);
+            delayLp[0] = delayLp[1] = 0.0f;
+            reverb.reset();
+        }
+
         void process (float* L, float* R, int n, const FxParams& p, double bpm)
         {
             if (p.chorus > 0.001f)

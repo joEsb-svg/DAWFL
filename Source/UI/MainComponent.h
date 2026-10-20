@@ -30,6 +30,9 @@ public:
     /** Salva lo stato corrente nel file di autosalvataggio (chiamato anche quando l'app va in background). */
     void saveSession();
 
+    /** Tasto Indietro di Android: chiude il pannello aperto. false = niente da chiudere. */
+    bool handleBackButton();
+
     /** Solo per i test sul PC: "--editor N" apre l'editor del canale N, "--mode N" sceglie la modalita'. */
     void handleCommandLine (const juce::String& commandLine);
 
@@ -87,6 +90,13 @@ private:
     void loadSettings();
     void setBufferSize (int samples);
     juce::PopupMenu createSettingsMenu();
+    void handleSettingsResult (int result);
+    void showPerformanceMenu();
+    void updateCpuBadge();
+    void restoreSession();
+    int cpuCounter = 0, lastXRuns = 0, highLoadTicks = 0, glitchesThisSession = 0;
+    juce::uint32 lastXRunTime = 0, dirtySince = 0;
+    bool performanceHintShown = false, sessionDirty = false, recoveredFromBackup = false;
     void tapTempo();
 
     // Undo / redo: istantanee del progetto prese automaticamente dopo ogni modifica
@@ -117,6 +127,7 @@ private:
     DawLookAndFeel lookAndFeel;
 
     juce::TextButton fileButton { "MENU" }, kitButton, mixerButton { "MIXER" };
+    CpuBadge cpuBadge;
     PlayButton playButton;
     LcdSelector bpmDisplay, patternDisplay;
     SegmentedControl modeSwitch  { { "STEP", "VEL", "PROB", "ROLL" } };

@@ -245,6 +245,7 @@ namespace pf
         void noteOn (int note, float velocity);
         void noteOff (int note);
         void allNotesOff();
+        void killAll();   // silenzio immediato: voci ed effetti
         void render (juce::AudioBuffer<float>& buffer, int start, int n, const BlockParams& p,
                      double bpm, double ppq, bool playing);
 
@@ -307,6 +308,7 @@ public:
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
+    void reset() override                           { synth.killAll(); }
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     using AudioProcessor::processBlock;

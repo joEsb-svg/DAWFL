@@ -51,6 +51,14 @@ void BassForgeAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlo
     lastMasterGain = juce::Decibels::decibelsToGain(bf::load(paramCache.masterGain), -60.0f);
 }
 
+void BassForgeAudioProcessor::reset()
+{
+    synth.allNotesOff (0, false);
+    masterFx.reset();
+    directDelay.reset();
+    limiter.reset();
+}
+
 bool BassForgeAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
     return layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo();

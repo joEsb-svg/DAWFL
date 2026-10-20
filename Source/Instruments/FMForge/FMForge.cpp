@@ -1,3 +1,4 @@
+#include "../../Engine/Performance.h"
 #include "FMForge.h"
 #include "FMForgeEditor.h"
 
@@ -227,11 +228,20 @@ namespace fm
 
     Voice* Synth::findVoice()
     {
+        // In "Risparmio" si usano solo le prime voci
+        const size_t limit = perf::lowPower() ? (size_t) perf::lowPowerVoices : voices.size();
         Voice* best = nullptr;
-        for (auto& v : voices) if (! v.isActive()) return &v;
-        for (auto& v : voices) if (v.isReleasing() && (best == nullptr || v.age < best->age)) best = &v;
-        if (best != nullptr) return best;
-        for (auto& v : voices) if (best == nullptr || v.age < best->age) best = &v;
+        for (size_t i = 0; i < limit; ++i)   // prima una voce libera
+            if (! voices[i].isActive())
+                return &voices[i];
+        for (size_t i = 0; i < limit; ++i)   // poi la piu' vecchia gia' rilasciata
+            if (voices[i].isReleasing() && (best == nullptr || voices[i].age < best->age))
+                best = &voices[i];
+        if (best != nullptr)
+            return best;
+        for (size_t i = 0; i < limit; ++i)   // infine la piu' vecchia
+            if (best == nullptr || voices[i].age < best->age)
+                best = &voices[i];
         return best;
     }
 

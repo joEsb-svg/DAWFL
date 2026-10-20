@@ -36,6 +36,15 @@ public:
                 main->saveSession();
     }
 
+    /** Tasto Indietro di Android: chiude il pannello aperto (mixer, piano roll...) invece dell'app. */
+    bool backButtonPressed() override
+    {
+        if (mainWindow != nullptr)
+            if (auto* main = dynamic_cast<MainComponent*> (mainWindow->getContentComponent()))
+                return main->handleBackButton();
+        return false;
+    }
+
     void systemRequestedQuit() override
     {
         quit();

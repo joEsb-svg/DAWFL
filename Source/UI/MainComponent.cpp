@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 #include "Theme.h"
 #include "../Engine/ProjectIO.h"
+#include "../Engine/Performance.h"
 #include "../Instruments/DrumForge/DrumForgeEditor.h"
 
 namespace
@@ -147,6 +148,8 @@ MainComponent::MainComponent()
     addChildComponent (mixerPanel);
     mixerButton.onClick = [this] { if (mixerPanel.isVisible()) mixerPanel.setVisible (false); else openMixer(); };
     addAndMakeVisible (mixerButton);
+    cpuBadge.onClick = [this] { showPerformanceMenu(); };
+    addAndMakeVisible (cpuBadge);
     exportPanel.getProjectJson = [this] { return ProjectIO::toJson (engine); };
     exportPanel.getProjectName = [this] { return projectName; };
     addChildComponent (exportPanel);
@@ -174,11 +177,7 @@ MainComponent::MainComponent()
 
     // --- Ripristina l'ultima sessione
     projectName = untitled;
-    if (ProjectIO::loadFromFile (engine, ProjectIO::getAutosaveFile()))
-    {
-        const auto json = juce::JSON::parse (ProjectIO::getAutosaveFile().loadFileAsString());
-        projectName = json.getProperty ("projectName", untitled).toString();
-    }
+    restoreSession();
     resolveSamples();
     rebuildRows();
     syncControlsFromEngine();
@@ -204,6 +203,15 @@ MainComponent::MainComponent()
     };
     addAndMakeVisible (*splash);
     splash->setBounds (getLocalBounds());
+
+    if (recoveredFromBackup)
+        juce::Timer::callAfterDelay (4000, [safe = juce::Component::SafePointer<MainComponent> (this)]
+        {
+            if (safe != nullptr)
+                safe->showMessage ("Sessione recuperata",
+                                   "L'ultimo salvataggio automatico era rovinato (forse il telefono si e' spento mentre salvava). "
+                                   "Ho riaperto la copia di sicurezza precedente; il file rovinato e' stato messo da parte.");
+        });
 }
 
 MainComponent::~MainComponent()
@@ -274,7 +282,7 @@ void MainComponent::resized()
 
     auto full = getContentArea();
     portraitLayout = full.getWidth() < full.getHeight();
-    patternDisplay.caption = portraitLayout ? "Pat" : "Pattern";
+    patternDisplay.caption = portraitLayout || full.getWidth() < 1000 ? "Pat" : "Pattern";
 
     if (portraitLayout)
         layoutPortrait (full);
@@ -292,25 +300,28 @@ void MainComponent::layoutLandscape (juce::Rectangle<int> full)
     auto header = full.removeFromTop (headerH).reduced (0, 5);
     const int h = header.getHeight();
 
-    logoArea = header.removeFromLeft (88).toFloat();
+    // Su schermi stretti (telefono in orizzontale, ~800-900 punti) tutto un po' piu' compatto
+    const bool narrow = header.getWidth() < 1000;
+    logoArea = header.removeFromLeft (narrow ? 72 : 88).toFloat();
     header.removeFromLeft (4);
     fileButton.setBounds (header.removeFromLeft (50));
     header.removeFromLeft (6);
     undoButton.setBounds (header.removeFromLeft (h));
     header.removeFromLeft (3);
     redoButton.setBounds (header.removeFromLeft (h));
-    header.removeFromLeft (10);
+    header.removeFromLeft (narrow ? 6 : 10);
     playButton.setBounds (header.removeFromLeft (juce::roundToInt (h * 1.25)));
     header.removeFromLeft (6);
-    bpmDisplay.setBounds (header.removeFromLeft (100));
+    bpmDisplay.setBounds (header.removeFromLeft (narrow ? 88 : 100));
     header.removeFromLeft (6);
-    patternDisplay.setBounds (header.removeFromLeft (100));
+    patternDisplay.setBounds (header.removeFromLeft (narrow ? 88 : 100));
     header.removeFromLeft (6);
-    songSwitch.setBounds (header.removeFromLeft (92).withSizeKeepingCentre (92, juce::jmin (h, 30)));
+    const int sw = narrow ? 84 : 92;
+    songSwitch.setBounds (header.removeFromLeft (sw).withSizeKeepingCentre (sw, juce::jmin (h, 30)));
     header.removeFromLeft (6);
     mixerButton.setVisible (true);
-    mixerButton.setButtonText ("MIXER");
-    mixerButton.setBounds (header.removeFromLeft (64).withSizeKeepingCentre (64, juce::jmin (h, 32)));
+    mixerButton.setButtonText (narrow ? "MIX" : "MIXER");
+    mixerButton.setBounds (header.removeFromLeft (narrow ? 50 : 64).withSizeKeepingCentre (narrow ? 50 : 64, juce::jmin (h, 32)));
 
     meter.setBounds (header.removeFromRight (8));
     header.removeFromRight (6);
@@ -416,7 +427,10 @@ void MainComponent::layoutRack (juce::Rectangle<int> full, bool portrait)
         addButton.setButtonText ("+");
         addButton.setBounds (bar.removeFromLeft (juce::jmax (40, bar.getWidth())).reduced (0, 1));
         rack.removeFromTop (4);
-        pageSwitch.setBounds (rack.removeFromTop (24).reduced (0, 1));
+        auto pageRow = rack.removeFromTop (24);
+        cpuBadge.setBounds (pageRow.removeFromRight (74));
+        pageRow.removeFromRight (6);
+        pageSwitch.setBounds (pageRow.reduced (0, 1));
     }
     else
     {
@@ -425,6 +439,8 @@ void MainComponent::layoutRack (juce::Rectangle<int> full, bool portrait)
         pageSwitch.setBounds (bar.removeFromLeft (100 + (getVisibleSteps() < 16 ? 100 : 0)).reduced (0, 1));
         bar.removeFromLeft (8);
         metroButton.setBounds (bar.removeFromLeft (34));
+        bar.removeFromLeft (8);
+        cpuBadge.setBounds (bar.removeFromLeft (juce::jmin (84, bar.getWidth() - 8)));
     }
 
     // Righello allineato agli step, poi le righe (in un'area che scorre se non stanno tutte)
@@ -574,15 +590,63 @@ void MainComponent::timerCallback()
         checkForChanges();
     }
 
-    // Autosalvataggio ogni ~15 secondi (solo se qualcosa e' cambiato)
-    if (++autosaveCounter >= 40 * 15)
+    // Autosalvataggio: 2 secondi dopo una modifica, e comunque ogni 10 secondi (i synth cambiano anche fuori dall'undo)
+    if (++autosaveCounter >= 40 * 10 || (sessionDirty && juce::Time::getMillisecondCounter() - dirtySince > 2000))
     {
         autosaveCounter = 0;
+        sessionDirty = false;
         saveSession();
+    }
+
+    // Processore e scatti audio, 4 volte al secondo
+    if (++cpuCounter >= 10)
+    {
+        cpuCounter = 0;
+        updateCpuBadge();
     }
 }
 
 //==============================================================================
+/**
+    Ripristina l'ultima sessione. L'autosalvataggio ha una copia di sicurezza (l'ultima che si e' aperta
+    bene): se il file fosse rovinato (telefono spento a meta' scrittura...) si riparte da quella,
+    e il file rovinato viene messo da parte invece di essere sovrascritto.
+*/
+void MainComponent::restoreSession()
+{
+    const auto file = ProjectIO::getAutosaveFile();
+    const auto backup = file.withFileExtension ("bak");
+
+    auto tryLoad = [this] (const juce::File& f)
+    {
+        if (! f.existsAsFile())
+            return false;
+        const auto json = juce::JSON::parse (f.loadFileAsString());
+        if (! ProjectIO::fromJson (engine, json))
+            return false;
+        projectName = json.getProperty ("projectName", untitled).toString();
+        return true;
+    };
+
+    if (tryLoad (file))
+    {
+        file.copyFileTo (backup);   // questa si e' aperta: diventa la copia di sicurezza
+        return;
+    }
+
+    // Rovinato (o sparito): si mette da parte e si riparte dalla copia di sicurezza
+    const bool damaged = file.existsAsFile();
+    if (damaged)
+        file.moveFileTo (file.getSiblingFile ("autosave-danneggiato-" + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S") + ".dawfl"));
+    if (tryLoad (backup))
+    {
+        recoveredFromBackup = damaged;
+        backup.copyFileTo (file);
+    }
+    else
+        engine.resetProject();
+}
+
 void MainComponent::saveSession()
 {
     auto json = ProjectIO::toJson (engine);
@@ -595,6 +659,8 @@ void MainComponent::saveSession()
 
     auto file = ProjectIO::getAutosaveFile();
     file.getParentDirectory().createDirectory();
+    // replaceWithText scrive prima un file temporaneo e poi lo sostituisce: se il telefono si spegne
+    // a meta', il file vecchio resta intero
     if (file.replaceWithText (text))
         lastSavedJson = text;
 }
@@ -657,14 +723,8 @@ void MainComponent::showFileMenu()
                                 self.openExport();
                             else if (result == 7)
                                 self.openMixer();
-                            else if (result == 5000)
-                            {
-                                Haptics::enabled() = ! Haptics::enabled();
-                                self.settings->setValue ("haptics", Haptics::enabled());
-                                self.settings->saveIfNeeded();
-                            }
-                            else if (result > 5000 && result < 6000)
-                                self.setBufferSize (result - 5000);
+                            else if (result >= 5000 && result < 6000)
+                                self.handleSettingsResult (result);
                             else if (result >= 2000)
                                 self.deleteProject (projects[result - 2000]);
                             else if (result >= 1000)
@@ -708,6 +768,9 @@ void MainComponent::saveProjectAs (const juce::String& name, bool confirmOverwri
         });
         return;
     }
+
+    if (file.existsAsFile())
+        file.copyFileTo (file.withFileExtension ("bak"));   // la versione precedente, per sicurezza
 
     if (ProjectIO::saveToFile (engine, file))
     {
@@ -992,6 +1055,12 @@ void MainComponent::checkForChanges()
     if (now == lastSnapshot)
         return;
 
+    if (! sessionDirty)
+    {
+        sessionDirty = true;
+        dirtySince = juce::Time::getMillisecondCounter();
+    }
+
     undoStack.add (lastSnapshot);
     if (undoStack.size() > 60)
         undoStack.remove (0);
@@ -1186,6 +1255,8 @@ void MainComponent::loadSettings()
     settings = std::make_unique<juce::PropertiesFile> (ProjectIO::getRootFolder().getChildFile ("settings.xml"), options);
 
     Haptics::enabled() = settings->getBoolValue ("haptics", true);
+    perf::lowPowerFlag().store (settings->getBoolValue ("lowPower", false));
+    cpuBadge.setLowPower (perf::lowPower());
 
     if (const int buffer = settings->getIntValue ("bufferSize", 0); buffer > 0)
         setBufferSize (buffer);
@@ -1201,6 +1272,100 @@ void MainComponent::setBufferSize (int samples)
         settings->setValue ("bufferSize", samples);
         settings->saveIfNeeded();
     }
+}
+
+void MainComponent::updateCpuBadge()
+{
+    const float load = (float) deviceManager.getCpuUsage();
+    const int xruns = deviceManager.getXRunCount();
+    const auto now = juce::Time::getMillisecondCounter();
+    if (xruns > lastXRuns)
+    {
+        lastXRuns = xruns;
+        lastXRunTime = now;
+        ++glitchesThisSession;
+    }
+    const bool recentGlitch = now - lastXRunTime < 3000 && lastXRunTime != 0;
+    cpuBadge.setState (load, recentGlitch);
+
+    // Al limite per un po' mentre suona: un consiglio, una volta sola
+    highLoadTicks = (engine.isPlaying() && (load > 0.9f || recentGlitch)) ? highLoadTicks + 1 : 0;
+    if (highLoadTicks > 8 && ! performanceHintShown && ! perf::lowPower())
+    {
+        performanceHintShown = true;
+        showMessage ("Il telefono e' al limite",
+                     "L'audio potrebbe scattare. Tocca l'indicatore CPU in alto: puoi attivare \"Risparmio\" "
+                     "(meno voci nei synth) o aumentare il buffer audio.");
+    }
+}
+
+void MainComponent::showPerformanceMenu()
+{
+    juce::PopupMenu menu = createSettingsMenu();
+    juce::PopupMenu top;
+    top.addSectionHeader ("Processore per l'audio: " + juce::String (juce::roundToInt (deviceManager.getCpuUsage() * 100.0)) + "%"
+                          + "   scatti: " + juce::String (glitchesThisSession));
+    top.addItem (5100, "Risparmio (meno voci nei synth)", true, perf::lowPower());
+    top.addItem (5101, "Ferma tutti i suoni (panico)");
+    top.addSeparator();
+    top.addSubMenu ("Impostazioni", menu);
+
+    juce::Component::SafePointer<MainComponent> safeThis (this);
+    top.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&cpuBadge), [safeThis] (int result)
+    {
+        if (safeThis != nullptr && result > 0)
+            safeThis->handleSettingsResult (result);
+    });
+}
+
+void MainComponent::handleSettingsResult (int result)
+{
+    if (result == 5000)
+    {
+        Haptics::enabled() = ! Haptics::enabled();
+        settings->setValue ("haptics", Haptics::enabled());
+        settings->saveIfNeeded();
+    }
+    else if (result == 5100)
+    {
+        perf::lowPowerFlag().store (! perf::lowPower());
+        settings->setValue ("lowPower", perf::lowPower());
+        settings->saveIfNeeded();
+        cpuBadge.setLowPower (perf::lowPower());
+    }
+    else if (result == 5101)
+    {
+        engine.panic();
+        updateViews();
+    }
+    else if (result > 5000 && result < 6000)
+        setBufferSize (result - 5000);
+}
+
+bool MainComponent::handleBackButton()
+{
+    // Chiude il pannello in primo piano, come il tasto Indietro di ogni app Android
+    if (splash != nullptr)
+        return true;
+    if (mixerPanel.isVisible())
+    {
+        if (mixerPanel.getEffectsTrack() >= 0) mixerPanel.showEffects (-1);
+        else mixerPanel.setVisible (false);
+        return true;
+    }
+    if (synthPanel != nullptr && synthPanel->isVisible())  { synthPanel->onClose(); return true; }
+    if (browser.isVisible())     { browser.setVisible (false); return true; }
+    if (exportPanel.isVisible()) { exportPanel.setVisible (false); return true; }
+    if (pianoRoll.isVisible())   { pianoRoll.setVisible (false); return true; }
+    if (editor.isVisible())      { editor.setVisible (false); return true; }
+    if (playlist.isVisible())
+    {
+        playlist.setVisible (false);
+        songSwitch.setSelected (engine.isSongMode() ? 1 : 0);
+        return true;
+    }
+    saveSession();
+    return false;   // niente da chiudere: l'app va in secondo piano
 }
 
 juce::PopupMenu MainComponent::createSettingsMenu()
@@ -1220,6 +1385,7 @@ juce::PopupMenu MainComponent::createSettingsMenu()
     }
 
     menu.addItem (5000, "Vibrazione al tocco", true, Haptics::enabled());
+    menu.addItem (5100, "Risparmio (meno voci nei synth)", true, perf::lowPower());
     menu.addSubMenu ("Buffer audio (latenza)", buffers, buffers.getNumItems() > 0);
     return menu;
 }

@@ -14,7 +14,7 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.21)
+## Stato attuale (v0.22)
 
 **Canali (channel rack)**
 - Fino a 32 canali: "+ Strumento" aggiunge un canale scegliendo il suono dal browser
@@ -40,6 +40,17 @@ Gli aggiornamenti si installano sopra la versione precedente.
   sidechain, stereo; ogni effetto si puo' escludere o spostare su e giu'
 - Sidechain: la traccia si abbassa a ogni colpo di un'altra (la cassa) e risale nel tempo di rilascio
 - Anche la traccia Master ha EQ ed effetti (prima del limiter); tutto e' salvato nel progetto e nell'undo
+
+**Solidita'**
+- Indicatore CPU sopra i canali (verde / giallo / rosso, "!" se l'audio ha scattato); toccalo per:
+  "Risparmio" (meno voci contemporanee e unison piu' leggero nei synth: circa il 40% di lavoro in meno
+  negli accordi pieni), "Ferma tutti i suoni" (panico: anche le code di riverbero e delay), buffer audio
+- Se il telefono resta al limite mentre suona, un avviso spiega cosa fare (una volta sola)
+- Salvataggio automatico 2 secondi dopo ogni modifica (e ogni 10 secondi per i synth), con copia di sicurezza:
+  se il file si rovina (telefono spento mentre salvava) si riparte dalla copia e quello rovinato viene messo da parte
+- Salvando un progetto con lo stesso nome, la versione precedente resta come copia (.bak)
+- Tasto Indietro di Android: chiude il pannello aperto (mixer, piano roll, synth...) invece di uscire
+- Tastiera dei synth con gli stessi nomi delle note del piano roll (Do centrale = C4)
 
 **Mastering** (MENU > Esporta audio)
 - "Automatico": JLoop calcola la canzone, misura il volume percepito (LUFS, come Spotify e YouTube),

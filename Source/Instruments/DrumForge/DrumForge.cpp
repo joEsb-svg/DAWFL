@@ -1,3 +1,4 @@
+#include "../../Engine/Performance.h"
 #include "DrumForge.h"
 #include "DrumForgeEditor.h"
 
@@ -279,15 +280,16 @@ namespace df
                 if (v.sample != nullptr && v.choke == p.choke)
                     v.choking = true;
 
-        // Voce libera, o la piu' vecchia
+        // Voce libera, o la piu' vecchia (in "Risparmio" meta' delle voci)
+        const size_t limit = perf::lowPower() ? voices.size() / 2 : voices.size();
         Voice* voice = nullptr;
-        for (auto& v : voices)
-            if (v.sample == nullptr) { voice = &v; break; }
+        for (size_t i = 0; i < limit; ++i)
+            if (voices[i].sample == nullptr) { voice = &voices[i]; break; }
         if (voice == nullptr)
         {
             voice = &voices[0];
-            for (auto& v : voices)
-                if (v.age < voice->age) voice = &v;
+            for (size_t i = 0; i < limit; ++i)
+                if (voices[i].age < voice->age) voice = &voices[i];
         }
 
         auto& v = *voice;

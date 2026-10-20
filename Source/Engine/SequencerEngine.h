@@ -548,6 +548,9 @@ public:
                 setTrackEffect (t, s, mixer::none);
     }
 
+    /** Ferma subito ogni suono: note dei synth, campioni, code di riverbero e delay (pulsante "panico"). */
+    void panic()                                    { playing.store (false); panicRequested.store (true); }
+
     /** Il mastering (impostazioni lette dal thread audio; risultati dell'analisi per la UI). */
     mastering::Params& getMastering()               { return masteringParams; }
     const mastering::Params& getMastering() const   { return masteringParams; }
@@ -1081,6 +1084,28 @@ public:
         }
 
         updateVoiceParams (sr);
+
+        if (panicRequested.exchange (false))
+        {
+            for (int c = 0; c < numActive; ++c)
+            {
+                if (auto* proc = instruments[(size_t) c])
+                {
+                    instAllNotesOff (c);
+                    instMidi[(size_t) c].clear();
+                    proc->reset();   // silenzio immediato (voci ed effetti interni)
+                }
+                samplers[(size_t) c].releaseAll();
+            }
+            browserSampler.stopAll();
+            for (auto& tr : tracks)
+                for (auto& s : tr.slots)
+                    if (s.effect != nullptr)
+                        s.effect->reset();
+            reverb.reset();
+            for (auto& d : delayBuffer) std::fill (d.begin(), d.end(), 0.0f);
+            masteringChain.reset();
+        }
 
         // Stop: spegne tutte le note degli strumenti e sfuma i campioni tenuti
         if (wasPlaying && ! playing.load())
@@ -2123,6 +2148,8 @@ private:
     std::array<float, maxChannels> appliedFilter {}, gainL {}, gainR {}, sendRev {}, sendDel {}, humanizeAmt {};
     SamplerPool browserSampler;
     DrumVoice   browserDrum;
+
+    std::atomic<bool> panicRequested { false };
 
     // Mastering
     mastering::Params masteringParams;

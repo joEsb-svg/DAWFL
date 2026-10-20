@@ -32,6 +32,7 @@ public:
         keysButton.onClick = [this] { keyboardState.allNotesOff (1); resized(); };
 
         keyboard.setKeyWidth (34.0f);
+        keyboard.setOctaveForMiddleC (4);   // come il piano roll: il Do centrale (nota 60) e' C4
         keyboard.setScrollButtonsVisible (true);
         keyboard.setColour (juce::MidiKeyboardComponent::keyDownOverlayColourId, juce::Colour (0xff1fe5ff).withAlpha (0.55f));
         keyboard.setColour (juce::MidiKeyboardComponent::mouseOverKeyOverlayColourId, juce::Colours::transparentBlack);

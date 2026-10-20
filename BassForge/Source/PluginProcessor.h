@@ -24,6 +24,8 @@ public:
     // --- Lifecycle --------------------------------------------------------------
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
+    /** Silenzio immediato (pulsante "panico" di JLoop): voci ed effetti azzerati, senza allocare. */
+    void reset() override;
     bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
 
     // --- Audio thread -------------------------------------------------------------

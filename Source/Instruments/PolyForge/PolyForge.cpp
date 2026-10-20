@@ -1,3 +1,4 @@
+#include "../../Engine/Performance.h"
 #include "PolyForge.h"
 #include "PolyForgeEditor.h"
 
@@ -172,7 +173,7 @@ namespace pf
         int uni[2];
         for (int o = 0; o < 2; ++o)
         {
-            uni[o] = juce::jlimit (1, maxUnison, p.unison[o]);
+            uni[o] = juce::jlimit (1, perf::lowPower() ? perf::lowPowerUnison : maxUnison, p.unison[o]);
             gain[o] = p.level[o] / std::sqrt ((float) uni[o]);
             const float base = (o == 0 ? f0 : f0 * p.osc2Ratio) * invSr;
             for (int u = 0; u < uni[o]; ++u)
@@ -294,18 +295,20 @@ namespace pf
 
     Voice* Synth::findVoice()
     {
+        // In "Risparmio" si usano solo le prime voci
+        const size_t limit = perf::lowPower() ? (size_t) perf::lowPowerVoices : voices.size();
         Voice* best = nullptr;
-        for (auto& v : voices)   // prima una voce libera
-            if (! v.isActive())
-                return &v;
-        for (auto& v : voices)   // poi la piu' vecchia gia' rilasciata
-            if (v.isReleasing() && (best == nullptr || v.age < best->age))
-                best = &v;
+        for (size_t i = 0; i < limit; ++i)   // prima una voce libera
+            if (! voices[i].isActive())
+                return &voices[i];
+        for (size_t i = 0; i < limit; ++i)   // poi la piu' vecchia gia' rilasciata
+            if (voices[i].isReleasing() && (best == nullptr || voices[i].age < best->age))
+                best = &voices[i];
         if (best != nullptr)
             return best;
-        for (auto& v : voices)   // infine la piu' vecchia
-            if (best == nullptr || v.age < best->age)
-                best = &v;
+        for (size_t i = 0; i < limit; ++i)   // infine la piu' vecchia
+            if (best == nullptr || voices[i].age < best->age)
+                best = &voices[i];
         return best;
     }
 
@@ -379,6 +382,17 @@ namespace pf
         for (auto& v : voices)
             if (v.isActive())
                 v.stop();
+    }
+
+    void Synth::killAll()
+    {
+        heldNotes.clear();
+        for (auto& v : voices)
+            v.kill();
+        std::fill (chorusL.begin(), chorusL.end(), 0.0f); std::fill (chorusR.begin(), chorusR.end(), 0.0f);
+        std::fill (delayL.begin(), delayL.end(), 0.0f);   std::fill (delayR.begin(), delayR.end(), 0.0f);
+        delayLp[0] = delayLp[1] = 0.0f;
+        reverb.reset();
     }
 
     float Synth::lfoValue (int wave, float t)
