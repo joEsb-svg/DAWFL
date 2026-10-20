@@ -14,7 +14,8 @@
     Trascinando in verticale sul nome si scorre la lista dei canali.
 
     Modalita' di modifica degli step:
-    - STEP: tocca per accendere/spegnere, trascina per "dipingerne" tanti
+    - STEP: tocca per accendere/spegnere, trascina per "dipingerne" tanti,
+            tieni premuto uno step per il riempimento automatico (ogni 2, 4... e ritmi pronti)
     - VEL:  trascina in verticale per la forza (velocity)
     - PROB: trascina in verticale per la probabilita' che lo step suoni
     - ROLL: tocca per ripetere il colpo 1, 2, 3 o 4 volte nello step (ratchet)
@@ -74,9 +75,13 @@ public:
     std::function<void()> onTap;              // per la vibrazione
 
     void showRowMenu();
+    void showFillPanelForTest (int step)    { showFillPanel (step); }
 
 private:
     void timerCallback() override;
+    void showFillPanel (int step);
+    bool pressOnStep = false, stepLongPress = false;
+    int pressedStep = 0, savedVelocity = 0, savedProbability = 100, savedRatchet = 1;
     juce::Colour getColour() const  { return juce::Colour (engine.getChannel (channel).colour.load()); }
     juce::Rectangle<float> getPadsArea() const;
     int columnAt (juce::Point<float>) const;

@@ -1270,6 +1270,10 @@ void MainComponent::handleCommandLine (const juce::String& commandLine)
         if (auto* drums = dynamic_cast<DrumForgeEditor*> (synthPanel->getEditorForTest()))
             drums->selectPad (args[i + 1].getIntValue());
 
+    if (const int i = args.indexOf ("--fill-row"); i >= 0 && args.size() > i + 2)   // test: riempimento di una riga (canale, step)
+        if (auto* row = rows[args[i + 1].getIntValue()])
+            row->showFillPanelForTest (args[i + 2].getIntValue());
+
     if (const int i = args.indexOf ("--rowmenu"); i >= 0)       // test: menu del canale
         if (auto* row = rows[args[i + 1].getIntValue()])
             row->showRowMenu();

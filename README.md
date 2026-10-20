@@ -14,9 +14,13 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.24)
+## Stato attuale (v0.25)
 
 **Canali (channel rack)**
+- Tieni premuto uno step: riempimento automatico della riga (come in FL Studio): ogni 1/2/3/4/8/16 step
+  (dall'inizio o dallo step premuto), ritmi pronti (cassa dritta 4/4, mezzo tempo, rullante su 2 e 4,
+  trap, hi-hat ottavi / controtempo / sedicesimi / trap, tresillo, dembow, clave, breakbeat, DnB),
+  svuota, inverti, sposta, casuale
 - Fino a 32 canali: "+ Strumento" aggiunge un canale scegliendo il suono dal browser
 - Tieni premuto il nome di un canale (o menu ▾) per il menu: cambia suono, modifica suono e mix, piano roll,
   muto, solo, clona, rinomina, colore, sposta su/giu', strumenti per gli step, elimina

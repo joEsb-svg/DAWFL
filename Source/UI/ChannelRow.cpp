@@ -1,4 +1,5 @@
 #include "ChannelRow.h"
+#include "StepFillPanel.h"
 #include "Theme.h"
 #include "../Instruments/Instruments.h"
 
@@ -309,6 +310,15 @@ void ChannelRow::mouseDown (const juce::MouseEvent& e)
             break;
 
         case EditMode::step:
+            // Tenendo premuto (senza muoversi) si apre il riempimento automatico: si ricorda com'era lo step
+            pressOnStep = true;
+            stepLongPress = false;
+            pressedStep = step;
+            savedVelocity = engine.getStepVelocity (channel, step);
+            savedProbability = engine.getStepProbability (channel, step);
+            savedRatchet = engine.getStepRatchet (channel, step);
+            startTimer (500);
+
             paintValue = ! engine.isStepOn (channel, step);
             if (paintValue)
             {
@@ -356,8 +366,12 @@ void ChannelRow::mouseDrag (const juce::MouseEvent& e)
         return;
 
     const int col = columnAt ({ e.position.x, getPadsArea().getCentreY() });
+    if (stepLongPress)
+        return;
     if (col >= 0 && col != lastColumn && firstStep + col < engine.getPatternLength())
     {
+        pressOnStep = false;   // e' un trascinamento: niente riempimento
+        stopTimer();
         const int step = firstStep + col;
         engine.setStepVelocity (channel, step, paintValue ? SequencerEngine::defaultVelocity : 0);
         if (paintValue)
@@ -374,6 +388,13 @@ void ChannelRow::mouseDrag (const juce::MouseEvent& e)
 void ChannelRow::mouseUp (const juce::MouseEvent&)
 {
     stopTimer();
+    if (stepLongPress)
+    {
+        stepLongPress = pressOnStep = false;
+        showFillPanel (pressedStep);
+        return;
+    }
+    pressOnStep = false;
     const bool wasName = pressOnName, dragged = nameDragging, longPress = longPressDone;
     pressOnName = nameDragging = longPressDone = false;
 
@@ -393,6 +414,18 @@ void ChannelRow::mouseUp (const juce::MouseEvent&)
 void ChannelRow::timerCallback()
 {
     stopTimer();
+    if (pressOnStep)
+    {
+        // Pressione lunga su uno step: lo step torna com'era e al rilascio si apre il riempimento
+        engine.setStepVelocity (channel, pressedStep, savedVelocity);
+        engine.setStepProbability (channel, pressedStep, savedProbability);
+        engine.setStepRatchet (channel, pressedStep, savedRatchet);
+        stepLongPress = true;
+        flash = 1.0f;
+        repaint();
+        if (onLongPress) onLongPress();
+        return;
+    }
     if (pressOnName && ! nameDragging)
     {
         longPressDone = true;
@@ -400,6 +433,22 @@ void ChannelRow::timerCallback()
         repaint();
         if (onLongPress) onLongPress();
     }
+}
+
+void ChannelRow::showFillPanel (int step)
+{
+    auto* top = getTopLevelComponent();
+    if (top == nullptr)
+        return;
+
+    auto panel = std::make_unique<StepFillPanel> (engine, channel, step);
+    juce::Component::SafePointer<ChannelRow> safe (this);
+    panel->onChanged = [safe] { if (safe != nullptr) safe->repaint(); };
+
+    auto* overlay = new FillOverlay (std::move (panel));   // si cancella da sola quando si chiude
+    top->addAndMakeVisible (overlay);
+    overlay->setBounds (top->getLocalBounds());
+    overlay->toFront (true);
 }
 
 void ChannelRow::applyVerticalValueAt (juce::Point<float> p)
