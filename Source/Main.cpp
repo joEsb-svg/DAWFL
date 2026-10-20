@@ -62,7 +62,8 @@ public:
 
            #if JUCE_ANDROID || JUCE_IOS
             setFullScreen (true);
-           #else
+           #endif
+           #if ! (JUCE_ANDROID || JUCE_IOS)
             setResizable (true, true);
 
             // Sul PC: finestra delle dimensioni di un telefono in orizzontale, mai piu' grande dello schermo.
@@ -71,6 +72,11 @@ public:
            #endif
 
             setVisible (true);
+
+           #if JUCE_ANDROID
+            // Schermo intero "immersivo": niente barra dell'ora e della batteria (riappare scorrendo dal bordo)
+            juce::Desktop::getInstance().setKioskModeComponent (this, false);
+           #endif
         }
 
         void closeButtonPressed() override

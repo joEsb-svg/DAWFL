@@ -54,8 +54,8 @@ MainComponent::MainComponent()
     presetBrowser.onSaveRequest = [this] (int ch) { handleSoundMenu (ch, 660); };
 
     // --- Menu file
-    fileButton.setButtonText ("FILE");
     fileButton.onClick = [this] { showFileMenu(); };
+    logoImage = juce::ImageCache::getFromMemory (BinaryData::logo_mark_png, BinaryData::logo_mark_pngSize);
     addAndMakeVisible (fileButton);
 
     // --- Trasporto
@@ -99,7 +99,40 @@ MainComponent::MainComponent()
         updateViews();
     };
     patternDisplay.onCentreTap = [this] { showPatternMenu(); };
-    addAndMakeVisible (patternDisplay);
+
+    // --- Il display al centro: tempo, pattern, posizione (usa gli stessi comandi di sopra)
+    holo.tempoText    = bpmDisplay.getText;
+    holo.onTempoStep  = bpmDisplay.onStep;
+    holo.onTempoDrag  = bpmDisplay.onDrag;
+    holo.onTempoTap   = bpmDisplay.onCentreTap;
+    holo.patternNumber = [this] { return engine.getCurrentPattern(); };
+    holo.patternName   = [this] { return engine.getPatternName (engine.getCurrentPattern()); };
+    holo.patternColour = [this] { return PatternColours::get (engine.getCurrentPattern()); };
+    holo.onPatternStep = patternDisplay.onStep;
+    holo.onPatternTap  = patternDisplay.onCentreTap;
+    holo.position = [this]
+    {
+        HoloDisplay::Position pos;
+        const int step = engine.isSongMode() ? engine.getSongStep() : engine.getCurrentStep();
+        pos.playing = engine.isPlaying() && step >= 0;
+        if (pos.playing)
+        {
+            pos.bar = step / 16 + 1;
+            pos.beat = (step % 16) / 4 + 1;
+            pos.sixteenth = step % 4 + 1;
+            pos.stepInBar = step % 16;
+        }
+        return pos;
+    };
+    holo.statusText = [this]
+    {
+        const int target = liveTarget.load();
+        if (engine.isRecording())
+            return juce::String ("REC ") + (target >= 0 && target < engine.getNumChannels() ? engine.getChannel (target).name : juce::String());
+        return juce::String();
+    };
+    addAndMakeVisible (holo);
+    scopeSamples.resize ((size_t) SpectrumAnalyser::size);
 
     // --- Modalita' di modifica, lunghezza e pagina
     modeSwitch.onChange   = [this] (int) { updateViews(); };
@@ -117,10 +150,11 @@ MainComponent::MainComponent()
 
     // --- Swing, kit, master
     setupKnob (swingKnob, 0.0, 1.0, 0.0);
-    swingKnob.onValueChange = [this] { engine.setSwing ((float) swingKnob.getValue()); };
+    swingKnob.onValueChange = [this] { engine.setSwing ((float) swingKnob.getValue()); repaint (swingCaption.toNearestInt().expanded (2)); };
     addAndMakeVisible (swingKnob);
 
     kitButton.onClick = [this] { showKitMenu(); };
+    kitButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff0c0f12));
     addAndMakeVisible (kitButton);
 
     setupKnob (masterKnob, 0.0, 1.5, 1.0);
@@ -282,26 +316,31 @@ void MainComponent::paint (juce::Graphics& g)
     g.setColour (Theme::border);
     g.drawRoundedRectangle (rackArea, Theme::corner, 1.0f);
 
-    // Logo e nome del progetto
+    // Logo (solo il simbolo, con un alone)
+    if (logoImage.isValid())
     {
-        auto r = logoArea;
-        auto top = r.removeFromTop (r.getHeight() * 0.58f);
-        juce::AttributedString logo;
-        logo.append ("J",    Theme::font (top.getHeight() * 0.82f, true), Theme::accent);
-        logo.append ("Loop", Theme::font (top.getHeight() * 0.82f, true), Theme::textBright);
-        logo.setJustification (juce::Justification::bottomLeft);
-        logo.draw (g, top);
-
-        g.setColour (engine.isRecording() ? juce::Colour (0xffe0483e) : Theme::textDim);
-        g.setFont (Theme::font (11.5f, engine.isRecording()));
-        const int target = liveTarget.load();
-        g.drawFittedText (engine.isRecording() && target >= 0 && target < engine.getNumChannels()
-                              ? "REC: " + engine.getChannel (target).name : projectName,
-                          r.toNearestInt(), juce::Justification::topLeft, 1);
+        auto r = logoArea.reduced (2.0f);
+        const float s = juce::jmin (r.getWidth(), r.getHeight());
+        auto box = juce::Rectangle<float> (s, s * (float) logoImage.getHeight() / (float) logoImage.getWidth()).withCentre (r.getCentre());
+        juce::ColourGradient halo (Theme::accent.withAlpha (0.22f), box.getCentre(), Theme::accent.withAlpha (0.0f),
+                                   box.getCentre().translated (s * 0.7f, 0.0f), true);
+        g.setGradientFill (halo);
+        g.fillEllipse (box.expanded (s * 0.2f));
+        g.drawImage (logoImage, box, juce::RectanglePlacement::centred);
     }
 
-    Theme::drawCaption (g, "Swing",  swingCaption);
-    Theme::drawCaption (g, "Kit",    kitCaption);
+    // Swing nella barra del sequencer: etichetta e valore accanto alla manopolina
+    if (! swingCaption.isEmpty())
+    {
+        Theme::drawSunken (g, swingCaption);
+        auto t = swingCaption.withTrimmedLeft ((float) swingKnob.getRight() - swingCaption.getX() + 4.0f);
+        g.setFont (Theme::font (11.0f, true).withExtraKerningFactor (0.06f));
+        g.setColour (Theme::textDim);
+        g.drawText ("SWING", t.removeFromLeft (44.0f), juce::Justification::centredLeft, false);
+        g.setColour (Theme::accent);
+        g.drawText (juce::String (juce::roundToInt (engine.getSwing() * 100.0f)) + "%", t, juce::Justification::centredLeft, false);
+    }
+
     Theme::drawCaption (g, "Master", masterCaption);
 }
 
@@ -318,7 +357,6 @@ void MainComponent::resized()
 
     auto full = getContentArea();
     portraitLayout = full.getWidth() < full.getHeight();
-    patternDisplay.caption = portraitLayout || full.getWidth() < 1000 ? "Pat" : "Pattern";
 
     if (portraitLayout)
         layoutPortrait (full);
@@ -330,59 +368,52 @@ void MainComponent::resized()
 
 void MainComponent::layoutLandscape (juce::Rectangle<int> full)
 {
-    // --- Barra superiore (a tutta larghezza)
-    const int headerH = juce::jlimit (46, 64, full.getHeight() / 7);
+    // --- Barra superiore: [logo] [menu undo redo] [play rec] [ DISPLAY ] [PAT|SONG] [MIX] [LIVE] [master]
+    const int headerH = juce::jlimit (54, 76, full.getHeight() / 6);
     headerArea = getLocalBounds().removeFromTop (full.getY() + headerH).toFloat();
-    auto header = full.removeFromTop (headerH).reduced (0, 5);
+    auto header = full.removeFromTop (headerH).reduced (0, 4);
     const int h = header.getHeight();
-
-    // Su schermi stretti (telefono in orizzontale, ~800-900 punti) tutto un po' piu' compatto
     const bool narrow = header.getWidth() < 1000;
-    logoArea = header.removeFromLeft (narrow ? 72 : 88).toFloat();
-    header.removeFromLeft (4);
-    fileButton.setBounds (header.removeFromLeft (50));
-    header.removeFromLeft (6);
-    undoButton.setBounds (header.removeFromLeft (h));
-    header.removeFromLeft (3);
-    redoButton.setBounds (header.removeFromLeft (h));
-    header.removeFromLeft (narrow ? 6 : 10);
-    playButton.setBounds (header.removeFromLeft (juce::roundToInt (h * 1.25)));
-    header.removeFromLeft (3);
-    recordButton.setBounds (header.removeFromLeft (h));
-    header.removeFromLeft (6);
-    bpmDisplay.setBounds (header.removeFromLeft (narrow ? 88 : 100));
-    header.removeFromLeft (6);
-    patternDisplay.setBounds (header.removeFromLeft (narrow ? 88 : 100));
-    header.removeFromLeft (6);
-    const int sw = narrow ? 84 : 92;
-    songSwitch.setBounds (header.removeFromLeft (sw).withSizeKeepingCentre (sw, juce::jmin (h, 30)));
-    header.removeFromLeft (6);
-    mixerButton.setVisible (true);
-    mixerButton.setButtonText (narrow ? "MIX" : "MIXER");
-    mixerButton.setBounds (header.removeFromLeft (narrow ? 50 : 64).withSizeKeepingCentre (narrow ? 50 : 64, juce::jmin (h, 32)));
-    header.removeFromLeft (4);
-    liveButton.setVisible (true);
-    liveButton.setBounds (header.removeFromLeft (narrow ? 46 : 56).withSizeKeepingCentre (narrow ? 46 : 56, juce::jmin (h, 32)));
+    const int btn = juce::jmin (narrow ? 38 : 44, h - 10);
 
-    meter.setBounds (header.removeFromRight (8));
-    header.removeFromRight (6);
-
-    auto knobWithCaption = [&header, h] (juce::Slider& knob, juce::Rectangle<float>& caption, int width)
+    logoArea = header.removeFromLeft (h).toFloat();
+    header.removeFromLeft (8);
+    auto iconCell = [&header, btn] (juce::Component& comp)
     {
-        auto area = header.removeFromRight (width);
-        caption = area.removeFromBottom (12).toFloat();
-        knob.setBounds (area.withSizeKeepingCentre (h - 12, h - 12));
-        header.removeFromRight (4);
+        comp.setBounds (header.removeFromLeft (btn).withSizeKeepingCentre (btn, btn));
+        header.removeFromLeft (4);
     };
+    iconCell (fileButton);
+    iconCell (undoButton);
+    iconCell (redoButton);
+    header.removeFromLeft (narrow ? 4 : 8);
+    const int playD = narrow ? h - 6 : h;
+    playButton.setBounds (header.removeFromLeft (playD).withSizeKeepingCentre (playD, playD));
+    header.removeFromLeft (2);
+    recordButton.setBounds (header.removeFromLeft (playD - 14).withSizeKeepingCentre (playD - 14, playD - 14));
+    header.removeFromLeft (narrow ? 6 : 8);
 
-    knobWithCaption (masterKnob, masterCaption, 48);
+    meter.setBounds (header.removeFromRight (6).reduced (0, 4));
+    header.removeFromRight (6);
     {
-        auto area = header.removeFromRight (juce::jlimit (80, 110, header.getWidth() / 2));
-        kitCaption = area.removeFromBottom (12).toFloat();
-        kitButton.setBounds (area.reduced (0, 1));
+        auto area = header.removeFromRight (narrow ? 48 : 52);
+        masterCaption = area.removeFromBottom (12).toFloat();
+        masterKnob.setBounds (area.withSizeKeepingCentre (h - 14, h - 14));
         header.removeFromRight (6);
     }
-    knobWithCaption (swingKnob, swingCaption, 44);
+    const int pillH = juce::jmin (h - 12, 40);
+    liveButton.setVisible (true);
+    liveButton.setBounds (header.removeFromRight (narrow ? 46 : 60).withSizeKeepingCentre (narrow ? 46 : 60, pillH));
+    header.removeFromRight (5);
+    mixerButton.setVisible (true);
+    mixerButton.setButtonText (narrow ? "MIX" : "MIXER");
+    mixerButton.setBounds (header.removeFromRight (narrow ? 46 : 66).withSizeKeepingCentre (narrow ? 46 : 66, pillH));
+    header.removeFromRight (5);
+    const int sw = narrow ? 92 : 120;
+    songSwitch.setBounds (header.removeFromRight (sw).withSizeKeepingCentre (sw, pillH));
+    header.removeFromRight (8);
+
+    holo.setBounds (header);
 
     full.removeFromTop (6);
     layoutRack (full, false);
@@ -390,63 +421,49 @@ void MainComponent::layoutLandscape (juce::Rectangle<int> full)
 
 void MainComponent::layoutPortrait (juce::Rectangle<int> full)
 {
-    // Due righe in alto: [logo, file, undo, redo ... meter] e [play, tempo, pattern, swing, kit, master]
-    const int lineH = 44;
-    headerArea = getLocalBounds().removeFromTop (full.getY() + lineH * 2 + 8).toFloat();
+    // Due righe: [logo menu undo redo | PAT/SONG MIX master] e [play rec | DISPLAY]
+    const int lineH = 46;
+    headerArea = getLocalBounds().removeFromTop (full.getY() + lineH + 64 + 8).toFloat();
 
-    auto line1 = full.removeFromTop (lineH).reduced (0, 4);
+    auto line1 = full.removeFromTop (lineH).reduced (0, 3);
     const int h1 = line1.getHeight();
-    logoArea = line1.removeFromLeft (88).toFloat();
-    meter.setBounds (line1.removeFromRight (8));
-    line1.removeFromRight (8);
-    redoButton.setBounds (line1.removeFromRight (h1));
-    line1.removeFromRight (3);
-    undoButton.setBounds (line1.removeFromRight (h1));
-    line1.removeFromRight (6);
-    fileButton.setBounds (line1.removeFromRight (50));
-    line1.removeFromRight (8);
+    logoArea = line1.removeFromLeft (h1 + 4).toFloat();
+    line1.removeFromLeft (4);
+    for (auto* comp : { (juce::Component*) &fileButton, (juce::Component*) &undoButton, (juce::Component*) &redoButton })
     {
-        // Se c'e' posto, il pulsante del mixer (altrimenti e' nel MENU)
-        const bool roomForMixer = line1.getWidth() >= 64 + 50 + 6;
+        comp->setBounds (line1.removeFromLeft (h1));
+        line1.removeFromLeft (3);
+    }
+    meter.setBounds (line1.removeFromRight (6));
+    line1.removeFromRight (4);
+    {
+        auto area = line1.removeFromRight (40);
+        masterCaption = {};
+        masterKnob.setBounds (area.withSizeKeepingCentre (h1 - 4, h1 - 4));
+        line1.removeFromRight (4);
+    }
+    liveButton.setVisible (false);   // in verticale: MENU > Live
+    {
+        const bool roomForMixer = line1.getWidth() >= 92 + 50 + 6;
         mixerButton.setVisible (roomForMixer);
-        liveButton.setVisible (false);   // in verticale: MENU > Live
         mixerButton.setButtonText ("MIX");
         if (roomForMixer)
         {
-            mixerButton.setBounds (line1.removeFromRight (50).withSizeKeepingCentre (50, 30));
-            line1.removeFromRight (6);
+            mixerButton.setBounds (line1.removeFromRight (50).withSizeKeepingCentre (50, 32));
+            line1.removeFromRight (5);
         }
         const int sw = juce::jmin (100, line1.getWidth());
-        songSwitch.setBounds (line1.removeFromRight (sw).withSizeKeepingCentre (sw, 30));
+        songSwitch.setBounds (line1.removeFromRight (sw).withSizeKeepingCentre (sw, 32));
     }
 
     full.removeFromTop (4);
-    auto line2 = full.removeFromTop (lineH).reduced (0, 2);
+    auto line2 = full.removeFromTop (64).reduced (0, 2);
     const int h2 = line2.getHeight();
-    playButton.setBounds (line2.removeFromLeft (h2));
+    playButton.setBounds (line2.removeFromLeft (h2 - 6).withSizeKeepingCentre (h2 - 6, h2 - 6));
     line2.removeFromLeft (3);
-    recordButton.setBounds (line2.removeFromLeft (juce::roundToInt (h2 * 0.8)));
-    line2.removeFromLeft (4);
-    const int lcdW = juce::jmin (92, (line2.getWidth() - 3 * 40) / 2 - 10);
-    bpmDisplay.setBounds (line2.removeFromLeft (lcdW));
-    line2.removeFromLeft (4);
-    patternDisplay.setBounds (line2.removeFromLeft (lcdW));
-    line2.removeFromLeft (6);
-
-    auto knobCell = [&line2] (juce::Component& c, juce::Rectangle<float>& caption, int width)
-    {
-        auto area = line2.removeFromLeft (width);
-        caption = area.removeFromBottom (11).toFloat();
-        c.setBounds (area.withSizeKeepingCentre (juce::jmin (area.getWidth(), area.getHeight()), area.getHeight()));
-    };
-
-    knobCell (swingKnob, swingCaption, 40);
-    {
-        auto area = line2.removeFromLeft (juce::jmax (40, line2.getWidth() - 50));
-        kitCaption = area.removeFromBottom (11).toFloat();
-        kitButton.setBounds (area.reduced (2, 1));
-    }
-    knobCell (masterKnob, masterCaption, 50);
+    recordButton.setBounds (line2.removeFromLeft (h2 - 18).withSizeKeepingCentre (h2 - 18, h2 - 18));
+    line2.removeFromLeft (5);
+    holo.setBounds (line2);
 
     full.removeFromTop (8);
     layoutRack (full, true);
@@ -457,9 +474,18 @@ void MainComponent::layoutRack (juce::Rectangle<int> full, bool portrait)
     rackArea = full.toFloat();
     auto rack = full.reduced (6, 4);
 
-    // Barra degli strumenti del sequencer (in verticale va su due righe)
-    auto bar = rack.removeFromTop (26);
-    modeSwitch.setBounds (bar.removeFromLeft (juce::jmin (220, bar.getWidth() - 110)).reduced (0, 1));
+    // Barra degli strumenti del sequencer: modalita', lunghezza, pagina, kit, swing, metronomo, CPU, + Strumento
+    const bool multiPage = getVisibleSteps() < engine.getPatternLength();
+    const bool showKit = hasDrumSynthChannels();   // il kit vale solo per la batteria sintetizzata
+    kitButton.setVisible (showKit);
+    auto bar = rack.removeFromTop (portrait ? 28 : 32);
+    auto swingChip = [this] (juce::Rectangle<int> area)
+    {
+        swingCaption = area.toFloat().reduced (0.0f, 1.0f);
+        swingKnob.setBounds (area.removeFromLeft (area.getHeight()).reduced (2));
+    };
+
+    modeSwitch.setBounds (bar.removeFromLeft (juce::jmin (portrait ? 200 : 240, bar.getWidth() - 110)).reduced (0, 1));
     bar.removeFromLeft (6);
     lengthSwitch.setBounds (bar.removeFromLeft (64).reduced (0, 1));
     bar.removeFromLeft (6);
@@ -471,20 +497,40 @@ void MainComponent::layoutRack (juce::Rectangle<int> full, bool portrait)
         addButton.setButtonText ("+");
         addButton.setBounds (bar.removeFromLeft (juce::jmax (40, bar.getWidth())).reduced (0, 1));
         rack.removeFromTop (4);
-        auto pageRow = rack.removeFromTop (24);
-        cpuBadge.setBounds (pageRow.removeFromRight (74));
-        pageRow.removeFromRight (6);
-        pageSwitch.setBounds (pageRow.reduced (0, 1));
+        auto row2 = rack.removeFromTop (28);
+        cpuBadge.setBounds (row2.removeFromRight (70));
+        row2.removeFromRight (6);
+        if (showKit)
+        {
+            kitButton.setBounds (row2.removeFromLeft (juce::jmin (130, row2.getWidth() / 3)).reduced (0, 1));
+            row2.removeFromLeft (6);
+        }
+        swingChip (row2.removeFromLeft (juce::jmin (112, row2.getWidth() / 2)));
+        row2.removeFromLeft (6);
+        pageSwitch.setVisible (multiPage);
+        pageSwitch.setBounds (row2.reduced (0, 1));
     }
     else
     {
         addButton.setButtonText ("+ Strumento");
-        addButton.setBounds (bar.removeFromRight (juce::jmin (120, bar.getWidth() / 3)).reduced (0, 1));
-        pageSwitch.setBounds (bar.removeFromLeft (100 + (getVisibleSteps() < 16 ? 100 : 0)).reduced (0, 1));
-        bar.removeFromLeft (8);
-        metroButton.setBounds (bar.removeFromLeft (34));
-        bar.removeFromLeft (8);
-        cpuBadge.setBounds (bar.removeFromLeft (juce::jmin (84, bar.getWidth() - 8)));
+        addButton.setBounds (bar.removeFromRight (juce::jmin (130, bar.getWidth() / 4)).reduced (0, 1));
+        bar.removeFromRight (8);
+        pageSwitch.setVisible (multiPage);
+        if (multiPage)
+        {
+            pageSwitch.setBounds (bar.removeFromLeft (200).reduced (0, 1));
+            bar.removeFromLeft (6);
+        }
+        if (showKit)
+        {
+            kitButton.setBounds (bar.removeFromLeft (juce::jmin (150, bar.getWidth() / 3)).reduced (0, 1));
+            bar.removeFromLeft (6);
+        }
+        swingChip (bar.removeFromLeft (juce::jmin (118, bar.getWidth() / 2)));
+        bar.removeFromLeft (6);
+        metroButton.setBounds (bar.removeFromLeft (bar.getHeight() + 4));
+        bar.removeFromLeft (6);
+        cpuBadge.setBounds (bar.removeFromLeft (juce::jmin (84, bar.getWidth())));
     }
 
     // Righello allineato agli step, poi le righe (in un'area che scorre se non stanno tutte)
@@ -544,7 +590,13 @@ void MainComponent::updateViews()
         pages.add (juce::String (first + 1) + "-" + juce::String (first + visible));
     pageSwitch.setOptions (pages);
     pageSwitch.setEnabled (pages.size() > 1);
-    pageSwitch.setAlpha (pages.size() > 1 ? 1.0f : 0.35f);
+    if ((pages.size() > 1) != pageSwitch.isVisible() && ! getLocalBounds().isEmpty())
+    {
+        // Compare o sparisce il selettore delle pagine: si rifa' la barra (resized richiama updateViews)
+        pageSwitch.setVisible (pages.size() > 1);
+        resized();
+        return;
+    }
 
     const int firstStep = getFirstVisibleStep();
     const auto mode = (ChannelRow::EditMode) modeSwitch.getSelected();
@@ -555,7 +607,7 @@ void MainComponent::updateViews()
     undoButton.setEnabled (! undoStack.isEmpty());
     redoButton.setEnabled (! redoStack.isEmpty());
 
-    patternDisplay.repaint();
+    holo.repaint();
     repaint (headerArea.toNearestInt());
 }
 
@@ -568,9 +620,22 @@ void MainComponent::syncControlsFromEngine()
     if (editor.isVisible())
         editor.refreshFromEngine();
     masterKnob.setValue (engine.getMasterVolume(), juce::dontSendNotification);
-    kitButton.setButtonText (getKitLabel());
-    bpmDisplay.repaint();
+    kitButton.setButtonText (getKitChipText());
+    holo.repaint();
     updateViews();
+}
+
+bool MainComponent::hasDrumSynthChannels() const
+{
+    for (int c = 0; c < engine.getNumChannels(); ++c)
+        if (engine.isDrumSynthChannel (c))
+            return true;
+    return false;
+}
+
+juce::String MainComponent::getKitChipText() const
+{
+    return "KIT  " + getKitLabel() + juce::String (juce::CharPointer_UTF8 ("  \xe2\x96\xbe"));
 }
 
 juce::String MainComponent::getKitLabel() const
@@ -623,11 +688,31 @@ void MainComponent::timerCallback()
     ruler.setState (column, firstStep, visible);
     meter.setLevel (engine.takeOutputPeak());
 
+    // Display: la posizione si muove mentre suona; lo spettro ~20 volte al secondo (non in "Risparmio")
+    if (engine.isPlaying() || holoWasPlaying)
+        holo.repaint();
+    holoWasPlaying = engine.isPlaying();
+    if (++spectrumCounter >= 2 && holo.isShowing())
+    {
+        spectrumCounter = 0;
+        if (! perf::lowPower() && (engine.isPlaying() || spectrumActive))
+        {
+            engine.copyScope (scopeSamples.data(), SpectrumAnalyser::size);
+            const auto& bands = analyser.process (scopeSamples.data(), engine.getSampleRateForDisplay());
+            float sum = 0.0f;
+            for (auto b : bands) sum += b;
+            spectrumActive = sum > 0.01f;
+            holo.setSpectrum (bands.data(), (int) bands.size());
+        }
+    }
+
     if (playButton.getToggleState() != engine.isPlaying())
         playButton.setToggleState (engine.isPlaying(), juce::dontSendNotification);
 
-    if (const auto label = getKitLabel(); kitButton.getButtonText() != label)
+    if (const auto label = getKitChipText(); kitButton.getButtonText() != label)
         kitButton.setButtonText (label);
+    if (hasDrumSynthChannels() != kitButton.isVisible())
+        resized();
 
     // Undo: cerca modifiche ~8 volte al secondo
     // (solo dopo un tocco dello schermo, e comunque ogni 3 secondi: costa poco al telefono)
@@ -1057,7 +1142,7 @@ void MainComponent::showPatternMenu()
     menu.addItem (1, "Svuota questo pattern", ! engine.isPatternEmpty (cur));
 
     juce::Component::SafePointer<MainComponent> safeThis (this);
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&patternDisplay),
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&holo),
                         [safeThis, cur, fresh] (int result)
                         {
                             if (safeThis == nullptr || result <= 0)
@@ -1074,7 +1159,7 @@ void MainComponent::showPatternMenu()
                                     if (safeThis != nullptr)
                                     {
                                         safeThis->engine.setPatternName (cur, name);
-                                        safeThis->patternDisplay.repaint();
+                                        safeThis->holo.repaint();
                                     }
                                 });
                                 return;
@@ -1107,7 +1192,7 @@ void MainComponent::showKitMenu()
                             e.setAllKits (result - 1);
                             for (int c = 0; c < e.getNumChannels(); ++c)
                                 if (e.isDrumSynthChannel (c)) { e.previewChannel (c); break; }
-                            safeThis->kitButton.setButtonText (safeThis->getKitLabel());
+                            safeThis->kitButton.setButtonText (safeThis->getKitChipText());
                         });
 }
 
@@ -1211,7 +1296,7 @@ void MainComponent::tapTempo()
     {
         const double avg = (tapTimes.getLast() - tapTimes.getFirst()) / (tapTimes.size() - 1);
         engine.setBpm (std::round (60000.0 / avg));
-        bpmDisplay.repaint();
+        holo.repaint();
     }
 }
 

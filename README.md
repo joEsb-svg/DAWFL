@@ -14,7 +14,16 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.28)
+## Stato attuale (v0.29)
+
+**Novita' della 0.29 (barra in alto nuova)**
+- Schermo intero su Android (la barra di sistema riappare scorrendo dal bordo)
+- Al posto della scritta, il logo
+- Display "vetro + HUD": tempo, pattern (numero, colore e nome) e posizione con anello della battuta,
+  spettro dell'audio sullo sfondo; frecce, trascinamento e tocchi come prima
+- Play e Rec rotondi con anello luminoso; MENU, undo e redo come icone
+- Kit e Swing spostati nella barra del sequencer (il kit compare solo se c'e' la batteria sintetizzata);
+  il selettore delle pagine compare solo quando serve
 
 **Novita' della 0.28 (comodita' d'uso)**
 - Cronologia delle modifiche: tieni premuta la freccia dell'undo (o MENU > Cronologia): ogni passo ha un nome

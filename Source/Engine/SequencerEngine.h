@@ -1060,6 +1060,16 @@ public:
 
     /** Picco d'uscita dall'ultima lettura (0..1), per il meter. */
     float takeOutputPeak()                      { return outputPeak.exchange (0.0f); }
+    double getSampleRateForDisplay() const      { return sampleRate.load(); }
+
+    /** Gli ultimi n campioni in uscita (mono), per lo spettro del display. Solo per disegnare. */
+    void copyScope (float* dest, int n) const
+    {
+        n = juce::jmin (n, scopeSize);
+        const uint32_t end = scopeWrite.load (std::memory_order_acquire);
+        for (int i = 0; i < n; ++i)
+            dest[i] = scope[(size_t) ((end - (uint32_t) n + (uint32_t) i) & (uint32_t) (scopeSize - 1))];
+    }
 
     /** Quanto sta lavorando il limiter (0 = niente, 1 = molto), per un indicatore. */
     float getLimiterReduction() const           { return limiterReduction.load(); }
@@ -1832,7 +1842,9 @@ private:
             peak = juce::jmax (peak, std::abs (l), std::abs (r));
             mixL[(size_t) s] = l;
             mixR[(size_t) s] = r;
+            scope[(size_t) (scopePos++ & (uint32_t) (scopeSize - 1))] = 0.5f * (l + r);
         }
+        scopeWrite.store (scopePos, std::memory_order_release);
 
         if (peak > outputPeak.load())
             outputPeak.store (peak);
@@ -2559,6 +2571,10 @@ private:
     std::atomic<int>    songStartBar     { 0 };
     std::atomic<int>    currentSongStep  { -1 };
     std::atomic<float>  outputPeak       { 0.0f };
+    static constexpr int scopeSize = 2048;
+    std::array<float, scopeSize> scope {};
+    uint32_t scopePos = 0;
+    std::atomic<uint32_t> scopeWrite { 0 };
     std::atomic<float>  limiterReduction { 0.0f };
     std::atomic<double> sampleRate       { 48000.0 };
 

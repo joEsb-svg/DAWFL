@@ -6,6 +6,28 @@
 
 //==============================================================================
 /** Pulsante Play/Stop: triangolo quando fermo, quadrato (e LED verde) quando suona. */
+/** Pulsante rotondo del trasporto (play, rec): disco in rilievo con un anello che si accende. */
+inline void drawRoundTransport (juce::Graphics& g, juce::Rectangle<float> r, bool isHighlighted, bool isDown, juce::Colour ring, bool on)
+{
+    const float d = juce::jmin (r.getWidth(), r.getHeight()) - 4.0f;
+    auto disc = juce::Rectangle<float> (d, d).withCentre (r.getCentre());
+    if (on)
+    {
+        g.setGradientFill (juce::ColourGradient (ring.withAlpha (0.35f), disc.getCentre(), ring.withAlpha (0.0f),
+                                                 disc.getCentre().translated (d * 0.62f, 0.0f), true));
+        g.fillEllipse (disc.expanded (3.0f));
+    }
+    auto base = juce::Colour (0xff2a3138);
+    if (isDown)             base = base.darker (0.3f);
+    else if (isHighlighted) base = base.brighter (0.08f);
+    g.setGradientFill (juce::ColourGradient (base.brighter (0.12f), disc.getCentreX(), disc.getY(), base.darker (0.35f), disc.getCentreX(), disc.getBottom(), false));
+    g.fillEllipse (disc);
+    g.setColour (Theme::border);
+    g.drawEllipse (disc, 1.0f);
+    g.setColour (on ? ring : juce::Colour (0xff3a434c));
+    g.drawEllipse (disc.reduced (2.0f), on ? 2.0f : 1.2f);
+}
+
 class PlayButton : public juce::Button
 {
 public:
@@ -15,30 +37,20 @@ public:
     {
         auto r = getLocalBounds().toFloat();
         const bool playing = getToggleState();
+        drawRoundTransport (g, r, isHighlighted, isDown, Theme::led, playing);
 
-        auto base = Theme::raised;
-        if (isDown)             base = base.darker (0.25f);
-        else if (isHighlighted) base = base.brighter (0.06f);
-        Theme::drawRaised (g, r, base);
-
-        const float s = juce::jmin (r.getHeight(), r.getWidth()) * 0.36f;
+        const float s = juce::jmin (r.getHeight(), r.getWidth()) * 0.32f;
         auto icon = juce::Rectangle<float> (s, s).withCentre (r.getCentre());
         juce::Path p;
 
         if (playing)
             p.addRectangle (icon.reduced (s * 0.08f));
         else
-            p.addTriangle (icon.getX() + s * 0.1f, icon.getY(), icon.getX() + s * 0.1f, icon.getBottom(),
-                           icon.getRight(), icon.getCentreY());
+            p.addTriangle (icon.getX() + s * 0.2f, icon.getY(), icon.getX() + s * 0.2f, icon.getBottom(),
+                           icon.getRight() + s * 0.1f, icon.getCentreY());
 
         g.setColour (playing ? Theme::led : Theme::textBright);
         g.fillPath (p);
-
-        if (playing)
-        {
-            g.setColour (Theme::led);
-            g.fillRect (r.reduced (5.0f, 0.0f).removeFromBottom (2.0f));
-        }
     }
 };
 
@@ -296,7 +308,7 @@ class IconButton : public juce::Button,
                    private juce::Timer
 {
 public:
-    enum class Icon { undo, redo, metronome };
+    enum class Icon { undo, redo, metronome, menu };
 
     explicit IconButton (Icon i) : juce::Button ("icon"), icon (i) {}
 
@@ -341,7 +353,12 @@ public:
         auto box = juce::Rectangle<float> (s, s).withCentre (r.getCentre());
         g.setColour (colour);
 
-        if (icon == Icon::metronome)
+        if (icon == Icon::menu)
+        {
+            for (int i = -1; i <= 1; ++i)
+                g.fillRoundedRectangle (box.getX() + s * 0.1f, box.getCentreY() + (float) i * s * 0.3f - 1.1f, s * 0.8f, 2.2f, 1.1f);
+        }
+        else if (icon == Icon::metronome)
         {
             juce::Path p;
             p.addTriangle (box.getCentreX(), box.getY(), box.getX() + s * 0.12f, box.getBottom(), box.getRight() - s * 0.12f, box.getBottom());
@@ -478,14 +495,11 @@ public:
     {
         auto r = getLocalBounds().toFloat();
         const bool armed = getToggleState();
-        auto base = Theme::raised;
-        if (isDown)             base = base.darker (0.25f);
-        else if (isHighlighted) base = base.brighter (0.06f);
-        Theme::drawRaised (g, r, base);
-
-        const float d = juce::jmin (r.getHeight(), r.getWidth()) * 0.34f;
-        auto dot = juce::Rectangle<float> (d, d).withCentre (r.getCentre());
         const auto red = juce::Colour (0xffe0483e);
+        drawRoundTransport (g, r, isHighlighted, isDown, red, armed);
+
+        const float d = juce::jmin (r.getHeight(), r.getWidth()) * 0.3f;
+        auto dot = juce::Rectangle<float> (d, d).withCentre (r.getCentre());
         if (armed && blink)
         {
             g.setColour (red.withAlpha (0.3f));
@@ -493,11 +507,6 @@ public:
         }
         g.setColour (armed ? red : red.withMultipliedSaturation (0.5f).withMultipliedBrightness (0.7f));
         g.fillEllipse (dot);
-        if (armed)
-        {
-            g.setColour (red);
-            g.fillRect (r.reduced (5.0f, 0.0f).removeFromBottom (2.0f));
-        }
     }
 
 private:

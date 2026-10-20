@@ -18,6 +18,7 @@
 #include "QuickGuide.h"
 #include "UndoHistory.h"
 #include "LivePanel.h"
+#include "HoloDisplay.h"
 #include "Haptics.h"
 
 //==============================================================================
@@ -165,11 +166,20 @@ private:
 
     DawLookAndFeel lookAndFeel;
 
-    juce::TextButton fileButton { "MENU" }, kitButton, mixerButton { "MIXER" };
+    IconButton fileButton { IconButton::Icon::menu };
+    juce::TextButton kitButton, mixerButton { "MIXER" };
     CpuBadge cpuBadge;
     PlayButton playButton;
     RecordButton recordButton;
-    LcdSelector bpmDisplay, patternDisplay;
+    LcdSelector bpmDisplay, patternDisplay;     // comandi (ora disegnati dentro il display "olografico")
+    HoloDisplay holo;
+    SpectrumAnalyser analyser;
+    std::vector<float> scopeSamples;
+    juce::Image logoImage;
+    bool holoWasPlaying = false, spectrumActive = false;
+    int spectrumCounter = 0;
+    juce::String getKitChipText() const;
+    bool hasDrumSynthChannels() const;
     SegmentedControl modeSwitch  { { "STEP", "VEL", "PROB", "ROLL" } };
     IconButton undoButton { IconButton::Icon::undo }, redoButton { IconButton::Icon::redo },
                metroButton { IconButton::Icon::metronome };
