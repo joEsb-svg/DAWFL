@@ -1024,6 +1024,10 @@ public:
     /** Calcola il prossimo blocco audio (stereo: canali pari = sinistra, dispari = destra). */
     void process (float* const* outputChannelData, int numOutputChannels, int numSamples)
     {
+        // Numeri "denormali" (code di riverbero e filtri che sfumano verso lo zero) rallentano moltissimo
+        // alcuni processori: con questo diventano zero e il carico resta costante (niente scatti)
+        juce::ScopedNoDenormals noDenormals;
+
         // Se la UI sta riordinando i canali (pochi microsecondi), questo blocco resta in silenzio
         const juce::SpinLock::ScopedTryLockType lock (structureLock);
         if (! lock.isLocked())

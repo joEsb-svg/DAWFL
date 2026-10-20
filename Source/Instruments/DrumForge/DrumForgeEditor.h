@@ -18,13 +18,17 @@ public:
 
     void selectPad (int pad);
     int getSelectedPad() const      { return selected; }
+    void openSamplePickerForTest (int pad)  { selectPad (pad); showSampleMenu (pad, *this); }
 
 private:
     class PadGrid;
     class KitList;
     class SampleButton;
+    class TapGrid;
+    class SamplePicker;
 
     void refreshViews() override;
+    void resized() override;
     void showSampleMenu (int pad, juce::Component& target);
     void importSample (int pad);
 
@@ -36,4 +40,5 @@ private:
     std::array<juce::String, df::numPads> shownNames;
     int selected = 0;
     std::unique_ptr<juce::FileChooser> chooser;
+    std::unique_ptr<SamplePicker> picker;
 };

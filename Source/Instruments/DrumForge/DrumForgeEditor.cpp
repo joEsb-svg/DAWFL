@@ -207,7 +207,10 @@ DrumForgeEditor::DrumForgeEditor (DrumForgeAudioProcessor& p)
     refreshViews();
 }
 
-DrumForgeEditor::~DrumForgeEditor() = default;
+DrumForgeEditor::~DrumForgeEditor()
+{
+    picker.reset();
+}
 
 void DrumForgeEditor::selectPad (int pad)
 {
@@ -255,88 +258,226 @@ void DrumForgeEditor::refreshViews()
     }
 }
 
-void DrumForgeEditor::showSampleMenu (int pad, juce::Component& target)
+//==============================================================================
+/** Griglia di voci da toccare (scorre col dito dentro un Viewport). */
+class DrumForgeEditor::TapGrid : public juce::Component
 {
-    // Libreria: Strumenti / Elettronica -> categorie -> suoni
-    juce::PopupMenu menu;
-    std::map<juce::String, std::map<juce::String, juce::PopupMenu>> groups;
-    std::vector<juce::String> groupOrder;
-    std::map<juce::String, std::vector<juce::String>> categoryOrder;
-    const auto current = proc.getPadSample (pad);
+public:
+    struct Item { juce::String text; juce::Colour colour; };
+    std::function<void (int)> onTap;
 
-    int index = 0;
-    for (auto& e : LibraryIndex::entries)
+    void setItems (std::vector<Item> list, int sel)     { items = std::move (list); selected = sel; updateSize(); repaint(); }
+    void setSelected (int s)                             { selected = s; repaint(); }
+    void setLayout (int cols, int h, int width)          { columns = juce::jmax (1, cols); itemH = h; w = width; updateSize(); }
+
+    juce::Rectangle<int> itemBounds (int i) const
     {
-        ++index;
-        const juce::String group (juce::CharPointer_UTF8 (e.group)), category (juce::CharPointer_UTF8 (e.category));
-        if (std::find (groupOrder.begin(), groupOrder.end(), group) == groupOrder.end())
-            groupOrder.push_back (group);
-        auto& cats = categoryOrder[group];
-        if (std::find (cats.begin(), cats.end(), category) == cats.end())
-            cats.push_back (category);
-        groups[group][category].addItem (index, juce::String (juce::CharPointer_UTF8 (e.name)), true,
-                                         current == SampleStore::libraryName (e.id));
+        const int gap = 5, cw = (w - gap * (columns - 1)) / columns;
+        return { (i % columns) * (cw + gap), (i / columns) * (itemH + gap), cw, itemH };
     }
 
-    // Prima le categorie di batteria (le piu' usate per un pad)
-    auto isDrumCategory = [] (const juce::String& c)
+    void paint (juce::Graphics& g) override
     {
-        return c.contains ("Batteria") || c.contains ("Percussioni") || c == "Drum machine";
-    };
-    juce::PopupMenu drums;
-    for (auto& g : groupOrder)
-        for (auto& c : categoryOrder[g])
-            if (isDrumCategory (c))
-                drums.addSubMenu (c, groups[g][c]);
-    menu.addSectionHeader ("Batteria");
-    menu.addSubMenu ("Batteria e percussioni", drums);
-
-    menu.addSectionHeader ("Libreria");
-    for (auto& g : groupOrder)
-    {
-        juce::PopupMenu sub;
-        for (auto& c : categoryOrder[g])
-            if (! isDrumCategory (c))
-                sub.addSubMenu (c, groups[g][c]);
-        menu.addSubMenu (g, sub);
+        for (int i = 0; i < (int) items.size(); ++i)
+        {
+            auto r = itemBounds (i).toFloat();
+            if (! g.clipRegionIntersects (r.toNearestInt()))
+                continue;
+            const bool sel = i == selected;
+            g.setColour (sel ? col::panelHi.brighter (0.15f) : col::panelHi);
+            g.fillRoundedRectangle (r, 6.0f);
+            g.setColour (sel ? dfAccent : col::edge);
+            g.drawRoundedRectangle (r.reduced (0.5f), 6.0f, sel ? 2.0f : 1.0f);
+            g.setColour (items[(size_t) i].colour);
+            g.fillRoundedRectangle (r.withWidth (4.0f).reduced (0.0f, 6.0f).translated (5.0f, 0.0f), 2.0f);
+            g.setColour (sel ? col::text : col::text.withAlpha (0.85f));
+            g.setFont (juce::Font (juce::FontOptions (juce::jmin (14.0f, r.getHeight() * 0.38f), juce::Font::bold)));
+            g.drawFittedText (items[(size_t) i].text, r.withTrimmedLeft (14.0f).reduced (2.0f, 0.0f).toNearestInt(),
+                              juce::Justification::centredLeft, 2, 0.85f);
+        }
     }
 
-    menu.addSectionHeader ("I miei campioni");
-    const auto userSamples = proc.getSampleStore().listSamples();
-    juce::PopupMenu mine;
-    for (int i = 0; i < userSamples.size(); ++i)
-        mine.addItem (5000 + i, juce::File (userSamples[i]).getFileNameWithoutExtension(), true, current == userSamples[i]);
-    if (userSamples.isEmpty())
-        mine.addItem (4999, "(nessun campione importato)", false);
-    menu.addSubMenu ("Campioni importati", mine);
-    menu.addItem (9000, juce::String (juce::CharPointer_UTF8 ("Importa un file audio\xe2\x80\xa6")));
-
-    juce::Component::SafePointer<DrumForgeEditor> safe (this);
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&target),
-                        [safe, pad, userSamples] (int result)
+    void mouseUp (const juce::MouseEvent& e) override
     {
-        if (safe == nullptr || result <= 0)
-            return;
-        auto& self = *safe;
+        if (e.getDistanceFromDragStart() > 10)
+            return;   // era uno scorrimento
+        for (int i = 0; i < (int) items.size(); ++i)
+            if (itemBounds (i).contains (e.getMouseDownPosition()))
+            {
+                if (onTap) onTap (i);
+                return;
+            }
+    }
 
-        if (result == 9000)
+private:
+    void updateSize()
+    {
+        const int rows = ((int) items.size() + columns - 1) / columns;
+        setSize (juce::jmax (1, w), juce::jmax (1, rows * (itemH + 5)));
+    }
+
+    std::vector<Item> items;
+    int selected = -1, columns = 1, itemH = 44, w = 100;
+};
+
+//==============================================================================
+/**
+    Scelta del suono di un pad, a tutto schermo dentro DrumForge (al posto del menu a tendina):
+    a sinistra le categorie (prima quelle di batteria), a destra i suoni. Un tocco = suono assegnato e ascoltato.
+*/
+class DrumForgeEditor::SamplePicker : public juce::Component
+{
+public:
+    explicit SamplePicker (DrumForgeEditor& e) : editor (e)
+    {
+        for (auto* b : { &doneButton, &importButton })
+            addAndMakeVisible (b);
+        doneButton.onClick = [this] { setVisible (false); editor.refreshViews(); };
+        importButton.onClick = [this] { editor.importSample (pad); };
+
+        for (auto* vp : { &catView, &itemView })
         {
-            self.importSample (pad);
-            return;
+            vp->setScrollOnDragMode (juce::Viewport::ScrollOnDragMode::all);
+            vp->setScrollBarsShown (true, false);
+            vp->setScrollBarThickness (5);
+            addAndMakeVisible (vp);
         }
+        catView.setViewedComponent (&cats, false);
+        itemView.setViewedComponent (&grid, false);
+        cats.onTap = [this] (int i) { showCategory (i); };
+        grid.onTap = [this] (int i) { choose (i); };
 
-        juce::String name;
-        if (result >= 5000)
-            name = userSamples[result - 5000];
-        else if (result <= (int) std::size (LibraryIndex::entries))
-            name = SampleStore::libraryName (LibraryIndex::entries[result - 1].id);
-
-        if (name.isNotEmpty() && self.proc.setPadSample (pad, name))
+        // Categorie: prima batteria e percussioni, poi l'elettronica, poi gli strumenti
+        auto isDrum = [] (const juce::String& c) { return c.contains ("Batteria") || c.contains ("Percussioni") || c == "Drum machine"; };
+        juce::StringArray drums, others;
+        for (auto& en : LibraryIndex::entries)
         {
-            self.proc.hitPad (pad);
-            self.refreshViews();
+            const juce::String c (juce::CharPointer_UTF8 (en.category));
+            auto& list = isDrum (c) ? drums : others;
+            if (! list.contains (c)) list.add (c);
         }
-    });
+        categories.addArray (drums);
+        categories.addArray (others);
+        categories.add (userCategory);
+    }
+
+    void openFor (int padIndex)
+    {
+        pad = padIndex;
+        // Parte dalla categoria del suono attuale del pad
+        int start = 0;
+        if (auto* en = SampleStore::findLibraryEntry (editor.proc.getPadSample (pad)); en != nullptr && SampleStore::isLibrary (editor.proc.getPadSample (pad)))
+            start = juce::jmax (0, categories.indexOf (juce::String (juce::CharPointer_UTF8 (en->category))));
+        else if (editor.proc.getPadSample (pad).isNotEmpty())
+            start = categories.size() - 1;
+        std::vector<TapGrid::Item> list;
+        for (auto& c : categories)
+            list.push_back ({ c, c == userCategory ? dfAccent : col::textDim });
+        cats.setItems (list, start);
+        showCategory (start);
+        setVisible (true);
+        toFront (true);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (col::bg);
+        g.setColour (col::text);
+        g.setFont (juce::Font (juce::FontOptions (16.0f, juce::Font::bold)));
+        g.drawFittedText ("Suono del pad " + juce::String (pad + 1) + ":  " + editor.proc.getPadName (pad),
+                          titleArea, juce::Justification::centredLeft, 1);
+    }
+
+    void resized() override
+    {
+        auto r = getLocalBounds().reduced (8, 6);
+        auto top = r.removeFromTop (36);
+        doneButton.setBounds (top.removeFromRight (90).reduced (0, 3));
+        top.removeFromRight (6);
+        importButton.setBounds (top.removeFromRight (juce::jmin (150, top.getWidth() / 3)).reduced (0, 3));
+        titleArea = top;
+        r.removeFromTop (6);
+
+        const bool narrow = r.getWidth() < 520;
+        auto left = r.removeFromLeft (juce::jlimit (110, 190, (int) (r.getWidth() * (narrow ? 0.36f : 0.25f))));
+        r.removeFromLeft (8);
+        catView.setBounds (left);
+        cats.setLayout (1, 40, left.getWidth() - 7);
+        itemView.setBounds (r);
+        grid.setLayout (juce::jmax (1, (r.getWidth() - 7) / (narrow ? 160 : 170)), 46, r.getWidth() - 7);
+    }
+
+private:
+    void showCategory (int index)
+    {
+        cats.setSelected (index);
+        shownNames.clear();
+        std::vector<TapGrid::Item> list;
+        const auto current = editor.proc.getPadSample (pad);
+        int sel = -1;
+        if (categories[index] == userCategory)
+        {
+            for (auto& f : editor.proc.getSampleStore().listSamples())
+            {
+                if (f == current) sel = (int) list.size();
+                shownNames.add (f);
+                list.push_back ({ juce::File (f).getFileNameWithoutExtension(), juce::Colour (0xffc49360) });
+            }
+            if (list.empty())
+                list.push_back ({ "Nessun campione: tocca \"Importa un file\"", col::textDim });
+        }
+        else
+            for (auto& en : LibraryIndex::entries)
+                if (juce::String (juce::CharPointer_UTF8 (en.category)) == categories[index])
+                {
+                    const auto name = SampleStore::libraryName (en.id);
+                    if (name == current) sel = (int) list.size();
+                    shownNames.add (name);
+                    list.push_back ({ juce::String (juce::CharPointer_UTF8 (en.name)), juce::Colour (en.colour) });
+                }
+        grid.setItems (list, sel);
+        itemView.setViewPosition (0, 0);
+    }
+
+    void choose (int i)
+    {
+        if (i < 0 || i >= shownNames.size())
+            return;
+        if (editor.proc.setPadSample (pad, shownNames[i]))
+        {
+            grid.setSelected (i);
+            editor.proc.hitPad (pad);
+            editor.refreshViews();
+            repaint();
+        }
+    }
+
+    DrumForgeEditor& editor;
+    int pad = 0;
+    juce::StringArray categories, shownNames;
+    inline static const juce::String userCategory { "Campioni importati" };
+    juce::Viewport catView, itemView;
+    TapGrid cats, grid;
+    juce::TextButton doneButton { "Fatto" }, importButton { "Importa un file..." };
+    juce::Rectangle<int> titleArea;
+};
+
+void DrumForgeEditor::showSampleMenu (int pad, juce::Component&)
+{
+    if (picker == nullptr)
+    {
+        picker = std::make_unique<SamplePicker> (*this);
+        addChildComponent (*picker);
+    }
+    picker->setBounds (getLocalBounds());
+    picker->openFor (pad);
+}
+
+void DrumForgeEditor::resized()
+{
+    ForgeEditorBase::resized();
+    if (picker != nullptr)
+        picker->setBounds (getLocalBounds());
 }
 
 void DrumForgeEditor::importSample (int pad)
@@ -358,5 +499,7 @@ void DrumForgeEditor::importSample (int pad)
         safe->proc.setPadSample (pad, name);
         safe->proc.hitPad (pad);
         safe->refreshViews();
+        if (safe->picker != nullptr && safe->picker->isVisible())
+            safe->picker->openFor (pad);
     });
 }

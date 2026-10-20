@@ -12,6 +12,7 @@
 #include "Playlist.h"
 #include "ExportPanel.h"
 #include "MixerPanel.h"
+#include "PresetBrowser.h"
 #include "JLoopSplash.h"
 #include "Haptics.h"
 
@@ -108,6 +109,17 @@ private:
     juce::StringArray undoStack, redoStack;
     juce::String lastSnapshot;
     int snapshotCounter = 0;
+
+    /** Segna che l'utente ha toccato lo schermo (qualsiasi pannello o menu): allora si cercano modifiche. */
+    struct TouchWatcher : public juce::MouseListener
+    {
+        explicit TouchWatcher (std::atomic<bool>& f) : flag (f) {}
+        void mouseUp (const juce::MouseEvent&) override    { flag.store (true); }
+        void mouseDrag (const juce::MouseEvent&) override  { flag.store (true); }
+        std::atomic<bool>& flag;
+    };
+    std::atomic<bool> userTouched { true };
+    TouchWatcher touchWatcher { userTouched };
     juce::Array<double> tapTimes;
     void updateViews();
     juce::String getKitLabel() const;
@@ -148,6 +160,7 @@ private:
     Playlist playlist { engine };
     ExportPanel exportPanel { engine, sampleStore };
     MixerPanel mixerPanel { engine };
+    PresetBrowser presetBrowser { engine };
     SegmentedControl songSwitch { { "PAT", "SONG" } };
 
     juce::Rectangle<float> headerArea, logoArea, swingCaption, masterCaption, kitCaption, rackArea;

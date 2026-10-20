@@ -14,7 +14,7 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.22)
+## Stato attuale (v0.23)
 
 **Canali (channel rack)**
 - Fino a 32 canali: "+ Strumento" aggiunge un canale scegliendo il suono dal browser
@@ -84,6 +84,12 @@ Gli aggiornamenti si installano sopra la versione precedente.
   (browser dei suoni > Sintesi > Synth: BassForge, PolyForge, FMForge, DrumForge); clona, sposta ed elimina come gli altri canali
 - Pannello dello strumento con tastiera a schermo per suonare e provare i preset
 - Preset di fabbrica e utente per ogni synth ("Salva come preset utente" dal menu Preset)
+
+**Scelta dei preset e dei suoni (a tutto schermo, niente menu a tendina)**
+- Preset dei synth e kit di DrumForge: categorie a sinistra (per BassForge i generi; per gli altri
+  Pad, Lead, Bassi, Pluck, Tastiere...; "I miei preset"), piastrelle grandi a destra
+- Un tocco carica il preset e lo fa sentire; "Fatto" lo tiene, "Annulla" torna al suono di prima
+- Suono dei pad di DrumForge: stessa idea, prima le categorie di batteria, poi tutta la libreria e i campioni importati
 
 **Synth PolyForge** (Source/Instruments/PolyForge)
 - Polifonico (12 voci) o Mono / Legato con glide: pad, lead, plucks, accordi, stab

@@ -40,6 +40,19 @@ MainComponent::MainComponent()
     synthPanel->onShowPresets = [this] (juce::Component& target) { showPresetMenu (synthPanel->getChannel(), target); };
     addChildComponent (*synthPanel);
 
+    // Scelta dei preset a tutto schermo (al posto del menu a tendina)
+    addChildComponent (presetBrowser);
+    presetBrowser.onClose = [this] { presetBrowser.setVisible (false); };
+    presetBrowser.onChanged = [this]
+    {
+        const int ch = presetBrowser.getChannel();
+        synthPanel->refreshPresetName();
+        if (auto* row = rows[ch]) row->repaint();
+        if (editor.isVisible()) editor.refreshFromEngine();
+    };
+    presetBrowser.onOpenInstrument = [this] (int ch) { openSynthPanel (ch); };
+    presetBrowser.onSaveRequest = [this] (int ch) { handleSoundMenu (ch, 660); };
+
     // --- Menu file
     fileButton.setButtonText ("FILE");
     fileButton.onClick = [this] { showFileMenu(); };
@@ -188,6 +201,7 @@ MainComponent::MainComponent()
     deviceManager.addAudioCallback (&engine);
     loadSettings();
 
+    juce::Desktop::getInstance().addGlobalMouseListener (&touchWatcher);
     startTimerHz (40);
     setSize (900, 440);
 
@@ -216,6 +230,7 @@ MainComponent::MainComponent()
 
 MainComponent::~MainComponent()
 {
+    juce::Desktop::getInstance().removeGlobalMouseListener (&touchWatcher);
     stopTimer();
     saveSession();
     deviceManager.removeAudioCallback (&engine);
@@ -473,6 +488,7 @@ void MainComponent::layoutRack (juce::Rectangle<int> full, bool portrait)
     mixerPanel.setBounds (full);
     if (synthPanel != nullptr)
         synthPanel->setBounds (getContentArea());   // BassForge usa tutto lo schermo
+    presetBrowser.setBounds (getContentArea());
 }
 
 int MainComponent::getVisibleSteps() const
@@ -584,7 +600,8 @@ void MainComponent::timerCallback()
         kitButton.setButtonText (label);
 
     // Undo: cerca modifiche ~8 volte al secondo
-    if (++snapshotCounter >= 5)
+    // (solo dopo un tocco dello schermo, e comunque ogni 3 secondi: costa poco al telefono)
+    if (++snapshotCounter >= 120 || (snapshotCounter >= 4 && userTouched.exchange (false)))
     {
         snapshotCounter = 0;
         checkForChanges();
@@ -1202,6 +1219,13 @@ void MainComponent::handleCommandLine (const juce::String& commandLine)
                 pfEditor->showTab (args[i + 2].getIntValue());
     }
 
+    if (const int i = args.indexOf ("--presets"); i >= 0)   // test: browser dei preset (canale)
+        showPresetMenu (args[i + 1].getIntValue(), *this);
+
+    if (const int i = args.indexOf ("--pad-picker"); i >= 0 && synthPanel != nullptr)   // test: suono di un pad di DrumForge
+        if (auto* drums = dynamic_cast<DrumForgeEditor*> (synthPanel->getEditorForTest()))
+            drums->openSamplePickerForTest (args[i + 1].getIntValue());
+
     if (const int i = args.indexOf ("--pad"); i >= 0 && synthPanel != nullptr)   // test: pad selezionato in DrumForge
         if (auto* drums = dynamic_cast<DrumForgeEditor*> (synthPanel->getEditorForTest()))
             drums->selectPad (args[i + 1].getIntValue());
@@ -1347,6 +1371,7 @@ bool MainComponent::handleBackButton()
     // Chiude il pannello in primo piano, come il tasto Indietro di ogni app Android
     if (splash != nullptr)
         return true;
+    if (presetBrowser.isVisible()) { presetBrowser.setVisible (false); return true; }
     if (mixerPanel.isVisible())
     {
         if (mixerPanel.getEffectsTrack() >= 0) mixerPanel.showEffects (-1);
@@ -1435,6 +1460,8 @@ void MainComponent::handleSoundMenu (int channel, int result)
             if (! Instruments::saveUser (safeThis->engine.getInstrument (channel), name))
                 safeThis->showMessage ("Preset", "Non riesco a salvare il preset.");
             safeThis->synthPanel->refreshPresetName();
+            if (safeThis->presetBrowser.isVisible())
+                safeThis->presetBrowser.rebuild();
         });
         return;
     }
@@ -1457,18 +1484,16 @@ void MainComponent::handleSoundMenu (int channel, int result)
         editor.refreshFromEngine();
 }
 
-void MainComponent::showPresetMenu (int channel, juce::Component& target)
+void MainComponent::showPresetMenu (int channel, juce::Component&)
 {
     if (engine.getInstrument (channel) == nullptr)
         return;
 
-    auto menu = buildSoundMenu (channel);
-    juce::Component::SafePointer<MainComponent> safeThis (this);
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&target), [safeThis, channel] (int result)
-    {
-        if (safeThis != nullptr && result > 0)
-            safeThis->handleSoundMenu (channel, result);
-    });
+    instruments->resolve();
+    presetBrowser.setBounds (getContentArea());
+    presetBrowser.openFor (channel);
+    presetBrowser.setVisible (true);
+    presetBrowser.toFront (true);
 }
 
 void MainComponent::assignSample (int channel, const juce::String& fileName)

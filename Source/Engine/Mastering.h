@@ -159,7 +159,9 @@ namespace mastering
             const float drive = 1.0f + p.warmth * 2.5f, satNorm = 1.0f / std::tanh (drive), satMix = p.warmth * 0.6f;
             const float ceilingGain = juce::Decibels::decibelsToGain (p.ceiling);
             const float limRelease = (float) std::exp (-1.0 / (0.080 * sr));
-            const float clipStart = ceilingGain * 0.7f, clipRange = ceilingGain * 0.6f;   // lineare fino al 70% del tetto
+            // Il clipper tocca solo i picchi piu' alti (oltre l'88% del tetto) e solo con la compressione alta:
+            // a volumi normali il suono resta pulito
+            const float clipStart = ceilingGain * (0.98f - 0.12f * p.glue), clipRange = ceilingGain * 0.35f;
             const int size = (int) delay[0].size();
 
             for (int i = 0; i < n; ++i)
