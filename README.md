@@ -14,7 +14,9 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.29)
+## Stato attuale (v0.29.1)
+
+- 0.29.1: barra del sequencer riordinata sui telefoni: CPU, metronomo e + sempre visibili a destra, kit e swing nello spazio che resta
 
 **Novita' della 0.29 (barra in alto nuova)**
 - Schermo intero su Android (la barra di sistema riappare scorrendo dal bordo)

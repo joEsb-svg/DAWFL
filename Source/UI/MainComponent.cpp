@@ -334,11 +334,25 @@ void MainComponent::paint (juce::Graphics& g)
     {
         Theme::drawSunken (g, swingCaption);
         auto t = swingCaption.withTrimmedLeft ((float) swingKnob.getRight() - swingCaption.getX() + 4.0f);
-        g.setFont (Theme::font (11.0f, true).withExtraKerningFactor (0.06f));
-        g.setColour (Theme::textDim);
-        g.drawText ("SWING", t.removeFromLeft (44.0f), juce::Justification::centredLeft, false);
-        g.setColour (Theme::accent);
-        g.drawText (juce::String (juce::roundToInt (engine.getSwing() * 100.0f)) + "%", t, juce::Justification::centredLeft, false);
+        const auto value = juce::String (juce::roundToInt (engine.getSwing() * 100.0f)) + "%";
+        if (t.getWidth() < 78.0f)
+        {
+            // Poco spazio: "SWING" piccolo sopra, il valore sotto
+            g.setFont (Theme::font (9.0f, true).withExtraKerningFactor (0.08f));
+            g.setColour (Theme::textDim);
+            g.drawText ("SWING", t.removeFromTop (t.getHeight() * 0.5f).withTrimmedTop (2.0f), juce::Justification::bottomLeft, false);
+            g.setFont (Theme::font (11.0f, true));
+            g.setColour (Theme::accent);
+            g.drawText (value, t, juce::Justification::topLeft, false);
+        }
+        else
+        {
+            g.setFont (Theme::font (11.0f, true).withExtraKerningFactor (0.06f));
+            g.setColour (Theme::textDim);
+            g.drawText ("SWING", t.removeFromLeft (44.0f), juce::Justification::centredLeft, false);
+            g.setColour (Theme::accent);
+            g.drawText (value, t, juce::Justification::centredLeft, false);
+        }
     }
 
     Theme::drawCaption (g, "Master", masterCaption);
@@ -485,9 +499,10 @@ void MainComponent::layoutRack (juce::Rectangle<int> full, bool portrait)
         swingKnob.setBounds (area.removeFromLeft (area.getHeight()).reduced (2));
     };
 
-    modeSwitch.setBounds (bar.removeFromLeft (juce::jmin (portrait ? 200 : 240, bar.getWidth() - 110)).reduced (0, 1));
+    const bool tight = ! portrait && bar.getWidth() < 900;   // telefono in orizzontale
+    modeSwitch.setBounds (bar.removeFromLeft (juce::jmin (portrait ? 200 : (tight ? 184 : 240), bar.getWidth() - 110)).reduced (0, 1));
     bar.removeFromLeft (6);
-    lengthSwitch.setBounds (bar.removeFromLeft (64).reduced (0, 1));
+    lengthSwitch.setBounds (bar.removeFromLeft (tight ? 58 : 64).reduced (0, 1));
     bar.removeFromLeft (6);
 
     if (portrait)
@@ -512,25 +527,28 @@ void MainComponent::layoutRack (juce::Rectangle<int> full, bool portrait)
     }
     else
     {
-        addButton.setButtonText ("+ Strumento");
-        addButton.setBounds (bar.removeFromRight (juce::jmin (130, bar.getWidth() / 4)).reduced (0, 1));
+        // Prima i pulsanti che devono sempre esserci (da destra), poi il resto nello spazio che avanza
+        addButton.setButtonText (tight ? "+" : "+ Strumento");
+        addButton.setBounds (bar.removeFromRight (tight ? 44 : juce::jmin (130, bar.getWidth() / 4)).reduced (0, 1));
         bar.removeFromRight (8);
+        cpuBadge.setBounds (bar.removeFromRight (tight ? 66 : 84));
+        bar.removeFromRight (6);
+        metroButton.setBounds (bar.removeFromRight (bar.getHeight() + 4));
+        bar.removeFromRight (6);
+
         pageSwitch.setVisible (multiPage);
         if (multiPage)
         {
-            pageSwitch.setBounds (bar.removeFromLeft (200).reduced (0, 1));
+            pageSwitch.setBounds (bar.removeFromLeft (tight ? 104 : 200).reduced (0, 1));
             bar.removeFromLeft (6);
         }
+        const int swingW = juce::jmin (tight ? 84 : 118, bar.getWidth() / 2);
         if (showKit)
         {
-            kitButton.setBounds (bar.removeFromLeft (juce::jmin (150, bar.getWidth() / 3)).reduced (0, 1));
+            kitButton.setBounds (bar.removeFromLeft (juce::jmin (150, bar.getWidth() - swingW - 6)).reduced (0, 1));
             bar.removeFromLeft (6);
         }
-        swingChip (bar.removeFromLeft (juce::jmin (118, bar.getWidth() / 2)));
-        bar.removeFromLeft (6);
-        metroButton.setBounds (bar.removeFromLeft (bar.getHeight() + 4));
-        bar.removeFromLeft (6);
-        cpuBadge.setBounds (bar.removeFromLeft (juce::jmin (84, bar.getWidth())));
+        swingChip (bar.removeFromLeft (juce::jmin (swingW, bar.getWidth())));
     }
 
     // Righello allineato agli step, poi le righe (in un'area che scorre se non stanno tutte)
