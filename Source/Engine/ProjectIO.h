@@ -126,12 +126,28 @@ namespace ProjectIO
         }
         root->setProperty ("channels", channels);
 
-        juce::Array<juce::var> patterns;
+        // Solo i pattern in uso (e quello aperto): i progetti restano piccoli anche con 99 pattern
+        int patternCount = juce::jmax (engine.getUsedPatternCount(), engine.getCurrentPattern() + 1);
+        for (const auto& clip : engine.getClips())
+            patternCount = juce::jmax (patternCount, clip.pattern + 1);
         for (int p = 0; p < SequencerEngine::numPatterns; ++p)
+            if (engine.getCustomPatternName (p).isNotEmpty())
+                patternCount = juce::jmax (patternCount, p + 1);
+
+        juce::Array<juce::var> patterns;
+        for (int p = 0; p < patternCount; ++p)
         {
             auto& pat = engine.getPattern (p);
             auto* o = new juce::DynamicObject();
             o->setProperty ("length", pat.length.load());
+            if (engine.getCustomPatternName (p).isNotEmpty())
+                o->setProperty ("name", engine.getCustomPatternName (p));
+
+            if (engine.isPatternEmpty (p))   // pattern vuoto: basta la lunghezza (e il nome)
+            {
+                patterns.add (juce::var (o));
+                continue;
+            }
 
             juce::Array<juce::var> rows, probs, ratchets;
             for (int c = 0; c < numChannels; ++c)
@@ -257,6 +273,7 @@ namespace ProjectIO
                 const auto& o = patterns->getReference (p);
                 auto& pat = engine.getPattern (p);
                 pat.length.store ((int) o.getProperty ("length", 16) > 16 ? 32 : 16);
+                engine.setPatternName (p, o.getProperty ("name", {}).toString());
 
                 auto readRows = [&o, numChannels] (const char* key, std::array<SequencerEngine::Pattern::Row, SequencerEngine::maxChannels>& target,
                                                    int lo, int hi)

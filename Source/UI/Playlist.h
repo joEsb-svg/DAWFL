@@ -12,14 +12,32 @@ namespace PatternColours
 {
     inline juce::Colour get (int pattern)
     {
-        static const juce::uint32 colours[SequencerEngine::numPatterns] =
+        static const juce::uint32 colours[] =
         {
-            0xff5b8fd6, 0xffe8833a, 0xff6fbf5a, 0xffd2555a, 0xff9a78d0, 0xffd8b14a, 0xff4fb3a9, 0xffe36fae
+            0xff5b8fd6, 0xffe8833a, 0xff6fbf5a, 0xffd2555a, 0xff9a78d0, 0xffd8b14a, 0xff4fb3a9, 0xffe36fae,
+            0xff8fb84a, 0xffc9744a, 0xff5aa6c9, 0xffb06cc4, 0xffd99a5b, 0xff57b98a, 0xffcf6a7f, 0xff7f8fd6
         };
-        return juce::Colour (colours[juce::jlimit (0, SequencerEngine::numPatterns - 1, pattern)]);
+        constexpr int n = (int) std::size (colours);
+        const int p = juce::jmax (0, pattern);
+        // dopo i primi 16 i colori si ripetono, un po' piu' chiari o scuri
+        const auto base = juce::Colour (colours[p % n]);
+        const int round = (p / n) % 3;
+        return round == 0 ? base : round == 1 ? base.brighter (0.25f) : base.darker (0.2f);
     }
 
-    inline juce::String name (int pattern)   { return "Pattern " + juce::String (pattern + 1); }
+    inline juce::String name (const SequencerEngine& engine, int pattern)   { return engine.getPatternName (pattern); }
+
+    /** Quanti pattern mostrare nei menu: quelli usati, con un nome, nella playlist, e quello aperto. */
+    inline int count (const SequencerEngine& engine)
+    {
+        int n = juce::jmax (engine.getUsedPatternCount(), engine.getCurrentPattern() + 1);
+        for (const auto& clip : engine.getClips())
+            n = juce::jmax (n, clip.pattern + 1);
+        for (int p = n; p < SequencerEngine::numPatterns; ++p)
+            if (engine.getCustomPatternName (p).isNotEmpty())
+                n = p + 1;
+        return juce::jmin (n, SequencerEngine::numPatterns);
+    }
 }
 
 //==============================================================================
@@ -84,8 +102,11 @@ public:
         juce::uint64 hash = (juce::uint64) engine.getSongStartBar() + 7;
         for (auto& c : engine.getClips())
             hash = hash * 1099511628211ull + (juce::uint64) SequencerEngine::packClip (c);
-        for (int p = 0; p < SequencerEngine::numPatterns; ++p)
-            hash = hash * 31 + (juce::uint64) engine.getPattern (p).length.load() + (engine.isPatternEmpty (p) ? 1u : 0u);
+        const int shown = PatternColours::count (engine);
+        hash = hash * 131 + (juce::uint64) shown;
+        for (int p = 0; p < shown; ++p)
+            hash = hash * 31 + (juce::uint64) engine.getPattern (p).length.load() + (engine.isPatternEmpty (p) ? 1u : 0u)
+                 + (juce::uint64) engine.getCustomPatternName (p).hashCode64();
         if (hash != shownHash)
         {
             shownHash = hash;
@@ -164,7 +185,7 @@ public:
             {
                 g.setColour (Theme::textDim);
                 g.setFont (Theme::font (14.0f));
-                g.drawFittedText ("Tocca la griglia per mettere il pattern scelto in alto (" + PatternColours::name (brush) + ").\n"
+                g.drawFittedText ("Tocca la griglia per mettere il pattern scelto in alto (" + PatternColours::name (engine, brush) + ").\n"
                                   "Tocca una clip per toglierla, trascinala per spostarla, tienila premuta per il menu.",
                                   juce::Rectangle<int> (headerWidth + 12, rulerHeight + (int) trackHeight * 2, getWidth() - headerWidth - 24, 60),
                                   juce::Justification::centredLeft, 3);
@@ -346,11 +367,11 @@ public:
 
         const auto clip = clips[(size_t) index];
         juce::PopupMenu change;
-        for (int p = 0; p < SequencerEngine::numPatterns; ++p)
-            change.addColouredItem (100 + p, PatternColours::name (p), PatternColours::get (p), true, p == clip.pattern);
+        for (int p = 0; p < PatternColours::count (engine); ++p)
+            change.addColouredItem (100 + p, PatternColours::name (engine, p), PatternColours::get (p), true, p == clip.pattern);
 
         juce::PopupMenu menu;
-        menu.addSectionHeader (PatternColours::name (clip.pattern) + "  -  battuta " + juce::String (clip.bar + 1));
+        menu.addSectionHeader (PatternColours::name (engine, clip.pattern) + "  -  battuta " + juce::String (clip.bar + 1));
         menu.addItem (1, "Modifica questo pattern");
         menu.addItem (2, "Usa come pennello");
         menu.addSubMenu ("Cambia in", change);
@@ -482,7 +503,7 @@ private:
 
         g.setColour (Theme::textBright);
         g.setFont (Theme::font (11.0f, true));
-        g.drawText (r.getWidth() > 64.0f ? PatternColours::name (pattern) : juce::String (pattern + 1), label, juce::Justification::centredLeft, true);
+        g.drawText (r.getWidth() > 64.0f ? PatternColours::name (engine, pattern) : juce::String (pattern + 1), label, juce::Justification::centredLeft, true);
     }
 
     SequencerEngine& engine;
@@ -571,7 +592,7 @@ public:
 private:
     void updateBrushButton()
     {
-        brushButton.setButtonText (PatternColours::name (grid.getBrush()) + juce::String (juce::CharPointer_UTF8 ("  \xe2\x96\xbe")));
+        brushButton.setButtonText (PatternColours::name (engine, grid.getBrush()) + juce::String (juce::CharPointer_UTF8 ("  \xe2\x96\xbe")));
         brushButton.setColour (juce::TextButton::buttonColourId, PatternColours::get (grid.getBrush()).darker (0.55f));
     }
 
@@ -579,9 +600,12 @@ private:
     {
         juce::PopupMenu menu;
         menu.addSectionHeader ("Pattern da mettere nella playlist");
-        for (int p = 0; p < SequencerEngine::numPatterns; ++p)
-            menu.addColouredItem (p + 1, PatternColours::name (p) + (engine.isPatternEmpty (p) ? "  (vuoto)" : ""),
+        const int shown = PatternColours::count (engine);
+        for (int p = 0; p < shown; ++p)
+            menu.addColouredItem (p + 1, PatternColours::name (engine, p) + (engine.isPatternEmpty (p) ? "  (vuoto)" : ""),
                                   PatternColours::get (p), true, p == grid.getBrush());
+        if (shown < SequencerEngine::numPatterns && grid.getBrush() < shown)
+            menu.addColouredItem (shown + 1, "Pattern " + juce::String (shown + 1) + "  (nuovo)", PatternColours::get (shown), true, false);
 
         juce::Component::SafePointer<Playlist> safeThis (this);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&brushButton), [safeThis] (int result)

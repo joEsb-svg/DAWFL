@@ -74,7 +74,9 @@ MainComponent::MainComponent()
     patternDisplay.getText = [this] { return juce::String (engine.getCurrentPattern() + 1).paddedLeft ('0', 2); };
     patternDisplay.onStep  = [this] (int d)
     {
-        engine.selectPattern ((engine.getCurrentPattern() + d + SequencerEngine::numPatterns) % SequencerEngine::numPatterns);
+        // Le frecce scorrono i pattern in uso piu' uno nuovo (vuoto) in fondo
+        const int count = juce::jmin (SequencerEngine::numPatterns, PatternColours::count (engine) + 1);
+        engine.selectPattern ((engine.getCurrentPattern() + d + count) % count);
         updateViews();
     };
     patternDisplay.onCentreTap = [this] { showPatternMenu(); };
@@ -759,35 +761,55 @@ void MainComponent::newProject()
 void MainComponent::showPatternMenu()
 {
     const int cur = engine.getCurrentPattern();
+    const int shown = PatternColours::count (engine);
+    const int fresh = shown < SequencerEngine::numPatterns ? shown : engine.getFirstFreePattern();
     juce::PopupMenu select, copyTo;
 
-    for (int p = 0; p < SequencerEngine::numPatterns; ++p)
+    for (int p = 0; p < shown; ++p)
     {
         // Il pallino indica i pattern che contengono note
-        const auto label = "Pattern " + juce::String (p + 1)
+        const auto label = engine.getPatternName (p)
                          + (engine.isPatternEmpty (p) ? juce::String() : juce::String (juce::CharPointer_UTF8 ("   \xe2\x97\x8f")));
-        select.addItem (100 + p, label, true, p == cur);
+        select.addColouredItem (100 + p, label, PatternColours::get (p), true, p == cur);
 
         if (p != cur)
-            copyTo.addItem (200 + p, "Pattern " + juce::String (p + 1));
+            copyTo.addColouredItem (300 + p, engine.getPatternName (p), PatternColours::get (p));
     }
 
     juce::PopupMenu menu;
-    menu.addSectionHeader ("Pattern " + juce::String (cur + 1));
+    menu.addSectionHeader (engine.getPatternName (cur) + "   (" + juce::String (shown) + " di " + juce::String (SequencerEngine::numPatterns) + ")");
+    menu.addItem (2, "Nuovo pattern vuoto", fresh >= 0);
+    menu.addItem (3, "Clona in un pattern nuovo", fresh >= 0 && ! engine.isPatternEmpty (cur));
     menu.addSubMenu ("Vai a", select);
-    menu.addSubMenu ("Copia in", copyTo);
+    menu.addSubMenu ("Copia in", copyTo, copyTo.getNumItems() > 0);
+    menu.addSeparator();
+    menu.addItem (4, "Rinomina");
     menu.addItem (1, "Svuota questo pattern", ! engine.isPatternEmpty (cur));
 
     juce::Component::SafePointer<MainComponent> safeThis (this);
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&patternDisplay),
-                        [safeThis, cur] (int result)
+                        [safeThis, cur, fresh] (int result)
                         {
                             if (safeThis == nullptr || result <= 0)
                                 return;
 
                             auto& e = safeThis->engine;
                             if (result == 1)               e.clearPattern (cur);
-                            else if (result >= 200)        { e.copyPattern (cur, result - 200); e.selectPattern (result - 200); }
+                            else if (result == 2)          e.selectPattern (fresh);
+                            else if (result == 3)          { e.copyPattern (cur, fresh); e.setPatternName (fresh, {}); e.selectPattern (fresh); }
+                            else if (result == 4)
+                            {
+                                safeThis->askText ("Nome del pattern", e.getPatternName (cur), [safeThis, cur] (juce::String name)
+                                {
+                                    if (safeThis != nullptr)
+                                    {
+                                        safeThis->engine.setPatternName (cur, name);
+                                        safeThis->patternDisplay.repaint();
+                                    }
+                                });
+                                return;
+                            }
+                            else if (result >= 300)        { e.copyPattern (cur, result - 300); e.selectPattern (result - 300); }
                             else if (result >= 100)        e.selectPattern (result - 100);
 
                             safeThis->updateViews();

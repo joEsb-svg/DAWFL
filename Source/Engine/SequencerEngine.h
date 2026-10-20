@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <vector>
+#include <memory>
 #include <limits>
 #include "DrumVoice.h"
 #include "Sampler.h"
@@ -38,7 +39,7 @@ public:
     static constexpr int defaultChannels  = 7;     // progetto nuovo: 6 strumenti di batteria + il synth BassForge
     static constexpr int numDrumTypes     = 6;     // strumenti della batteria sintetizzata (vedi SoundLibrary)
     static constexpr int synthStepNote    = 48;    // nota suonata dagli step del synth (C3: registro da basso)
-    static constexpr int numPatterns      = 8;
+    static constexpr int numPatterns      = 99;    // pattern per progetto (01..99)
     static constexpr int closedHatType    = 3;
     static constexpr int openHatType      = 4;
     static constexpr int defaultVelocity  = 100;
@@ -184,7 +185,10 @@ public:
     void resetProject()
     {
         for (int p = 0; p < numPatterns; ++p)
+        {
             clearPattern (p);
+            patternNames[(size_t) p].clear();
+        }
 
         // Progetto nuovo: Kick, Snare, Clap, Hi-Hat, Open Hat, Tom + BassForge
         static const float defaultVolumes[defaultChannels] = { 0.8f, 0.8f, 0.7f, 0.6f, 0.55f, 0.75f, 0.8f };
@@ -582,6 +586,32 @@ public:
 
         dst.length.store (src.length.load());
     }
+
+    /** Quanti pattern sono in uso: l'ultimo pattern non vuoto + 1 (almeno 1). */
+    int getUsedPatternCount() const
+    {
+        for (int p = numPatterns - 1; p > 0; --p)
+            if (! isPatternEmpty (p))
+                return p + 1;
+        return 1;
+    }
+
+    /** Il primo pattern vuoto dopo quelli usati (-1 se sono tutti pieni). */
+    int getFirstFreePattern() const
+    {
+        for (int p = 0; p < numPatterns; ++p)
+            if (isPatternEmpty (p) && patternNames[(size_t) p].isEmpty() && p != currentPattern.load())
+                return p;
+        return -1;
+    }
+
+    juce::String getPatternName (int index) const
+    {
+        const auto& n = patternNames[(size_t) juce::jlimit (0, numPatterns - 1, index)];
+        return n.isNotEmpty() ? n : "Pattern " + juce::String (index + 1);
+    }
+    juce::String getCustomPatternName (int index) const        { return patternNames[(size_t) juce::jlimit (0, numPatterns - 1, index)]; }
+    void setPatternName (int index, const juce::String& name)  { patternNames[(size_t) juce::jlimit (0, numPatterns - 1, index)] = name.trim(); }
 
     bool isPatternEmpty (int index) const
     {
@@ -996,10 +1026,29 @@ private:
             uint32_t notes[maxNotes];
             int noteCount;
         };
-        std::array<PatternRows, numPatterns> rows;
+        std::vector<PatternRows> rows;   // solo i pattern che contengono qualcosa (vedi patternDataLimit)
     };
 
-    void readChannel (int c, ChannelCopy& out) const
+    /** Oltre questo indice nessun canale (nemmeno quelli inattivi) ha dati nei pattern. */
+    int patternDataLimit() const
+    {
+        for (int p = numPatterns - 1; p >= 0; --p)
+        {
+            const auto& pat = patterns[(size_t) p];
+            for (int ch = 0; ch < maxChannels; ++ch)
+            {
+                if (pat.noteCount[(size_t) ch].load() != 0)
+                    return p + 1;
+                for (int s = 0; s < maxSteps; ++s)
+                    if (pat.velocity[(size_t) ch][(size_t) s].load() != 0 || pat.probability[(size_t) ch][(size_t) s].load() != 100
+                        || pat.ratchet[(size_t) ch][(size_t) s].load() != 1)
+                        return p + 1;
+            }
+        }
+        return 1;
+    }
+
+    void readChannel (int c, ChannelCopy& out, int patternLimit) const
     {
         auto& ch = channels[(size_t) c];
         out.volume = ch.volume.load(); out.pan = ch.pan.load(); out.pitch = ch.pitch.load();
@@ -1013,7 +1062,8 @@ private:
         out.instrumentId = ch.instrumentId; out.pendingState = ch.pendingState;
         out.stepNote = ch.stepNote.load();
 
-        for (int p = 0; p < numPatterns; ++p)
+        out.rows.resize ((size_t) juce::jlimit (1, numPatterns, patternLimit));
+        for (int p = 0; p < (int) out.rows.size(); ++p)
         {
             auto& pat = patterns[(size_t) p];
             auto& r = out.rows[(size_t) p];
@@ -1044,7 +1094,7 @@ private:
         ch.stepNote.store (in.stepNote);
         ch.touchSound();
 
-        for (int p = 0; p < numPatterns; ++p)
+        for (int p = 0; p < (int) in.rows.size(); ++p)
         {
             auto& pat = patterns[(size_t) p];
             auto& r = in.rows[(size_t) p];
@@ -1065,25 +1115,27 @@ private:
     {
         // Copia fatta fuori dal lock (solo la UI scrive questi dati)
         const int n = getNumChannels();
+        const int limit = patternDataLimit();   // con 99 pattern si copiano solo quelli che contengono qualcosa
         std::vector<ChannelCopy> old ((size_t) n);
         for (int c = 0; c < n; ++c)
-            readChannel (c, old[(size_t) c]);
+            readChannel (c, old[(size_t) c], limit);
 
         ChannelCopy blank;
         {
             // Un canale "pulito" con i valori di default, usando l'ultimo slot libero come stampo
             const int spare = maxChannels - 1;
             ChannelCopy saved;
-            readChannel (spare, saved);
+            readChannel (spare, saved, limit);
             resetChannel (spare);
-            for (auto& pat : patterns)
+            for (int pi = 0; pi < limit; ++pi)
             {
+                auto& pat = patterns[(size_t) pi];
                 for (int s = 0; s < maxSteps; ++s)
                     clearStep (pat, spare, s);
                 for (auto& note : pat.notes[(size_t) spare]) note.store (0);
                 pat.noteCount[(size_t) spare].store (0);
             }
-            readChannel (spare, blank);
+            readChannel (spare, blank, limit);
             writeChannel (spare, saved);
         }
 
@@ -1695,7 +1747,8 @@ private:
 
     // Stato condiviso UI <-> audio
     std::array<Channel, maxChannels> channels;
-    std::array<Pattern, numPatterns> patterns;
+    std::unique_ptr<Pattern[]> patterns { new Pattern[(size_t) numPatterns] };   // sullo heap: sono ~3.5 MB
+    std::array<juce::String, numPatterns> patternNames;                        // solo UI
     std::atomic<int>    numActiveChannels { defaultChannels };
     std::atomic<int>    structureVersion { 0 };
     std::atomic<bool>   structureChanged { true };
