@@ -1159,7 +1159,11 @@ void MainComponent::handleCommandLine (const juce::String& commandLine)
     }
 
     if (args.contains ("--export"))
+    {
         openExport();
+        if (args.contains ("--master-auto"))
+            exportPanel.startAnalysisForTest();
+    }
 
     if (const int i = args.indexOf ("--scroll"); i >= 0)
         rackView.setViewPosition (0, args[i + 1].getIntValue());

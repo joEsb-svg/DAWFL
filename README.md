@@ -14,7 +14,7 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.20)
+## Stato attuale (v0.21)
 
 **Canali (channel rack)**
 - Fino a 32 canali: "+ Strumento" aggiunge un canale scegliendo il suono dal browser
@@ -40,6 +40,16 @@ Gli aggiornamenti si installano sopra la versione precedente.
   sidechain, stereo; ogni effetto si puo' escludere o spostare su e giu'
 - Sidechain: la traccia si abbassa a ogni colpo di un'altra (la cassa) e risale nel tempo di rilascio
 - Anche la traccia Master ha EQ ed effetti (prima del limiter); tutto e' salvato nel progetto e nell'undo
+
+**Mastering** (MENU > Esporta audio)
+- "Automatico": JLoop calcola la canzone, misura il volume percepito (LUFS, come Spotify e YouTube),
+  l'equilibrio tra bassi e alti, la dinamica e l'apertura stereo, e regola tutto per lo stile scelto
+- 6 stili: Bilanciato, Streaming (-14 LUFS), Club / EDM, Hip hop / Trap, Caldo, Brillante
+- Poi si cambia a mano: volume finale (LUFS), bassi, presenza, aria, compressione, calore, stereo, tetto
+- Catena: EQ (sotto i 25 Hz si taglia), compressione "colla", saturazione, bassi in mono,
+  clipper morbido e limiter con anticipo (i picchi non superano mai il tetto)
+- "Ascolta" fa partire la canzone: accendi e spegni il mastering per confrontare; vale anche dal vivo
+- Le impostazioni sono salvate nel progetto e usate dall'esportazione
 
 **Pattern**
 - 99 pattern per progetto: dal menu del pattern "Nuovo pattern vuoto", "Clona in un pattern nuovo",

@@ -229,6 +229,26 @@ namespace ProjectIO
         if (! tracks.isEmpty())
             root->setProperty ("mixer", tracks);
 
+        // Mastering
+        {
+            const auto& m = engine.getMastering();
+            auto* o = new juce::DynamicObject();
+            o->setProperty ("enabled", m.enabled.load());
+            o->setProperty ("style", m.styleIndex.load());
+            o->setProperty ("loudness", m.loudness.load());
+            o->setProperty ("gain", m.gainDb.load());
+            o->setProperty ("low", m.lowDb.load());
+            o->setProperty ("presence", m.presenceDb.load());
+            o->setProperty ("air", m.airDb.load());
+            o->setProperty ("glue", m.glue.load());
+            o->setProperty ("warmth", m.warmth.load());
+            o->setProperty ("width", m.width.load());
+            o->setProperty ("ceiling", m.ceiling.load());
+            if (m.analysed)
+                o->setProperty ("analysis", juce::Array<juce::var> { m.measuredLufs, m.measuredPeakDb, m.resultLufs, m.analysedLoudness });
+            root->setProperty ("mastering", juce::var (o));
+        }
+
         return juce::var (root);
     }
 
@@ -357,6 +377,30 @@ namespace ProjectIO
             engine.setClips (clips);
         }
         engine.setSongMode ((bool) json.getProperty ("songMode", false));
+
+        // Mastering
+        if (const auto o = json.getProperty ("mastering", {}); o.isObject())
+        {
+            auto& m = engine.getMastering();
+            auto get = [&o] (const char* key, float def, float lo, float hi) { return juce::jlimit (lo, hi, (float) (double) o.getProperty (key, def)); };
+            m.enabled.store ((bool) o.getProperty ("enabled", false));
+            m.styleIndex.store (juce::jlimit (0, mastering::numStyles - 1, (int) o.getProperty ("style", 0)));
+            m.loudness.store (get ("loudness", -12.0f, -20.0f, -6.0f));
+            m.gainDb.store (get ("gain", 0.0f, -12.0f, 30.0f));
+            m.lowDb.store (get ("low", 0.0f, -6.0f, 6.0f));
+            m.presenceDb.store (get ("presence", 0.0f, -6.0f, 6.0f));
+            m.airDb.store (get ("air", 0.0f, -6.0f, 6.0f));
+            m.glue.store (get ("glue", 0.4f, 0.0f, 1.0f));
+            m.warmth.store (get ("warmth", 0.2f, 0.0f, 1.0f));
+            m.width.store (get ("width", 1.0f, 0.0f, 1.5f));
+            m.ceiling.store (get ("ceiling", -1.0f, -6.0f, -0.3f));
+            if (auto* a = o.getProperty ("analysis", {}).getArray(); a != nullptr && a->size() >= 4)
+            {
+                m.analysed = true;
+                m.measuredLufs = (float) (*a)[0]; m.measuredPeakDb = (float) (*a)[1];
+                m.resultLufs = (float) (*a)[2]; m.analysedLoudness = (float) (*a)[3];
+            }
+        }
 
         // Mixer. Nei progetti senza mixer (v1-v4) ogni canale va nella sua traccia insert.
         for (int c = 0; c < engine.getNumChannels(); ++c)

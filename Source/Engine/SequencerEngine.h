@@ -11,6 +11,7 @@
 #include "DrumVoice.h"
 #include "Sampler.h"
 #include "Mixer.h"
+#include "Mastering.h"
 
 //==============================================================================
 /**
@@ -212,6 +213,7 @@ public:
         bpm.store (120.0);
         swing.store (0.0f);
         masterVolume.store (1.0f);
+        masteringParams.reset();
         currentPattern.store (0);
         setClips ({});
         songMode.store (false);
@@ -545,6 +547,10 @@ public:
             for (int s = 0; s < mixer::numSlots; ++s)
                 setTrackEffect (t, s, mixer::none);
     }
+
+    /** Il mastering (impostazioni lette dal thread audio; risultati dell'analisi per la UI). */
+    mastering::Params& getMastering()               { return masteringParams; }
+    const mastering::Params& getMastering() const   { return masteringParams; }
 
     float takeTrackPeak (int t)
     {
@@ -975,6 +981,8 @@ public:
         limiterAttack  = (float) std::exp (-1.0 / (0.0005 * sr));
 
         metroPhase = 0.0; metroEnv = 0.0f;
+
+        masteringChain.prepare (sr);
 
         // Mixer
         for (int t = 0; t < mixer::numTracks; ++t)
@@ -1573,10 +1581,17 @@ private:
         // Effetti della traccia Master
         runTrackChain (0, mixL.data(), mixR.data(), sr, n);
 
+        juce::FloatVectorOperations::multiply (mixL.data(), masterGain, n);
+        juce::FloatVectorOperations::multiply (mixR.data(), masterGain, n);
+
+        // Mastering (se acceso): l'ultimo passaggio, prima del limiter di sicurezza
+        if (masteringParams.enabled.load())
+            masteringChain.process (mixL.data(), mixR.data(), n, mastering::Snapshot::from (masteringParams));
+
         for (int s = 0; s < n; ++s)
         {
-            float l = mixL[(size_t) s] * masterGain;
-            float r = mixR[(size_t) s] * masterGain;
+            float l = mixL[(size_t) s];
+            float r = mixR[(size_t) s];
 
             // Metronomo: va dritto in uscita, fuori dagli effetti e dal limiter
             float click = 0.0f;
@@ -2108,6 +2123,10 @@ private:
     std::array<float, maxChannels> appliedFilter {}, gainL {}, gainR {}, sendRev {}, sendDel {}, humanizeAmt {};
     SamplerPool browserSampler;
     DrumVoice   browserDrum;
+
+    // Mastering
+    mastering::Params masteringParams;
+    mastering::Chain masteringChain;
 
     // Mixer
     std::array<mixer::Track, mixer::numTracks> tracks;                 // impostazioni (UI) + effetti

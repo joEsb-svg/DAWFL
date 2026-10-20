@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <JUCERPROJECT name="JLoop" projectType="guiapp" bundleIdentifier="com.joesb.dawfl"
-              version="0.20.0" companyName="joEsb" id="DwFl01" useAppConfig="0"
+              version="0.21.0" companyName="joEsb" id="DwFl01" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" cppLanguageStandard="20" defines="JucePlugin_Name=&quot;BassForge&quot;&#10;JUCE_STRICT_REFCOUNTEDPOINTER=1"
               jucerFormatVersion="1">
   <MAINGROUP id="Mg0001" name="JLoop">
@@ -43,6 +43,7 @@
       <FILE id="FgFx01" name="ForgeFx.h" compile="0" resource="0" file="Source/Instruments/Common/ForgeFx.h"/>
       <FILE id="FgEb01" name="ForgeEditorBase.h" compile="0" resource="0" file="Source/Instruments/Common/ForgeEditorBase.h"/>
       <FILE id="FgEb02" name="ForgeEditorBase.cpp" compile="1" resource="0" file="Source/Instruments/Common/ForgeEditorBase.cpp"/>
+      <FILE id="MsH001" name="Mastering.h" compile="0" resource="0" file="Source/Engine/Mastering.h"/>
       <FILE id="MxH001" name="Mixer.h" compile="0" resource="0" file="Source/Engine/Mixer.h"/>
       <FILE id="MxH002" name="MixerPanel.h" compile="0" resource="0" file="Source/UI/MixerPanel.h"/>
       <FILE id="DfH001" name="DrumForge.h" compile="0" resource="0" file="Source/Instruments/DrumForge/DrumForge.h"/>
@@ -371,7 +372,7 @@
   </MAINGROUP>
   <EXPORTFORMATS>
     <ANDROIDSTUDIO targetFolder="Builds/Android" androidEnableContentSharing="1" smallIcon="IcOn01" bigIcon="IcOn01"
-                   androidVersionCode="20" androidMinimumSDK="24" androidScreenOrientation="landscape"
+                   androidVersionCode="21" androidMinimumSDK="24" androidScreenOrientation="landscape"
                    androidInternetNeeded="0" androidExternalWriteNeeded="0" androidPushNotifications="0"
                    androidReadMediaAudioPermission="0" androidReadMediaImagesPermission="0"
                    androidReadMediaVideoPermission="0">

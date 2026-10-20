@@ -26,6 +26,7 @@ public:
         Format format = Format::wav;
         double sampleRate = 44100.0;
         double tailSeconds = 2.5;     // coda di riverbero e delay dopo la fine
+        bool   analyse = false;       // true = niente file: si calcola il mastering automatico
     };
 
     /** Da creare sul thread della UI: prepara la copia del progetto. */
@@ -47,7 +48,38 @@ public:
         engine->setMetronome (false);
         engine->setSongMode (settings.song);
         engine->setSongPosition (0);
+
+        if (settings.analyse)
+        {
+            // L'analisi ascolta il mix senza mastering; parte dallo stile e dal volume scelti
+            auto& m = engine->getMastering();
+            analysisResult.styleIndex.store (m.styleIndex.load());
+            analysisResult.loudness.store (m.loudness.load());
+            analysisResult.warmth.store (m.warmth.load());
+            analysisResult.ceiling.store (m.ceiling.load());
+            analysisResult.glue.store (m.glue.load());
+            analysisResult.width.store (m.width.load());
+            m.enabled.store (false);
+        }
     }
+
+    /** Dopo un'analisi riuscita: copia i controlli calcolati nel mastering del progetto. */
+    void applyAnalysisTo (mastering::Params& target) const
+    {
+        target.gainDb.store (analysisResult.gainDb.load());
+        target.lowDb.store (analysisResult.lowDb.load());
+        target.presenceDb.store (analysisResult.presenceDb.load());
+        target.airDb.store (analysisResult.airDb.load());
+        target.glue.store (analysisResult.glue.load());
+        target.width.store (analysisResult.width.load());
+        target.measuredLufs = analysisResult.measuredLufs;
+        target.measuredPeakDb = analysisResult.measuredPeakDb;
+        target.resultLufs = analysisResult.resultLufs;
+        target.analysedLoudness = analysisResult.analysedLoudness;
+        target.analysed = analysisResult.analysed;
+    }
+
+    bool isAnalysis() const     { return settings.analyse; }
 
     ~AudioExporter() override   { stopThread (10000); }
 
@@ -76,7 +108,7 @@ public:
             const juce::ScopedLock sl (lock);
             error = result;
         }
-        if (result.isNotEmpty())
+        if (result.isNotEmpty() && ! settings.analyse)
             file.deleteFile();
         finished.store (true);
     }
@@ -92,6 +124,9 @@ private:
         const auto musicSamples = (juce::int64) std::llround (steps * sr * 60.0 / engine->getBpm() / 4.0);
         const auto tailSamples  = (juce::int64) (settings.tailSeconds * sr);
         const auto total = musicSamples + tailSamples;
+
+        if (settings.analyse)
+            return renderAnalysis (sr, musicSamples, total);
 
         file.getParentDirectory().createDirectory();
         file.deleteFile();
@@ -157,7 +192,40 @@ private:
         return {};
     }
 
+    /** Calcola il mix in memoria (al massimo 8 minuti), poi il mastering automatico. */
+    juce::String renderAnalysis (double sr, juce::int64 musicSamples, juce::int64 total)
+    {
+        total = juce::jmin (total, (juce::int64) (8 * 60 * sr));
+        std::vector<float> L ((size_t) total), R ((size_t) total);
+
+        engine->prepare (sr);
+        engine->setPlaying (true);
+        constexpr int block = 512;
+        juce::int64 done = 0;
+        while (done < total)
+        {
+            if (threadShouldExit())
+                return "Analisi annullata.";
+            int n = (int) juce::jmin ((juce::int64) block, total - done);
+            if (done < musicSamples)
+                n = (int) juce::jmin ((juce::int64) n, musicSamples - done);
+            else
+                engine->setPlaying (false);
+            float* chans[2] = { L.data() + done, R.data() + done };
+            engine->process (chans, 2, n);
+            done += n;
+            progress.store (0.6f * (float) ((double) done / (double) total));
+        }
+
+        mastering::analyse (L, R, sr, analysisResult, [this] { progress.store (juce::jmin (0.98f, progress.load() + 0.08f)); return threadShouldExit(); });
+        if (! analysisResult.analysed)
+            return "Analisi annullata.";
+        progress.store (1.0f);
+        return {};
+    }
+
     Settings settings;
+    mastering::Params analysisResult;
     juce::File file;
     std::unique_ptr<SequencerEngine> engine;
     std::unique_ptr<Instruments::Host> instruments;   // distrutto prima del motore
