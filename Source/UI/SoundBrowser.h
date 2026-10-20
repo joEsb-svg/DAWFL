@@ -13,7 +13,7 @@
 /** Il suono scelto nel browser. */
 struct SoundChoice
 {
-    enum Kind { none, library, userSample, importFile, drumSynth, instrument };
+    enum Kind { none, library, userSample, importFile, drumSynth, instrument, drumForgeKit, kitChannels };
 
     Kind kind = none;
     juce::String id;            // libreria: id; campione: nome del file
@@ -207,7 +207,7 @@ public:
             }
             else
             {
-                tab = 2; category = engine.getChannelKit (channel) + 1;
+                tab = 2; category = engine.getChannelKit (channel) + firstDrumSynthCategory;
             }
         }
 
@@ -303,6 +303,8 @@ private:
         else if (tab == 2)
         {
             cats.push_back ({ "Synth", {}, juce::Colour (0xffb07cff), true });
+            cats.push_back ({ "Kit DrumForge", {}, juce::Colour (0xffff6b5b), true });
+            cats.push_back ({ "Kit su canali separati", {}, juce::Colour (0xffff6b5b), true });
             for (int k = 0; k < SoundLibrary::numKits; ++k)
                 cats.push_back ({ juce::String ("Batteria ") + SoundLibrary::getKitName (k), {}, Theme::textDim, true });
         }
@@ -342,9 +344,25 @@ private:
                 tiles.push_back ({ c.name, {}, juce::Colour (e.colour), true });
             }
         }
+        else if (tab == 2 && (index == 1 || index == 2))
+        {
+            // I kit di DrumForge: in un solo canale (la drum machine) o un canale per suono
+            for (int k = 0; k < df::Presets::numFactory(); ++k)
+            {
+                SoundChoice c;
+                c.kind = index == 1 ? SoundChoice::drumForgeKit : SoundChoice::kitChannels;
+                c.id = "drumforge";
+                c.kit = k;
+                c.name = "Kit " + df::Presets::factoryName (k);
+                c.colour = 0xffff6b5b;
+                choices.push_back (c);
+                tiles.push_back ({ c.name, index == 1 ? juce::String ("16 pad in DrumForge") : juce::String (kitChannelPads.size()) + " canali",
+                                   juce::Colour (c.colour), true });
+            }
+        }
         else if (tab == 2 && index > 0)
         {
-            index -= 1;   // 0 = Synth, poi i kit
+            index -= firstDrumSynthCategory;   // 0 = Synth, 1-2 = kit di DrumForge, poi i kit della batteria sintetizzata
             for (int t = 0; t < SequencerEngine::numDrumTypes; ++t)
             {
                 SoundChoice c;
@@ -455,6 +473,12 @@ private:
         {
             engine.previewDrum (c.drumType, c.kit);
         }
+        else if (c.kind == SoundChoice::drumForgeKit || c.kind == SoundChoice::kitChannels)
+        {
+            const auto& kit = df::factoryKits()[(size_t) juce::jlimit (0, df::Presets::numFactory() - 1, c.kit)];
+            if (auto* s = samples.load (SampleStore::libraryName (kit.pads[0].sample)))
+                engine.previewSample (s);
+        }
         else if (c.kind == SoundChoice::instrument)
         {
             // Anteprima: se nel progetto c'e' gia' uno strumento di questo tipo, fa sentire quello
@@ -478,6 +502,12 @@ private:
             onChoose (channel, choice);
     }
 
+public:
+    /** I pad di un kit che diventano canali ("Kit su canali separati"): cassa, rullante, clap, hat chiuso, hat aperto, rim, tom, crash. */
+    static inline const std::array<int, 8> kitChannelPads { 0, 2, 3, 5, 7, 4, 9, 11 };
+
+private:
+    static constexpr int firstDrumSynthCategory = 3;
     SequencerEngine& engine;
     SampleStore& samples;
     int targetChannel = -1, lastTab = 0;

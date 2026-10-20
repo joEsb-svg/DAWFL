@@ -131,6 +131,21 @@ void ForgeEditorBase::setView (Section& s, std::unique_ptr<juce::Component> view
     owned.push_back (std::move (view));
 }
 
+juce::Component& ForgeEditorBase::item (Section& s, std::unique_ptr<juce::Component> comp)
+{
+    auto& ref = *comp;
+    s.panel->addAndMakeVisible (ref);
+    s.items.push_back (comp.get());
+    owned.push_back (std::move (comp));
+    return ref;
+}
+
+void ForgeEditorBase::setHidden (Section& s, bool hidden)
+{
+    s.hidden = hidden;
+    showTab (tab);
+}
+
 void ForgeEditorBase::adsr (Section& s, const juce::String& a, const juce::String& d, const juce::String& su,
                             const juce::String& r, juce::Colour c)
 {
@@ -144,7 +159,7 @@ void ForgeEditorBase::showTab (int index)
         t->setToggleState (true, juce::dontSendNotification);
     for (size_t t = 0; t < sections.size(); ++t)
         for (auto& s : sections[t])
-            s->panel->setVisible ((int) t == tab);
+            s->panel->setVisible ((int) t == tab && ! s->hidden);
     resized();
 }
 
@@ -196,7 +211,10 @@ void ForgeEditorBase::resized()
     auto area = b.reduced (6);
     if (tab >= (int) sections.size())
         return;
-    auto& list = sections[(size_t) tab];
+    std::vector<Section*> list;
+    for (auto& s : sections[(size_t) tab])
+        if (! s->hidden)
+            list.push_back (s.get());
     if (list.empty())
         return;
 

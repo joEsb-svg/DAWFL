@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 #include "Theme.h"
 #include "../Engine/ProjectIO.h"
+#include "../Instruments/DrumForge/DrumForgeEditor.h"
 
 namespace
 {
@@ -866,6 +867,13 @@ void MainComponent::openPianoRoll (int channel)
     editor.setVisible (false);
     playlist.setVisible (false);
     exportPanel.setVisible (false);
+    pianoRoll.getGrid().rowLabel = [this] (int ch, int pitch) -> juce::String
+    {
+        if (auto* drums = dynamic_cast<DrumForgeAudioProcessor*> (engine.getInstrument (ch)))
+            if (const int pad = pitch - df::firstNote; pad >= 0 && pad < df::numPads)
+                return juce::String (pad + 1) + "  " + drums->getPadName (pad);
+        return {};
+    };
     pianoRoll.setChannel (channel);
     pianoRoll.setVisible (true);
     pianoRoll.toFront (false);
@@ -1002,8 +1010,6 @@ void MainComponent::handleCommandLine (const juce::String& commandLine)
         openSynthPanel (engine.getSynthChannel());
     }
 
-    if (const int i = args.indexOf ("--roll"); i >= 0)
-        openPianoRoll (juce::jlimit (0, engine.getNumChannels() - 1, args[i + 1].getIntValue()));
 
     // test: aggiunge canali con suoni della libreria ("--add piano,strings")
     if (const int i = args.indexOf ("--add"); i >= 0)
@@ -1041,6 +1047,19 @@ void MainComponent::handleCommandLine (const juce::String& commandLine)
             applySoundChoice (-1, c);
         }
 
+    if (const int i = args.indexOf ("--add-kit"); i >= 0)   // test: kit di DrumForge (indice, 0 = DrumForge / 1 = canali separati)
+    {
+        SoundChoice c;
+        c.kind = args[i + 2].getIntValue() == 1 ? SoundChoice::kitChannels : SoundChoice::drumForgeKit;
+        c.kit = args[i + 1].getIntValue();
+        c.name = "Kit " + df::Presets::factoryName (c.kit);
+        c.colour = 0xffff6b5b;
+        applySoundChoice (-1, c);
+    }
+
+    if (const int i = args.indexOf ("--roll"); i >= 0)
+        openPianoRoll (juce::jlimit (0, engine.getNumChannels() - 1, args[i + 1].getIntValue()));
+
     if (const int i = args.indexOf ("--open-synth"); i >= 0)       // test: pannello di uno strumento (canale, scheda)
     {
         openSynthPanel (args[i + 1].getIntValue());
@@ -1048,6 +1067,10 @@ void MainComponent::handleCommandLine (const juce::String& commandLine)
             if (auto* pfEditor = dynamic_cast<ForgeEditorBase*> (synthPanel->getEditorForTest()))
                 pfEditor->showTab (args[i + 2].getIntValue());
     }
+
+    if (const int i = args.indexOf ("--pad"); i >= 0 && synthPanel != nullptr)   // test: pad selezionato in DrumForge
+        if (auto* drums = dynamic_cast<DrumForgeEditor*> (synthPanel->getEditorForTest()))
+            drums->selectPad (args[i + 1].getIntValue());
 
     if (const int i = args.indexOf ("--rowmenu"); i >= 0)       // test: menu del canale
         if (auto* row = rows[args[i + 1].getIntValue()])
@@ -1492,6 +1515,12 @@ void MainComponent::applySoundChoice (int channel, const SoundChoice& choice)
         return;
     }
 
+    if (choice.kind == SoundChoice::kitChannels)
+    {
+        addKitChannels (choice.kit);
+        return;
+    }
+
     const bool isNew = channel < 0;
     if (isNew)
     {
@@ -1520,6 +1549,16 @@ void MainComponent::applySoundChoice (int channel, const SoundChoice& choice)
         instruments->resolve();          // crea lo strumento
         if (! ch.customName)
             ch.name = name;
+    }
+    else if (choice.kind == SoundChoice::drumForgeKit)
+    {
+        engine.makeInstrumentChannel (channel, "drumforge", choice.name, choice.colour);
+        instruments->resolve();
+        Instruments::loadFactory (engine.getInstrument (channel), choice.kit);
+        if (! ch.customName)
+            ch.name = choice.name;
+        if (synthPanel != nullptr && synthPanel->isVisible() && synthPanel->getChannel() == channel)
+            synthPanel->open (channel);
     }
     else if (choice.kind == SoundChoice::drumSynth)
     {
@@ -1553,6 +1592,50 @@ void MainComponent::applySoundChoice (int channel, const SoundChoice& choice)
 
     if (editor.isVisible())
         editor.refreshFromEngine();
+}
+
+void MainComponent::addKitChannels (int kitIndex)
+{
+    const auto& kit = df::factoryKits()[(size_t) juce::jlimit (0, df::Presets::numFactory() - 1, kitIndex)];
+    int first = -1;
+
+    for (int pad : SoundBrowser::kitChannelPads)
+    {
+        const auto& def = kit.pads[(size_t) pad];
+        auto* data = sampleStore.load (SampleStore::libraryName (def.sample));
+        if (data == nullptr)
+            continue;
+
+        const int channel = engine.addChannel();
+        if (channel < 0)
+        {
+            showMessage ("Canali", "Hai raggiunto il massimo di " + juce::String (SequencerEngine::maxChannels) + " canali.");
+            break;
+        }
+
+        auto& ch = engine.getChannel (channel);
+        ch.type.store (SequencerEngine::drumOrSample);
+        ch.sampleName = SampleStore::libraryName (def.sample);
+        ch.sample.store (data);
+        if (auto* entry = SampleStore::findLibraryEntry (def.sample))
+            ch.colour.store (entry->colour);
+        ch.name = juce::String (juce::CharPointer_UTF8 (def.label));
+        ch.customName = false;
+        ch.pitch.store (def.tune);
+        ch.pan.store (def.pan);
+        ch.volume.store (0.8f * juce::Decibels::decibelsToGain (def.level));
+        ch.touchSound();
+        if (first < 0)
+            first = channel;
+    }
+
+    browser.setVisible (false);
+    rebuildRows();
+    if (first >= 0)
+    {
+        scrollToChannel (first);
+        engine.previewChannel (first);
+    }
 }
 
 void MainComponent::askText (const juce::String& title, const juce::String& initial, std::function<void (juce::String)> onText)

@@ -14,7 +14,7 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.18)
+## Stato attuale (v0.19)
 
 **Canali (channel rack)**
 - Fino a 32 canali: "+ Strumento" aggiunge un canale scegliendo il suono dal browser
@@ -22,10 +22,11 @@ Gli aggiornamenti si installano sopra la versione precedente.
   muto, solo, clona, rinomina, colore, sposta su/giu', strumenti per gli step, elimina
 - Tocca il nome per ascoltare; trascina in verticale sul nome per scorrere la lista
 
-**Libreria suoni (162 suoni, generati da zero con tools/soundgen)**
+**Libreria suoni (193 suoni, generati da zero con tools/soundgen)**
 - Strumenti: pianoforti e tastiere, chitarre, bassi, archi, fiati e ottoni, voci e cori,
   percussioni melodiche, batteria acustica, percussioni
-- Elettronica: EDM, House, Techno, Electro, Drum and Bass, Dubstep, Trap, synth e pad, effetti (FX)
+- Elettronica: EDM, House, Techno, Electro, Drum and Bass, Dubstep, Trap, synth e pad, effetti (FX),
+  Drum machine (suoni in stile 808, 909 e Lo-Fi)
 - Browser con anteprima: tocca un suono per sentirlo, poi "Aggiungi" o "Usa questo suono"
 - Campionatore polifonico (accordi nel piano roll); gli strumenti "tenuti" (archi, organo, pad...) sfumano
   alla fine della nota; ogni suono sa la sua nota, cosi' il piano roll suona intonato
@@ -44,7 +45,7 @@ Gli aggiornamenti si installano sopra la versione precedente.
 
 **Strumenti (synth)**
 - Ogni canale strumento ha il suo synth: si possono avere piu' BassForge e piu' PolyForge insieme
-  (browser dei suoni > Sintesi > Synth: BassForge, PolyForge, FMForge); clona, sposta ed elimina come gli altri canali
+  (browser dei suoni > Sintesi > Synth: BassForge, PolyForge, FMForge, DrumForge); clona, sposta ed elimina come gli altri canali
 - Pannello dello strumento con tastiera a schermo per suonare e provare i preset
 - Preset di fabbrica e utente per ogni synth ("Salva come preset utente" dal menu Preset)
 
@@ -55,6 +56,17 @@ Gli aggiornamenti si installano sopra la versione precedente.
 - 2 inviluppi ADSR, LFO (5 forme, libero o a tempo) su vibrato, filtro, volume e PWM
 - Effetti: chorus, delay ping-pong a tempo, riverbero; 24 preset di fabbrica
 - Interfaccia per il telefono nello stile di BassForge: schede OSC, FILTRO, ENV, LFO, FX
+
+**Drum machine DrumForge** (Source/Instruments/DrumForge)
+- 16 pad suonati dalle note 36..51 (gli step del channel rack suonano il pad 1); nel piano roll ogni riga
+  ha il nome del suo pad
+- Per ogni pad: suono (libreria o campioni importati), intonazione, decadimento, volume, panorama, filtro,
+  riverbero, velocity e gruppo choke (l'hi-hat chiuso zittisce quello aperto)
+- 12 kit: Acustico, Acustico secco, 808, 909, House, Techno, Trap, Drum and Bass, Dubstep, EDM, Lo-Fi,
+  Percussioni; kit dell'utente ("Salva come preset utente"); saturazione e riverbero in uscita
+- Interfaccia: scheda PAD (tocca un pad per suonarlo e modificarlo) e scheda KIT
+- Browser dei suoni > Sintesi: "Kit DrumForge" (tutto il kit in un canale) o "Kit su canali separati"
+  (cassa, rullante, clap, hat, tom e piatto, un canale ciascuno)
 
 **Synth FMForge** (Source/Instruments/FMForge)
 - FM a 4 operatori (stile DX/TX): rapporto, fine, livello, velocity e ADSR per operatore

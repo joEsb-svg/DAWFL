@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <JUCERPROJECT name="JLoop" projectType="guiapp" bundleIdentifier="com.joesb.dawfl"
-              version="0.18.0" companyName="joEsb" id="DwFl01" useAppConfig="0"
+              version="0.19.0" companyName="joEsb" id="DwFl01" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" cppLanguageStandard="20" defines="JucePlugin_Name=&quot;BassForge&quot;&#10;JUCE_STRICT_REFCOUNTEDPOINTER=1"
               jucerFormatVersion="1">
   <MAINGROUP id="Mg0001" name="JLoop">
@@ -43,6 +43,10 @@
       <FILE id="FgFx01" name="ForgeFx.h" compile="0" resource="0" file="Source/Instruments/Common/ForgeFx.h"/>
       <FILE id="FgEb01" name="ForgeEditorBase.h" compile="0" resource="0" file="Source/Instruments/Common/ForgeEditorBase.h"/>
       <FILE id="FgEb02" name="ForgeEditorBase.cpp" compile="1" resource="0" file="Source/Instruments/Common/ForgeEditorBase.cpp"/>
+      <FILE id="DfH001" name="DrumForge.h" compile="0" resource="0" file="Source/Instruments/DrumForge/DrumForge.h"/>
+      <FILE id="DfC001" name="DrumForge.cpp" compile="1" resource="0" file="Source/Instruments/DrumForge/DrumForge.cpp"/>
+      <FILE id="DfH002" name="DrumForgeEditor.h" compile="0" resource="0" file="Source/Instruments/DrumForge/DrumForgeEditor.h"/>
+      <FILE id="DfC002" name="DrumForgeEditor.cpp" compile="1" resource="0" file="Source/Instruments/DrumForge/DrumForgeEditor.cpp"/>
       <FILE id="FmH001" name="FMForge.h" compile="0" resource="0" file="Source/Instruments/FMForge/FMForge.h"/>
       <FILE id="FmC001" name="FMForge.cpp" compile="1" resource="0" file="Source/Instruments/FMForge/FMForge.cpp"/>
       <FILE id="FmH002" name="FMForgeEditor.h" compile="0" resource="0" file="Source/Instruments/FMForge/FMForgeEditor.h"/>
@@ -216,6 +220,37 @@
         <FILE id="Lb0159" name="fx_zap.ogg" compile="0" resource="1" file="Resources/Library/fx_zap.ogg"/>
         <FILE id="Lb0160" name="fx_vinyl.ogg" compile="0" resource="1" file="Resources/Library/fx_vinyl.ogg"/>
         <FILE id="Lb0161" name="fx_tape_stop.ogg" compile="0" resource="1" file="Resources/Library/fx_tape_stop.ogg"/>
+        <FILE id="Lb0162" name="d808_kick.ogg" compile="0" resource="1" file="Resources/Library/d808_kick.ogg"/>
+        <FILE id="Lb0163" name="d808_snare.ogg" compile="0" resource="1" file="Resources/Library/d808_snare.ogg"/>
+        <FILE id="Lb0164" name="d808_clap.ogg" compile="0" resource="1" file="Resources/Library/d808_clap.ogg"/>
+        <FILE id="Lb0165" name="d808_ch.ogg" compile="0" resource="1" file="Resources/Library/d808_ch.ogg"/>
+        <FILE id="Lb0166" name="d808_oh.ogg" compile="0" resource="1" file="Resources/Library/d808_oh.ogg"/>
+        <FILE id="Lb0167" name="d808_tom_lo.ogg" compile="0" resource="1" file="Resources/Library/d808_tom_lo.ogg"/>
+        <FILE id="Lb0168" name="d808_tom_mid.ogg" compile="0" resource="1" file="Resources/Library/d808_tom_mid.ogg"/>
+        <FILE id="Lb0169" name="d808_tom_hi.ogg" compile="0" resource="1" file="Resources/Library/d808_tom_hi.ogg"/>
+        <FILE id="Lb0170" name="d808_cowbell.ogg" compile="0" resource="1" file="Resources/Library/d808_cowbell.ogg"/>
+        <FILE id="Lb0171" name="d808_rim.ogg" compile="0" resource="1" file="Resources/Library/d808_rim.ogg"/>
+        <FILE id="Lb0172" name="d808_clave.ogg" compile="0" resource="1" file="Resources/Library/d808_clave.ogg"/>
+        <FILE id="Lb0173" name="d808_cymbal.ogg" compile="0" resource="1" file="Resources/Library/d808_cymbal.ogg"/>
+        <FILE id="Lb0174" name="d808_conga_lo.ogg" compile="0" resource="1" file="Resources/Library/d808_conga_lo.ogg"/>
+        <FILE id="Lb0175" name="d808_conga_hi.ogg" compile="0" resource="1" file="Resources/Library/d808_conga_hi.ogg"/>
+        <FILE id="Lb0176" name="d808_maracas.ogg" compile="0" resource="1" file="Resources/Library/d808_maracas.ogg"/>
+        <FILE id="Lb0177" name="d909_kick.ogg" compile="0" resource="1" file="Resources/Library/d909_kick.ogg"/>
+        <FILE id="Lb0178" name="d909_snare.ogg" compile="0" resource="1" file="Resources/Library/d909_snare.ogg"/>
+        <FILE id="Lb0179" name="d909_clap.ogg" compile="0" resource="1" file="Resources/Library/d909_clap.ogg"/>
+        <FILE id="Lb0180" name="d909_ch.ogg" compile="0" resource="1" file="Resources/Library/d909_ch.ogg"/>
+        <FILE id="Lb0181" name="d909_oh.ogg" compile="0" resource="1" file="Resources/Library/d909_oh.ogg"/>
+        <FILE id="Lb0182" name="d909_tom_lo.ogg" compile="0" resource="1" file="Resources/Library/d909_tom_lo.ogg"/>
+        <FILE id="Lb0183" name="d909_tom_mid.ogg" compile="0" resource="1" file="Resources/Library/d909_tom_mid.ogg"/>
+        <FILE id="Lb0184" name="d909_tom_hi.ogg" compile="0" resource="1" file="Resources/Library/d909_tom_hi.ogg"/>
+        <FILE id="Lb0185" name="d909_rim.ogg" compile="0" resource="1" file="Resources/Library/d909_rim.ogg"/>
+        <FILE id="Lb0186" name="d909_crash.ogg" compile="0" resource="1" file="Resources/Library/d909_crash.ogg"/>
+        <FILE id="Lb0187" name="d909_ride.ogg" compile="0" resource="1" file="Resources/Library/d909_ride.ogg"/>
+        <FILE id="Lb0188" name="lofi_kick.ogg" compile="0" resource="1" file="Resources/Library/lofi_kick.ogg"/>
+        <FILE id="Lb0189" name="lofi_snare.ogg" compile="0" resource="1" file="Resources/Library/lofi_snare.ogg"/>
+        <FILE id="Lb0190" name="lofi_hat.ogg" compile="0" resource="1" file="Resources/Library/lofi_hat.ogg"/>
+        <FILE id="Lb0191" name="lofi_rim.ogg" compile="0" resource="1" file="Resources/Library/lofi_rim.ogg"/>
+        <FILE id="Lb0192" name="lofi_shaker.ogg" compile="0" resource="1" file="Resources/Library/lofi_shaker.ogg"/>
       </GROUP>
       <FILE id="IcOn01" name="icon.png" compile="0" resource="0" file="Resources/icon.png"/>
       <FILE id="SpLsh1" name="splash_logo.png" compile="0" resource="1" file="Resources/splash_logo.png"/>
@@ -334,7 +369,7 @@
   </MAINGROUP>
   <EXPORTFORMATS>
     <ANDROIDSTUDIO targetFolder="Builds/Android" androidEnableContentSharing="1" smallIcon="IcOn01" bigIcon="IcOn01"
-                   androidVersionCode="18" androidMinimumSDK="24" androidScreenOrientation="landscape"
+                   androidVersionCode="19" androidMinimumSDK="24" androidScreenOrientation="landscape"
                    androidInternetNeeded="0" androidExternalWriteNeeded="0" androidPushNotifications="0"
                    androidReadMediaAudioPermission="0" androidReadMediaImagesPermission="0"
                    androidReadMediaVideoPermission="0">

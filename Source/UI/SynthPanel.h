@@ -71,7 +71,8 @@ public:
         }
 
         // Tastiera: registro adatto allo strumento (bassi piu' in basso)
-        keyboard.setLowestVisibleKey (dynamic_cast<BassForgeAudioProcessor*> (proc) != nullptr ? 24 : 48);
+        keyboard.setLowestVisibleKey (dynamic_cast<BassForgeAudioProcessor*> (proc) != nullptr ? 24
+                                      : dynamic_cast<DrumForgeAudioProcessor*> (proc) != nullptr ? df::firstNote : 48);
         refreshPresetName();
         resized();
         repaint();
@@ -111,7 +112,8 @@ public:
 
     void refreshPresetName()
     {
-        presetButton.setButtonText ("Preset: " + Instruments::presetName (engine.getInstrument (channel))
+        const bool kit = dynamic_cast<DrumForgeAudioProcessor*> (engine.getInstrument (channel)) != nullptr;
+        presetButton.setButtonText ((kit ? "Kit: " : "Preset: ") + Instruments::presetName (engine.getInstrument (channel))
                                     + juce::String (juce::CharPointer_UTF8 ("  \xe2\x96\xbe")));
     }
 

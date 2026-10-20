@@ -20,6 +20,7 @@ sys.path.insert(0, HERE)
 import dsp            # noqa: E402
 import instruments    # noqa: E402,F401
 import electronic     # noqa: E402,F401
+import drummachines  # noqa: E402,F401
 from registry import SOUNDS  # noqa: E402
 
 OUT = os.path.join(ROOT, "Resources", "Library")

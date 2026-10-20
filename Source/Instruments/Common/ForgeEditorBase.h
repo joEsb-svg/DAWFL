@@ -50,6 +50,7 @@ protected:
         juce::Component* view = nullptr;     // disegno (sopra o a sinistra delle manopole)
         float viewShare = 0.38f;
         float weight = 1.0f;
+        bool hidden = false;                 // nascosta (es. le impostazioni dei pad non selezionati)
     };
 
     Section& addSection (int tabIndex, const juce::String& title, float weight = 1.0f);
@@ -57,6 +58,9 @@ protected:
     void combo (Section&, const juce::String& id, const juce::String& title);
     void toggle (Section&, const juce::String& id, const juce::String& title);
     void setView (Section&, std::unique_ptr<juce::Component> view, float share = 0.38f);
+    /** Aggiunge un componente qualsiasi alla griglia della sezione (un pulsante, un'etichetta...). */
+    juce::Component& item (Section&, std::unique_ptr<juce::Component>);
+    void setHidden (Section&, bool hidden);
     void adsr (Section&, const juce::String& a, const juce::String& d, const juce::String& s, const juce::String& r, juce::Colour);
 
     /** Ogni 1/15 s: le viste che dipendono dai parametri si ridisegnano se serve. */

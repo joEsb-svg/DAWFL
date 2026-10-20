@@ -70,6 +70,7 @@ private:
     void rebuildRows();
     void handleChannelCommand (int channel, int command);
     void openBrowser (int channel);
+    void addKitChannels (int kitIndex);
     void applySoundChoice (int channel, const SoundChoice& choice);
     void askText (const juce::String& title, const juce::String& initial, std::function<void (juce::String)> onText);
     void hideOverlays();

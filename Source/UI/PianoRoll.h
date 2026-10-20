@@ -27,6 +27,7 @@ public:
     explicit PianoRollGrid (SequencerEngine& e) : engine (e) {}
 
     std::function<void()> onEdit;   // per la vibrazione
+    std::function<juce::String (int channel, int pitch)> rowLabel;   // nome della riga (i pad di DrumForge)
 
     void setChannel (int c)
     {
@@ -119,6 +120,23 @@ public:
         {
             g.setColour (Theme::bg.withAlpha (0.7f));
             g.fillRect (juce::Rectangle<float> (endX, 0.0f, (float) grid.getRight() - endX, (float) getHeight()));
+        }
+
+        // Nomi delle righe (es. "Kick", "Snare" per i pad di una drum machine)
+        if (rowLabel != nullptr && rowHeight >= 12.0f)
+        {
+            g.setFont (Theme::font (juce::jmin (12.0f, rowHeight - 3.0f)));
+            for (int pitch = lowestNote; pitch <= highestNote; ++pitch)
+            {
+                const float y = yForPitch (pitch);
+                if (y + rowHeight < 0 || y > (float) getHeight())
+                    continue;
+                const auto label = rowLabel (channel, pitch);
+                if (label.isEmpty())
+                    continue;
+                g.setColour (Theme::textDim.withAlpha (0.85f));
+                g.drawText (label, juce::Rectangle<float> ((float) grid.getX() + 5.0f, y, 160.0f, rowHeight), juce::Justification::centredLeft, true);
+            }
         }
 
         // Note

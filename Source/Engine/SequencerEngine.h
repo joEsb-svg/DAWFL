@@ -98,6 +98,7 @@ public:
 
         // Strumento (synth) del canale: un AudioProcessor posseduto dalla UI (Instruments::Host)
         std::atomic<juce::AudioProcessor*> instrument { nullptr };
+        std::atomic<int> stepNote { synthStepNote };   // nota suonata dagli step (DrumForge: 36, il primo pad)
 
         // Usati solo dal thread della UI
         juce::String name;
@@ -325,7 +326,7 @@ public:
     int getChannelRootNote (int c) const
     {
         if (isSynth (c))
-            return synthStepNote;
+            return channels[(size_t) c].stepNote.load();
         if (auto* smp = channels[(size_t) c].sample.load())
             return smp->rootNote;
         return rootNote;
@@ -919,7 +920,7 @@ public:
             {
                 const int note = channels[(size_t) c].previewPitch.load();
                 if (instruments[(size_t) c] != nullptr)
-                    instPreview (c, note < 0 ? synthStepNote : note);
+                    instPreview (c, note < 0 ? channels[(size_t) c].stepNote.load() : note);
                 else
                     triggerChannel (c, 0.9f, 0.0f, note, -1, true);
             }
@@ -987,7 +988,7 @@ private:
         const SampleData* sample;
         juce::AudioProcessor* instrument;
         juce::String name, sampleName, instrumentKind, pendingState;
-        int instrumentId;
+        int instrumentId, stepNote;
 
         struct PatternRows
         {
@@ -1010,6 +1011,7 @@ private:
         out.name = ch.name; out.sampleName = ch.sampleName;
         out.instrument = ch.instrument.load(); out.instrumentKind = ch.instrumentKind;
         out.instrumentId = ch.instrumentId; out.pendingState = ch.pendingState;
+        out.stepNote = ch.stepNote.load();
 
         for (int p = 0; p < numPatterns; ++p)
         {
@@ -1039,6 +1041,7 @@ private:
         ch.name = in.name; ch.sampleName = in.sampleName;
         ch.instrument.store (in.instrument); ch.instrumentKind = in.instrumentKind;
         ch.instrumentId = in.instrumentId; ch.pendingState = in.pendingState;
+        ch.stepNote.store (in.stepNote);
         ch.touchSound();
 
         for (int p = 0; p < numPatterns; ++p)
@@ -1640,7 +1643,7 @@ private:
     {
         if (instruments[(size_t) c] != nullptr)
         {
-            instNoteOn (c, midiNote < 0 ? synthStepNote : midiNote, velocity, lengthTicks);
+            instNoteOn (c, midiNote < 0 ? channels[(size_t) c].stepNote.load() : midiNote, velocity, lengthTicks);
             return;
         }
         if (channels[(size_t) c].type.load() == synth)
