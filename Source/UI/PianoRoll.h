@@ -107,6 +107,11 @@ public:
                 const bool in = theory::inScale (pitch, scaleRoot, scaleType);
                 g.setColour (in ? Theme::panel.brighter (0.05f) : Theme::bg.darker (0.35f));
                 g.fillRect (row);
+                if (in)
+                {
+                    g.setColour (Theme::cyan.withAlpha (0.035f));
+                    g.fillRect (row);
+                }
                 if ((pitch - scaleRoot) % 12 == 0)
                 {
                     g.setColour (Theme::accent.withAlpha (0.10f));
@@ -131,7 +136,7 @@ public:
 
             const bool bar  = t % (16 * SequencerEngine::ticksPerStep) == 0;
             const bool beat = t % (4 * SequencerEngine::ticksPerStep) == 0;
-            g.setColour (bar ? Theme::textDim.withAlpha (0.6f) : beat ? Theme::raisedHi : Theme::raised.withAlpha (0.6f));
+            g.setColour (bar ? Theme::cyan.withAlpha (0.28f) : beat ? Theme::cyan.withAlpha (0.12f) : Theme::raised.withAlpha (0.6f));
             g.drawVerticalLine ((int) x, 0.0f, (float) getHeight());
         }
 
@@ -189,17 +194,20 @@ public:
                 continue;
 
             const bool selected = (dragIndex >= 0 && n == dragNote) || isSelected (n);
-            auto fill = colour.interpolatedWith (Theme::stepOn, 0.35f).withMultipliedBrightness (0.65f + 0.35f * (float) n.velocity / 127.0f);
-            Theme::drawRaised (g, r, selected ? fill.brighter (0.3f) : fill, 2.0f);
-            if (isSelected (n))
-            {
-                g.setColour (Theme::accent);
-                g.drawRoundedRectangle (r.reduced (0.5f), 2.0f, 2.0f);
-            }
+            // Nota luminosa col colore del canale (piu' viva se la velocity e' alta)
+            const float level = 0.55f + 0.45f * (float) n.velocity / 127.0f;
+            const float radius = juce::jmin (5.0f, r.getHeight() * 0.35f);
+            g.setColour (colour.withAlpha (0.25f * level));
+            g.fillRoundedRectangle (r.expanded (2.0f), radius + 2.0f);
+            g.setGradientFill (juce::ColourGradient (colour.brighter (0.55f).withMultipliedBrightness (level), r.getX(), r.getY(),
+                                                     colour.withMultipliedBrightness (0.75f * level + 0.25f), r.getX(), r.getBottom(), false));
+            g.fillRoundedRectangle (r, radius);
+            g.setColour (juce::Colours::white.withAlpha (selected ? 0.95f : 0.35f));
+            g.drawRoundedRectangle (r.reduced (0.5f), radius, selected ? 2.0f : 1.0f);
 
             // Maniglia per allungare
-            g.setColour (Theme::bg.withAlpha (0.45f));
-            g.fillRect (r.removeFromRight (juce::jmin (5.0f, r.getWidth() * 0.25f)).reduced (0.0f, 3.0f));
+            g.setColour (juce::Colours::white.withAlpha (0.4f));
+            g.fillRoundedRectangle (r.removeFromRight (juce::jmin (5.0f, r.getWidth() * 0.25f)).reduced (1.5f, 3.0f), 1.0f);
         }
 
         // Linea di riproduzione
@@ -208,7 +216,9 @@ public:
             const float x = xForTick (playTick);
             if (x >= (float) grid.getX())
             {
-                g.setColour (Theme::accent);
+                g.setColour (Theme::cyan.withAlpha (0.18f));
+                g.fillRect (x - 4.0f, 0.0f, 8.0f, (float) getHeight());
+                g.setColour (Theme::cyan);
                 g.fillRect (x - 1.0f, 0.0f, 2.0f, (float) getHeight());
             }
         }
@@ -223,6 +233,7 @@ public:
         }
 
         paintKeyboard (g);
+        if (onPainted) onPainted();
     }
 
     void resized() override
@@ -232,6 +243,22 @@ public:
 
     //==============================================================================
     // Selezione e strumenti (agiscono sulle note selezionate, o su tutte se non ce ne sono)
+
+    // Per la corsia dei volumi (sotto la griglia)
+    float tickToX (int tick) const  { return xForTick (tick); }
+    int getChannel() const          { return channel; }
+    bool hasSelection() const       { return ! selection.empty(); }
+    bool noteSelected (const SequencerEngine::NoteData& n) const    { return isSelected (n); }
+    std::function<void()> onPainted;
+
+    /** Le note selezionate seguono le modifiche fatte da fuori (es. il volume cambiato nella corsia). */
+    void refreshSelection (const std::vector<SequencerEngine::NoteData>& before, const std::vector<SequencerEngine::NoteData>& after)
+    {
+        for (auto& s : selection)
+            for (size_t i = 0; i < before.size() && i < after.size(); ++i)
+                if (before[i] == s) { s = after[i]; break; }
+        repaint();
+    }
 
     void setGhostNotes (bool on)    { ghostNotes = on; repaint(); }
     bool getGhostNotes() const      { return ghostNotes; }
@@ -703,6 +730,166 @@ private:
 };
 
 //==============================================================================
+/**
+    Corsia dei volumi sotto il piano roll (come in FL Studio): una barretta per ogni nota.
+    Trascina il pallino per cambiare il volume; passando il dito su piu' note si "disegna" (crescendo).
+    Se ci sono note selezionate, si modificano solo quelle.
+*/
+class VelocityLane : public juce::Component
+{
+public:
+    VelocityLane (SequencerEngine& e, PianoRollGrid& g) : engine (e), grid (g) {}
+
+    std::function<void()> onEdit;
+
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat();
+        g.setColour (juce::Colour (0xff0b1015));
+        g.fillRect (r);
+        auto area = barArea();
+
+        // Righe di riferimento (25, 50, 75, 100%)
+        for (int i = 1; i <= 4; ++i)
+        {
+            const float y = area.getBottom() - area.getHeight() * (float) i / 4.0f;
+            g.setColour (juce::Colours::white.withAlpha (i == 4 ? 0.08f : 0.04f));
+            g.drawHorizontalLine ((int) y, area.getX(), area.getRight());
+        }
+
+        // Etichetta a sinistra
+        auto head = r.withWidth ((float) PianoRollGrid::keyboardWidth);
+        g.setColour (juce::Colour (0xff070a0d));
+        g.fillRect (head);
+        g.setColour (juce::Colour (0xaa4fe3ff));
+        g.setFont (Theme::font (9.0f, true).withExtraKerningFactor (0.12f));
+        g.drawText ("VOL", head.reduced (2.0f), juce::Justification::centred, false);
+
+        juce::Graphics::ScopedSaveState state (g);
+        g.reduceClipRegion (area.toNearestInt().withTop (0));
+        const auto colour = juce::Colour (engine.getChannel (grid.getChannel()).colour.load());
+        const bool anySelected = grid.hasSelection();
+        for (auto& n : engine.getNotes (grid.getChannel()))
+        {
+            const float x = grid.tickToX (n.start) + 7.0f;
+            if (x < area.getX() - 10.0f || x > area.getRight() + 10.0f)
+                continue;
+            const float h = area.getHeight() * (float) n.velocity / 127.0f;
+            const bool sel = grid.noteSelected (n);
+            const auto c = sel ? Theme::accent : (anySelected ? colour.withAlpha (0.4f) : colour);
+            juce::Rectangle<float> bar (x - 2.5f, area.getBottom() - h, 5.0f, h);
+            g.setGradientFill (juce::ColourGradient (c.brighter (0.6f), bar.getX(), bar.getY(), c.darker (0.2f), bar.getX(), bar.getBottom(), false));
+            g.fillRoundedRectangle (bar, 2.0f);
+            g.setColour (c.withAlpha (0.35f));
+            g.fillEllipse (juce::Rectangle<float> (14.0f, 14.0f).withCentre ({ x, bar.getY() }));
+            g.setColour (juce::Colours::white);
+            g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre ({ x, bar.getY() }));
+        }
+
+        if (showValue >= 0)
+        {
+            const auto text = juce::String (showValue) + "  (" + juce::String (juce::roundToInt (showValue * 100.0f / 127.0f)) + "%)";
+            auto tag = juce::Rectangle<float> (86.0f, 18.0f).withPosition (juce::jlimit (area.getX(), area.getRight() - 86.0f, showX + 8.0f), area.getY());
+            g.setColour (juce::Colours::black.withAlpha (0.75f));
+            g.fillRoundedRectangle (tag, 5.0f);
+            g.setColour (Theme::accent.withAlpha (0.6f));
+            g.drawRoundedRectangle (tag, 5.0f, 1.0f);
+            g.setColour (juce::Colour (0xffffd6a8));
+            g.setFont (Theme::font (11.0f));
+            g.drawText (text, tag, juce::Justification::centred, false);
+        }
+    }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        before = engine.getNotes (grid.getChannel());
+        lastPos = e.position;
+        applyBetween (e.position, e.position);
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        applyBetween (lastPos, e.position);
+        lastPos = e.position;
+    }
+
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        grid.refreshSelection (before, engine.getNotes (grid.getChannel()));
+        showValue = -1;
+        repaint();
+        if (onEdit) onEdit();
+    }
+
+private:
+    juce::Rectangle<float> barArea() const
+    {
+        return getLocalBounds().toFloat().withTrimmedLeft ((float) PianoRollGrid::keyboardWidth).reduced (0.0f, 8.0f).withTrimmedTop (4.0f);
+    }
+
+    int velocityAt (float y) const
+    {
+        const auto area = barArea();
+        return juce::jlimit (1, 127, juce::roundToInt ((area.getBottom() - y) / area.getHeight() * 127.0f));
+    }
+
+    /** Cambia il volume delle note che iniziano tra due punti (il dito che passa sopra), con la linea tra i due. */
+    void applyBetween (juce::Point<float> a, juce::Point<float> b)
+    {
+        auto notes = engine.getNotes (grid.getChannel());
+        if (notes.empty())
+            return;
+        const bool onlySelected = grid.hasSelection();
+        const float x0 = juce::jmin (a.x, b.x) - 10.0f, x1 = juce::jmax (a.x, b.x) + 10.0f;
+
+        // Un tocco senza movimento: la nota piu' vicina
+        int nearest = -1;
+        if (a == b)
+        {
+            float best = 24.0f;
+            for (size_t i = 0; i < notes.size(); ++i)
+            {
+                if (onlySelected && ! grid.noteSelected (before[i]))
+                    continue;
+                const float d = std::abs (grid.tickToX (notes[i].start) + 7.0f - a.x);
+                if (d < best) { best = d; nearest = (int) i; }
+            }
+        }
+
+        bool changed = false;
+        for (size_t i = 0; i < notes.size(); ++i)
+        {
+            const float x = grid.tickToX (notes[i].start) + 7.0f;
+            const bool hit = a == b ? (int) i == nearest : (x >= x0 && x <= x1);
+            if (! hit || (onlySelected && (i >= before.size() || ! grid.noteSelected (before[i]))))
+                continue;
+            const float t = std::abs (b.x - a.x) < 1.0f ? 1.0f : juce::jlimit (0.0f, 1.0f, (x - a.x) / (b.x - a.x));
+            const int v = velocityAt (a.y + (b.y - a.y) * t);
+            if (notes[i].velocity != v)
+            {
+                notes[i].velocity = v;
+                changed = true;
+            }
+            showValue = v;
+            showX = x;
+        }
+        if (changed)
+        {
+            engine.setNotes (grid.getChannel(), notes);
+            grid.repaint();
+        }
+        repaint();
+    }
+
+    SequencerEngine& engine;
+    PianoRollGrid& grid;
+    std::vector<SequencerEngine::NoteData> before;
+    juce::Point<float> lastPos;
+    int showValue = -1;
+    float showX = 0.0f;
+};
+
+//==============================================================================
 /** Il piano roll completo: barra degli strumenti + griglia. Si apre sopra il channel rack. */
 class PianoRoll : public juce::Component
 {
@@ -744,6 +931,10 @@ public:
         addTool ("Progressioni", [this] { showProgressionPanel(); }, 100);
         ghostButton = addTool ("Fantasmi", [this] { grid.setGhostNotes (! grid.getGhostNotes()); }, 80);
         ghostButton->setClickingTogglesState (true);
+        laneButton = addTool ("Volumi", [this] { laneShown() = ! laneShown(); resized(); }, 72);
+        laneButton->setClickingTogglesState (true);
+        addChildComponent (lane);
+        grid.onPainted = [this] { if (lane.isVisible()) lane.repaint(); };
         selectButton = addTool ("Seleziona", [this] { grid.setSelectMode (! grid.isSelectMode()); grid.setChordMode (false); }, 82);
         selectButton->setClickingTogglesState (true);
         addTool ("Tutto", [this] { grid.setSelectMode (true); grid.selectAll(); });
@@ -775,6 +966,7 @@ public:
     {
         chordButton->setToggleState (grid.isChordMode(), juce::dontSendNotification);
         ghostButton->setToggleState (grid.getGhostNotes(), juce::dontSendNotification);
+        laneButton->setToggleState (laneShown(), juce::dontSendNotification);
         chordTypeButton->setButtonText (theory::chordTypeName (grid.getChordType()));
         chordTypeButton->setEnabled (grid.isChordMode());
         const int st = engine.getScaleType();
@@ -861,6 +1053,13 @@ public:
         toolStrip.setSize (juce::jmax (x, toolRow.getWidth()), toolRow.getHeight());
 
         r.removeFromTop (4);
+        // Corsia dei volumi sotto la griglia (si nasconde col pulsante "Volumi")
+        lane.setVisible (laneShown() && r.getHeight() > 200);
+        if (lane.isVisible())
+        {
+            lane.setBounds (r.removeFromBottom (juce::jlimit (64, 130, r.getHeight() / 4)));
+            r.removeFromBottom (4);
+        }
         grid.setBounds (r);
     }
 
@@ -903,6 +1102,8 @@ private:
 
     SequencerEngine& engine;
     PianoRollGrid grid;
+    VelocityLane lane { engine, grid };
+    static bool& laneShown()        { static bool shown = true; return shown; }
     int channel = 0;
 
     // Griglia: 1/4, 1/8, 1/16, 1/32 e terzine di sedicesimo (in tick)
@@ -913,7 +1114,7 @@ private:
     juce::Viewport toolView;
     juce::Component toolStrip;
     juce::OwnedArray<juce::TextButton> tools;
-    juce::TextButton* selectButton = nullptr, *scaleButton = nullptr, *chordButton = nullptr, *chordTypeButton = nullptr, *ghostButton = nullptr;
+    juce::TextButton* selectButton = nullptr, *scaleButton = nullptr, *chordButton = nullptr, *chordTypeButton = nullptr, *ghostButton = nullptr, *laneButton = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoRoll)
 };

@@ -14,7 +14,18 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.29.1)
+## Stato attuale (v0.30)
+
+**Novita' della 0.30**
+- Nuovo stile in tutta l'app (vetro scuro, bordi azzurri, luci arancioni): step accesi che brillano del
+  colore del loro canale, colonna in riproduzione in azzurro, manopole con l'anello luminoso,
+  mixer con meter a LED e fader col colore della traccia, note luminose nel piano roll
+- Piano roll: corsia dei volumi sotto le note (pulsante "Volumi"): trascina il pallino di una nota,
+  o passa il dito su piu' note per disegnare un crescendo; con una selezione cambia solo quella
+- Playlist: trascinando il bordo destro di una clip la si accorcia (suona fin li') o la si allunga
+  (il pattern si ripete); il bordo sinistro taglia l'inizio. I bordi si agganciano alla griglia
+
+## (v0.29.1)
 
 - 0.29.1: barra del sequencer riordinata sui telefoni: CPU, metronomo e + sempre visibili a destra, kit e swing nello spazio che resta
 

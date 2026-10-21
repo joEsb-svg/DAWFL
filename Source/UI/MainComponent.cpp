@@ -304,17 +304,16 @@ void MainComponent::paint (juce::Graphics& g)
 {
     g.fillAll (Theme::bg);
 
-    // Barra superiore
-    g.setColour (Theme::panel);
+    // Barra superiore: gradiente scuro e un filo azzurro sotto
+    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff151c24), headerArea.getTopLeft(), juce::Colour (0xff0e1318), headerArea.getBottomLeft(), false));
     g.fillRect (headerArea);
     g.setColour (Theme::border);
     g.drawHorizontalLine ((int) headerArea.getBottom(), headerArea.getX(), headerArea.getRight());
+    g.setColour (Theme::cyan.withAlpha (0.14f));
+    g.drawHorizontalLine ((int) headerArea.getBottom() - 1, headerArea.getX(), headerArea.getRight());
 
     // Pannello del channel rack
-    g.setColour (Theme::panel);
-    g.fillRoundedRectangle (rackArea, Theme::corner);
-    g.setColour (Theme::border);
-    g.drawRoundedRectangle (rackArea, Theme::corner, 1.0f);
+    Theme::drawGlassPanel (g, rackArea);
 
     // Logo (solo il simbolo, con un alone)
     if (logoImage.isValid())

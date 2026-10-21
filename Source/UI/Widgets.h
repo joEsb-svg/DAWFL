@@ -186,7 +186,10 @@ public:
             auto seg = juce::Rectangle<float> (r.getX() + w * (float) i, r.getY(), w, r.getHeight());
 
             if (i == selected)
-                Theme::drawRaised (g, seg.reduced (2.0f), Theme::raisedHi);
+            {
+                Theme::drawRaised (g, seg.reduced (2.0f), Theme::raisedHi, Theme::corner - 1.0f);
+                Theme::drawActiveGlow (g, seg.reduced (2.0f), Theme::corner - 1.0f);
+            }
 
             g.setColour (i == selected ? Theme::accent : Theme::textDim);
             g.setFont (Theme::font (juce::jmin (12.0f, r.getHeight() * 0.5f), true).withExtraKerningFactor (0.05f));

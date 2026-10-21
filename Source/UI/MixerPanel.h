@@ -44,6 +44,8 @@ public:
         pan.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
         pan.setRange (-1.0, 1.0);
         pan.setDoubleClickReturnValue (true, 0.0);
+        pan.setColour (juce::Slider::rotarySliderFillColourId, Theme::cyan);
+        pan.getProperties().set ("bipolar", true);
         pan.setMouseDragSensitivity (160);
         pan.onValueChange = [this] { engine.getTrack (track).pan.store ((float) pan.getValue()); };
         addAndMakeVisible (pan);
@@ -94,6 +96,7 @@ public:
         const auto colour = engine.getTrackColour (track);
         if (fx != fxText || name != nameText || colour != nameColour || eq != eqOn)
         {
+            fader.setColour (juce::Slider::thumbColourId, colour);
             fxText = fx; nameText = name; nameColour = colour; eqOn = eq; numFx = count;
             repaint();
         }
@@ -112,16 +115,16 @@ public:
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds().toFloat().reduced (2.0f, 0.0f);
-        Theme::drawRaised (g, r, selected ? Theme::raisedHi : Theme::raised);
-        if (selected)
-        {
-            g.setColour (Theme::accent);
-            g.drawRoundedRectangle (r.reduced (0.5f), Theme::corner, 1.5f);
-        }
+        Theme::drawGlassPanel (g, r, 8.0f);
+        if (selected || track == 0)
+            Theme::drawActiveGlow (g, r, 8.0f, selected ? Theme::accent : Theme::accent.withAlpha (0.5f));
 
-        // Nome con il colore della traccia
+        // Nome con il colore della traccia (barretta luminosa)
+        auto stripe = nameArea.removeFromTop (3.0f).withTrimmedLeft (4).withTrimmedRight (4);
+        g.setColour (nameColour.withAlpha (0.3f));
+        g.fillRoundedRectangle (stripe.expanded (1.0f, 2.0f), 2.5f);
         g.setColour (nameColour);
-        g.fillRect (nameArea.removeFromTop (3.0f).withTrimmedLeft (2).withTrimmedRight (2));
+        g.fillRoundedRectangle (stripe, 1.5f);
         auto name = nameArea;
         g.setColour (Theme::textDim);
         g.setFont (Theme::font (10.0f, true));
@@ -155,13 +158,21 @@ public:
         g.setFont (Theme::font (10.0f, true));
         g.drawText (MixerFader::text (fader.getValue()), valueArea, juce::Justification::centred, false);
 
-        // Meter
+        // Meter a LED: azzurro, poi arancione, rosso in cima
         Theme::drawSunken (g, meterArea, Theme::lcdBg, 2.0f);
         auto inner = meterArea.reduced (1.5f);
-        const float h = inner.getHeight() * juce::jlimit (0.0f, 1.0f, std::sqrt (level));
-        g.setGradientFill (juce::ColourGradient (juce::Colour (0xffe0483e), inner.getX(), inner.getY(),
-                                                 Theme::led.darker (0.2f), inner.getX(), inner.getBottom(), false));
-        g.fillRect (inner.removeFromBottom (h));
+        const float amount = juce::jlimit (0.0f, 1.0f, std::sqrt (level));
+        const int segments = juce::jlimit (8, 28, (int) (inner.getHeight() / 6.0f));
+        const float segH = inner.getHeight() / (float) segments;
+        for (int i = 0; i < segments; ++i)
+        {
+            const float f = (float) i / (float) segments;
+            const auto colour = f < 0.62f ? Theme::cyan : f < 0.86f ? Theme::accent : juce::Colour (0xffff4d4d);
+            const bool lit = f < amount;
+            auto seg = juce::Rectangle<float> (inner.getX(), inner.getBottom() - segH * (float) (i + 1) + 0.75f, inner.getWidth(), segH - 1.5f);
+            g.setColour (lit ? colour : colour.withAlpha (0.08f));
+            g.fillRoundedRectangle (seg, 1.0f);
+        }
     }
 
     void resized() override
@@ -675,10 +686,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds().toFloat();
-        g.setColour (Theme::panel);
-        g.fillRoundedRectangle (r, Theme::corner);
-        g.setColour (Theme::border);
-        g.drawRoundedRectangle (r.reduced (0.5f), Theme::corner, 1.0f);
+        Theme::drawGlassPanel (g, r);
 
         auto title = titleArea;
         g.setColour (effectsTrack >= 0 ? engine.getTrackColour (effectsTrack) : Theme::accent);

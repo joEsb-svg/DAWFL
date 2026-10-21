@@ -148,7 +148,7 @@ public:
             for (int b = firstBar; b <= firstBar + bars + 1; ++b)
             {
                 const float x = gx + (float) b * barWidth - scrollX;
-                g.setColour (b % 4 == 0 ? Theme::raisedHi : Theme::raised.darker (0.15f));
+                g.setColour (b % 4 == 0 ? Theme::cyan.withAlpha (0.22f) : Theme::cyan.withAlpha (0.07f));
                 g.drawVerticalLine ((int) x, gy, (float) getHeight());
             }
 
@@ -166,22 +166,20 @@ public:
             {
                 if (i == dragIndex && dragging)
                     continue;
-                paintClip (g, clipBounds (clips[(size_t) i]), clips[(size_t) i].pattern, longPressed && i == dragIndex);
+                paintClip (g, clips[(size_t) i], longPressed && i == dragIndex);
             }
 
             if (dragging && dragIndex >= 0 && dragIndex < (int) clips.size())
-            {
-                auto c = clips[(size_t) dragIndex];
-                c.bar = dragBar; c.track = dragTrack;
-                paintClip (g, clipBounds (c), c.pattern, true);
-            }
+                paintClip (g, draggedClip (clips[(size_t) dragIndex]), true);
 
             // Playhead
             if (shownStep >= 0)
             {
                 const float x = gx + (float) shownStep / SequencerEngine::stepsPerBar * barWidth - scrollX;
-                g.setColour (Theme::accent);
-                g.fillRect (x - 0.75f, gy, 1.5f, (float) getHeight() - gy);
+                g.setColour (Theme::cyan.withAlpha (0.2f));
+                g.fillRect (x - 4.0f, gy, 8.0f, (float) getHeight() - gy);
+                g.setColour (Theme::cyan);
+                g.fillRect (x - 1.0f, gy, 2.0f, (float) getHeight() - gy);
             }
 
             if (clips.empty())
@@ -189,7 +187,7 @@ public:
                 g.setColour (Theme::textDim);
                 g.setFont (Theme::font (14.0f));
                 g.drawFittedText ("Tocca la griglia per mettere il pattern scelto in alto (" + PatternColours::name (engine, brush) + ").\n"
-                                  "Tocca una clip per toglierla, trascinala per spostarla, tienila premuta per il menu.",
+                                  "Tocca una clip per toglierla, trascinala per spostarla, trascina i bordi per accorciarla o allungarla, tienila premuta per il menu.",
                                   juce::Rectangle<int> (headerWidth + 12, rulerHeight + (int) trackHeight * 2, getWidth() - headerWidth - 24, 60),
                                   juce::Justification::centredLeft, 3);
             }
@@ -255,6 +253,17 @@ public:
         dragIndex = clipAt (e.position);
         onRuler = e.position.y < (float) rulerHeight && e.position.x > (float) headerWidth;
 
+        // Vicino ai bordi di una clip: si allunga/accorcia (destra) o si taglia l'inizio (sinistra)
+        edge = 0;
+        if (dragIndex >= 0)
+        {
+            const auto clips = engine.getClips();
+            const auto r = clipBounds (clips[(size_t) dragIndex]);
+            const float zone = juce::jmin (20.0f, r.getWidth() * 0.3f);
+            if (e.position.x > r.getRight() - zone)      edge = 1;
+            else if (e.position.x < r.getX() + zone)     edge = -1;
+        }
+
         if (dragIndex >= 0)
             startTimer (500);
     }
@@ -278,8 +287,9 @@ public:
 
             dragging = true;
             const auto& c = clips[(size_t) dragIndex];
+            dragDeltaSteps = snapSteps (delta.x / stepWidth());
             dragBar   = juce::jlimit (0, SequencerEngine::maxBars - 1, c.bar + juce::roundToInt (delta.x / barWidth));
-            dragTrack = juce::jlimit (0, SequencerEngine::numTracks - 1, c.track + juce::roundToInt (delta.y / trackHeight));
+            dragTrack = edge != 0 ? c.track : juce::jlimit (0, SequencerEngine::numTracks - 1, c.track + juce::roundToInt (delta.y / trackHeight));
             repaint();
             return;
         }
@@ -311,8 +321,7 @@ public:
         {
             if (dragIndex >= 0 && dragIndex < (int) clips.size())
             {
-                clips[(size_t) dragIndex].bar = dragBar;
-                clips[(size_t) dragIndex].track = dragTrack;
+                clips[(size_t) dragIndex] = draggedClip (clips[(size_t) dragIndex]);
                 engine.setClips (clips);
                 if (onEdit) onEdit();
             }
@@ -410,7 +419,9 @@ public:
                                 if (result == 3)
                                 {
                                     auto copy = clip;
-                                    copy.bar = juce::jmin (SequencerEngine::maxBars - 1, clip.bar + self.clipBars (clip.pattern));
+                                    const int clipEnd = clip.startStep() + self.engine.getClipLength (clip);
+                                    const int bars = (clipEnd + SequencerEngine::stepsPerBar - 1) / SequencerEngine::stepsPerBar;
+                                    copy.bar = juce::jmin (SequencerEngine::maxBars - 1, juce::jmax (clip.bar + 1, bars));
                                     list.push_back (copy);
                                 }
                                 else if (result == 4)
@@ -444,11 +455,59 @@ private:
         return juce::jmax (1, (engine.getPattern (pattern).length.load() + SequencerEngine::stepsPerBar - 1) / SequencerEngine::stepsPerBar);
     }
 
+    float stepWidth() const     { return barWidth / (float) SequencerEngine::stepsPerBar; }
+
+    /** Passo della griglia per i bordi: almeno ~12 pixel (1, 2, 4, 8 o 16 step a seconda dello zoom). */
+    int snapUnit() const
+    {
+        for (int u : { 1, 2, 4, 8 })
+            if ((float) u * stepWidth() >= 12.0f)
+                return u;
+        return 16;
+    }
+
+    int snapSteps (float steps) const
+    {
+        const int u = snapUnit();
+        return juce::roundToInt (steps / (float) u) * u;
+    }
+
+    /** La clip come diventa con il trascinamento in corso (spostata, allungata o tagliata). */
+    SequencerEngine::Clip draggedClip (SequencerEngine::Clip c) const
+    {
+        const int patLen = juce::jmax (1, engine.getPattern (c.pattern).length.load());
+        const int len = engine.getClipLength (c);
+        const int unit = snapUnit();
+        if (edge == 1)
+        {
+            const int newLen = juce::jlimit (juce::jmin (unit, len), SequencerEngine::maxBars * SequencerEngine::stepsPerBar, len + dragDeltaSteps);
+            c.length = (newLen == patLen && c.offset == 0) ? 0 : newLen;   // di nuovo intera: segue il pattern
+        }
+        else if (edge == -1)
+        {
+            const int start = c.startStep();
+            const int d = juce::jlimit (-start, len - juce::jmin (unit, len), dragDeltaSteps);
+            const int newStart = start + d;
+            c.bar = newStart / SequencerEngine::stepsPerBar;
+            c.sub = newStart % SequencerEngine::stepsPerBar;
+            c.offset = ((c.offset + d) % patLen + patLen) % patLen;
+            c.length = len - d;
+            if (c.length == patLen && c.offset == 0 && c.sub == 0)
+                c.length = 0;
+        }
+        else
+        {
+            c.bar = dragBar;
+            c.track = dragTrack;
+        }
+        return c;
+    }
+
     juce::Rectangle<float> clipBounds (const SequencerEngine::Clip& c) const
     {
-        return { (float) headerWidth + (float) c.bar * barWidth - scrollX + 1.0f,
+        return { (float) headerWidth + (float) c.startStep() * stepWidth() - scrollX + 1.0f,
                  (float) rulerHeight + (float) c.track * trackHeight - scrollY + 2.0f,
-                 (float) clipBars (c.pattern) * barWidth - 2.0f, trackHeight - 4.0f };
+                 (float) engine.getClipLength (c) * stepWidth() - 2.0f, trackHeight - 4.0f };
     }
 
     int clipAt (juce::Point<float> p) const
@@ -480,28 +539,53 @@ private:
         scrollY = juce::jlimit (0.0f, juce::jmax (0.0f, (float) SequencerEngine::numTracks * trackHeight - (float) (getHeight() - rulerHeight)), scrollY);
     }
 
-    void paintClip (juce::Graphics& g, juce::Rectangle<float> r, int pattern, bool ghost)
+    void paintClip (juce::Graphics& g, const SequencerEngine::Clip& clip, bool ghost)
     {
+        const auto r = clipBounds (clip);
+        const int pattern = clip.pattern;
         const auto colour = PatternColours::get (pattern);
-        g.setColour (colour.withAlpha (ghost ? 0.5f : 0.85f).darker (0.35f));
-        g.fillRoundedRectangle (r, 3.0f);
-        g.setColour (colour.withAlpha (ghost ? 0.8f : 1.0f));
-        g.drawRoundedRectangle (r.reduced (0.5f), 3.0f, ghost ? 2.0f : 1.0f);
+        g.setColour (colour.withAlpha (0.18f));
+        g.fillRoundedRectangle (r.expanded (1.5f), 6.0f);
+        g.setGradientFill (juce::ColourGradient (colour.withAlpha (ghost ? 0.45f : 0.75f).darker (0.15f), r.getX(), r.getY(),
+                                                 colour.withAlpha (ghost ? 0.3f : 0.55f).darker (0.6f), r.getX(), r.getBottom(), false));
+        g.fillRoundedRectangle (r, 5.0f);
+        g.setColour (colour.brighter (0.4f).withAlpha (ghost ? 0.9f : 0.85f));
+        g.drawRoundedRectangle (r.reduced (0.5f), 5.0f, ghost ? 2.0f : 1.0f);
 
-        // Anteprima: gli step del pattern (qualsiasi canale) come piccole tacche
+        // Anteprima: gli step del pattern (qualsiasi canale) come piccole tacche, dal punto di partenza;
+        // se la clip e' piu' lunga del pattern, il pattern si ripete (una linea segna ogni ripartenza)
         auto& pat = engine.getPattern (pattern);
-        const int len = pat.length.load();
-        auto inner = r.reduced (4.0f, 3.0f);
-        auto label = inner.removeFromTop (juce::jmin (14.0f, inner.getHeight() * 0.5f));
-        const float sw = inner.getWidth() / (float) len;
-        g.setColour (juce::Colours::white.withAlpha (0.55f));
-        for (int s = 0; s < len; ++s)
+        const int patLen = juce::jmax (1, pat.length.load());
+        const int len = engine.getClipLength (clip);
+        auto inner = r.reduced (0.0f, 3.0f);
+        auto label = inner.removeFromTop (juce::jmin (14.0f, inner.getHeight() * 0.5f)).reduced (4.0f, 0.0f);
+        const float sw = stepWidth();
+        std::array<bool, SequencerEngine::maxSteps> stepOn {};
+        for (int s = 0; s < patLen; ++s)
+            for (int ch = 0; ch < engine.getNumChannels() && ! stepOn[(size_t) s]; ++ch)
+                stepOn[(size_t) s] = pat.velocity[(size_t) ch][(size_t) s].load() > 0 || pat.noteCount[(size_t) ch].load() > 0;
+        for (int i = 0; i < len; ++i)
         {
-            bool on = false;
-            for (int c = 0; c < engine.getNumChannels() && ! on; ++c)
-                on = pat.velocity[(size_t) c][(size_t) s].load() > 0 || pat.noteCount[(size_t) c].load() > 0;
-            if (on && sw >= 1.5f)
-                g.fillRect (inner.getX() + (float) s * sw + sw * 0.2f, inner.getBottom() - inner.getHeight() * 0.6f, juce::jmax (1.0f, sw * 0.6f), inner.getHeight() * 0.6f);
+            const int s = (clip.offset + i) % patLen;
+            const float x = r.getX() + (float) i * sw;
+            if (s == 0 && i > 0)
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.35f));
+                g.fillRect (x - 0.5f, inner.getY() - 2.0f, 1.0f, inner.getHeight() + 2.0f);
+            }
+            if (stepOn[(size_t) s] && sw >= 1.5f)
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.55f));
+                g.fillRect (x + sw * 0.2f, inner.getBottom() - inner.getHeight() * 0.6f, juce::jmax (1.0f, sw * 0.6f), inner.getHeight() * 0.6f);
+            }
+        }
+
+        // Maniglie dei bordi (si trascinano per accorciare / allungare / tagliare l'inizio)
+        if (r.getWidth() > 30.0f)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.35f));
+            for (float x : { r.getX() + 3.0f, r.getRight() - 5.0f })
+                g.fillRoundedRectangle (x, r.getCentreY() - 6.0f, 2.0f, 12.0f, 1.0f);
         }
 
         g.setColour (Theme::textBright);
@@ -515,6 +599,7 @@ private:
     float startScrollX = 0.0f, startScrollY = 0.0f;
     juce::Point<float> downPos;
     int dragIndex = -1, dragBar = 0, dragTrack = 0, shownStep = -2;
+    int edge = 0, dragDeltaSteps = 0;   // bordo trascinato (-1 sinistro, 1 destro, 0 = si sposta la clip)
     bool dragging = false, scrolling = false, longPressed = false, onRuler = false;
     juce::uint64 shownHash = 0;
 };
@@ -588,10 +673,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds().toFloat();
-        g.setColour (Theme::panel);
-        g.fillRoundedRectangle (r, Theme::corner);
-        g.setColour (Theme::border);
-        g.drawRoundedRectangle (r.reduced (0.5f), Theme::corner, 1.0f);
+        Theme::drawGlassPanel (g, r);
 
         auto title = titleArea;
         g.setColour (Theme::accent);

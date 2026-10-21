@@ -114,8 +114,10 @@ void ChannelRow::paint (juce::Graphics& g)
 
         if (! muted)
         {
-            g.setColour (Theme::led.withAlpha (0.18f));
-            g.fillEllipse (led.expanded (d * 0.35f));
+            g.setColour (Theme::led.withAlpha (0.12f));
+            g.fillEllipse (led.expanded (d * 0.6f));
+            g.setColour (Theme::led.withAlpha (0.25f));
+            g.fillEllipse (led.expanded (d * 0.3f));
         }
 
         g.setColour (muted ? Theme::raised : Theme::led);
@@ -131,8 +133,14 @@ void ChannelRow::paint (juce::Graphics& g)
 
         const auto colour = getColour();
         const bool soloed = ch.solo.load();
-        g.setColour (colour.withAlpha (muted ? 0.3f : 0.9f));
-        g.fillRect (r.withWidth (3.0f).reduced (0.0f, 3.0f).translated (3.0f, 0.0f));
+        auto stripe = r.withWidth (3.0f).reduced (0.0f, 5.0f).translated (3.0f, 0.0f);
+        if (! muted)
+        {
+            g.setColour (colour.withAlpha (0.25f + 0.35f * flash));   // alone del colore del canale
+            g.fillRoundedRectangle (stripe.expanded (2.0f, 1.0f), 2.5f);
+        }
+        g.setColour (colour.withAlpha (muted ? 0.3f : 1.0f));
+        g.fillRoundedRectangle (stripe, 1.5f);
 
         auto textArea = r.withTrimmedLeft (11.0f).withRight (menuArea.getX());
         const float nameH = juce::jlimit (12.0f, 15.0f, r.getHeight() * 0.36f);
@@ -184,46 +192,60 @@ void ChannelRow::paint (juce::Graphics& g)
         if (step >= length)   // oltre la lunghezza del pattern
         {
             g.setColour (Theme::panel);
-            g.fillRoundedRectangle (pad, 2.0f);
+            g.fillRoundedRectangle (pad, 4.0f);
             continue;
         }
 
         const int vel  = engine.getStepVelocity (channel, step);
         const bool isCurrent = showPlayhead && step == current;
-        auto off = (step / 4) % 2 == 0 ? Theme::stepOffA : Theme::stepOffB;
-        if (isCurrent)
-            off = off.brighter (0.25f);
-
-        const auto onColour = (isCurrent ? Theme::stepOnHi : Theme::stepOn).withMultipliedAlpha (muted ? 0.45f : 1.0f);
+        const auto off = (step / 4) % 2 == 0 ? Theme::stepOffA : Theme::stepOffB;
+        const auto chColour = getColour().withMultipliedSaturation (muted ? 0.3f : 1.0f).withMultipliedAlpha (muted ? 0.5f : 1.0f);
 
         if (mode == EditMode::velocity || mode == EditMode::probability)
         {
-            // Barra verticale: velocity (grigio) o probabilita' (con accento)
-            Theme::drawSunken (g, pad, off.darker (0.35f), 2.0f);
+            // Barra verticale: velocity o probabilita', col colore del canale
+            Theme::drawSunken (g, pad, off.darker (0.35f), 4.0f);
 
             if (vel > 0)
             {
                 const float amount = mode == EditMode::velocity ? (float) vel / 127.0f
                                                                 : (float) engine.getStepProbability (channel, step) / 100.0f;
-                auto bar = pad.reduced (3.0f);
+                auto bar = pad.reduced (4.0f);
                 bar = bar.removeFromBottom (juce::jmax (2.0f, bar.getHeight() * amount));
-                g.setColour (mode == EditMode::velocity ? onColour : onColour.interpolatedWith (Theme::accent, 0.35f));
-                g.fillRect (bar);
-                g.setColour (Theme::accent);
-                g.fillRect (bar.removeFromTop (2.0f));
+                const auto c1 = mode == EditMode::velocity ? chColour : chColour.interpolatedWith (Theme::accent, 0.4f);
+                g.setGradientFill (juce::ColourGradient (c1.brighter (0.5f), bar.getX(), bar.getY(), c1.darker (0.2f), bar.getX(), bar.getBottom(), false));
+                g.fillRoundedRectangle (bar, 2.5f);
+                g.setColour (juce::Colours::white.withAlpha (0.85f));
+                g.fillRoundedRectangle (bar.removeFromTop (2.0f), 1.0f);
             }
+            if (isCurrent)
+                Theme::drawActiveGlow (g, pad, 4.0f, Theme::cyan);
             continue;
         }
 
         if (vel > 0)
         {
-            auto on = off.interpolatedWith (onColour, 0.45f + 0.55f * (float) vel / 127.0f);
-            Theme::drawRaised (g, pad, on, 2.0f);
+            // Step acceso: brilla del colore del canale (piu' forte se la velocity e' alta)
+            const float level = 0.45f + 0.55f * (float) vel / 127.0f;
+            g.setColour (chColour.withAlpha (0.22f * level));
+            g.fillRoundedRectangle (pad.expanded (1.5f), 5.5f);
+            juce::ColourGradient grad (chColour.brighter (1.2f).withMultipliedAlpha (level), pad.getCentreX(), pad.getY() + pad.getHeight() * 0.38f,
+                                       chColour.withMultipliedAlpha (0.55f + 0.45f * level), pad.getRight(), pad.getBottom(), true);
+            g.setGradientFill (grad);
+            g.fillRoundedRectangle (pad, 4.0f);
+            g.setColour (chColour.brighter (0.8f).withAlpha (0.8f * level));
+            g.drawRoundedRectangle (pad.reduced (0.5f), 4.0f, 1.0f);
         }
         else
         {
-            Theme::drawRaised (g, pad, off, 2.0f);
+            g.setGradientFill (juce::ColourGradient (off.brighter (0.06f), pad.getTopLeft(), off.darker (0.15f), pad.getBottomLeft(), false));
+            g.fillRoundedRectangle (pad, 4.0f);
+            g.setColour (Theme::cyan.withAlpha (0.08f));
+            g.drawRoundedRectangle (pad.reduced (0.5f), 4.0f, 1.0f);
         }
+
+        if (isCurrent)   // la colonna che suona: contorno azzurro luminoso
+            Theme::drawActiveGlow (g, pad, 4.0f, Theme::cyan);
 
         if (vel > 0)
         {

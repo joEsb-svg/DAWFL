@@ -49,7 +49,7 @@ public:
     void drawPopupMenuBackground (juce::Graphics& g, int width, int height) override
     {
         g.fillAll (Theme::panel);
-        g.setColour (Theme::border);
+        g.setColour (Theme::cyan.withAlpha (0.25f));
         g.drawRect (0, 0, width, height);
     }
 
@@ -73,10 +73,15 @@ public:
         const bool bipolar = slider.getProperties().getWithDefault ("bipolar", false);
         const float from = bipolar ? (startAngle + endAngle) * 0.5f : startAngle;
         valueArc.addCentredArc (centre.x, centre.y, arcR, arcR, 0.0f, juce::jmin (from, angle), juce::jmax (from, angle), true);
-        g.setColour (Theme::border);
-        g.strokePath (bgArc, juce::PathStrokeType (track, juce::PathStrokeType::curved, juce::PathStrokeType::butt));
+        g.setColour (juce::Colour (0xff1c2630));
+        g.strokePath (bgArc, juce::PathStrokeType (track, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        if (slider.isEnabled())
+        {
+            g.setColour (colour.withAlpha (0.22f));   // alone
+            g.strokePath (valueArc, juce::PathStrokeType (track * 2.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
         g.setColour (colour);
-        g.strokePath (valueArc, juce::PathStrokeType (track, juce::PathStrokeType::curved, juce::PathStrokeType::butt));
+        g.strokePath (valueArc, juce::PathStrokeType (track, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
         // Corpo della manopola: scuro, opaco, con un filo di luce in alto
         const float knobR = radius - track * 2.0f;
@@ -95,6 +100,36 @@ public:
     }
 
     //==============================================================================
+    /** Fader verticale: binario sottile e cappuccio chiaro con una riga del colore del canale. */
+    void drawLinearSlider (juce::Graphics& g, int x, int y, int width, int height, float sliderPos, float minPos, float maxPos,
+                           juce::Slider::SliderStyle style, juce::Slider& slider) override
+    {
+        if (style != juce::Slider::LinearVertical)
+        {
+            juce::LookAndFeel_V4::drawLinearSlider (g, x, y, width, height, sliderPos, minPos, maxPos, style, slider);
+            return;
+        }
+        auto r = juce::Rectangle<int> (x, y, width, height).toFloat();
+        const float cx = r.getCentreX();
+        auto trackR = juce::Rectangle<float> (cx - 2.5f, r.getY() + 6.0f, 5.0f, r.getHeight() - 12.0f);
+        g.setColour (Theme::lcdBg);
+        g.fillRoundedRectangle (trackR, 2.5f);
+        g.setColour (Theme::border);
+        g.drawRoundedRectangle (trackR, 2.5f, 1.0f);
+        const auto colour = slider.findColour (juce::Slider::thumbColourId);
+        g.setColour (colour.withAlpha (0.5f));
+        g.fillRoundedRectangle (trackR.withTop (sliderPos).reduced (1.0f, 0.0f), 2.0f);
+
+        const float capW = juce::jmin (36.0f, r.getWidth() - 4.0f), capH = 16.0f;
+        auto cap = juce::Rectangle<float> (capW, capH).withCentre ({ cx, sliderPos });
+        g.setColour (colour.withAlpha (0.25f));
+        g.fillRoundedRectangle (cap.expanded (3.0f), 7.0f);
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xffe9eef2), cap.getX(), cap.getY(), juce::Colour (0xff8f9ba6), cap.getX(), cap.getBottom(), false));
+        g.fillRoundedRectangle (cap, 4.0f);
+        g.setColour (colour);
+        g.fillRect (cap.reduced (5.0f, 0.0f).withHeight (2.0f).withCentre (cap.getCentre()));
+    }
+
     void drawButtonBackground (juce::Graphics& g, juce::Button& button, const juce::Colour&,
                                bool isHighlighted, bool isDown) override
     {
@@ -107,10 +142,7 @@ public:
         Theme::drawRaised (g, r, base);
 
         if (button.getToggleState())
-        {
-            g.setColour (Theme::accent);
-            g.fillRect (r.reduced (4.0f, 0.0f).removeFromBottom (2.0f));
-        }
+            Theme::drawActiveGlow (g, r);
     }
 
     juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override

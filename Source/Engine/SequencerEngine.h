@@ -174,21 +174,50 @@ public:
     }
 
     /** Un pattern piazzato nella playlist: traccia, battuta d'inizio, quale pattern. */
+    /**
+        Un pattern piazzato nella playlist.
+        - posizione: battuta + 'sub' sedicesimi (il bordo sinistro si puo' spostare dentro la battuta)
+        - length: quanti step suona (0 = tutto il pattern). Piu' corto: si ferma li'; piu' lungo: il pattern si ripete
+        - offset: da quale step del pattern parte (bordo sinistro tagliato)
+    */
     struct Clip
     {
-        int track = 0, bar = 0, pattern = 0;
-        bool operator== (const Clip& o) const { return track == o.track && bar == o.bar && pattern == o.pattern; }
+        int track = 0, bar = 0, pattern = 0, sub = 0, length = 0, offset = 0;
+        int startStep() const                   { return bar * stepsPerBar + sub; }
+        bool operator== (const Clip& o) const
+        {
+            return track == o.track && bar == o.bar && pattern == o.pattern && sub == o.sub && length == o.length && offset == o.offset;
+        }
     };
 
-    static uint32_t packClip (const Clip& c)
+    static uint64_t packClip (const Clip& c)
     {
-        return 0x80000000u
-             | (uint32_t) juce::jlimit (0, numTracks - 1, c.track) << 20
-             | (uint32_t) juce::jlimit (0, maxBars - 1, c.bar) << 8
-             | (uint32_t) juce::jlimit (0, numPatterns - 1, c.pattern);
+        return 0x80000000ull
+             | (uint64_t) juce::jlimit (0, numTracks - 1, c.track) << 20
+             | (uint64_t) juce::jlimit (0, maxBars - 1, c.bar) << 8
+             | (uint64_t) juce::jlimit (0, numPatterns - 1, c.pattern)
+             | (uint64_t) juce::jlimit (0, 8191, c.length) << 32
+             | (uint64_t) juce::jlimit (0, 63, c.offset) << 45
+             | (uint64_t) juce::jlimit (0, 15, c.sub) << 51;
     }
 
-    static Clip unpackClip (uint32_t v)     { return { (int) (v >> 20) & 0x7ff, (int) (v >> 8) & 0xfff, (int) v & 0xff }; }
+    static Clip unpackClip (uint64_t v)
+    {
+        Clip c;
+        c.track = (int) (v >> 20) & 0x7ff;
+        c.bar = (int) (v >> 8) & 0xfff;
+        c.pattern = (int) v & 0xff;
+        c.length = (int) (v >> 32) & 0x1fff;
+        c.offset = (int) (v >> 45) & 0x3f;
+        c.sub = (int) (v >> 51) & 0xf;
+        return c;
+    }
+
+    /** Quanti step suona davvero una clip (la sua lunghezza, o quella del pattern). */
+    int getClipLength (const Clip& c) const
+    {
+        return c.length > 0 ? c.length : patterns[(size_t) juce::jlimit (0, numPatterns - 1, c.pattern)].length.load();
+    }
 
     SequencerEngine()   { resetProject(); }
 
@@ -735,7 +764,7 @@ public:
             if (const auto v = slot.load(); v != 0)
             {
                 const auto c = unpackClip (v);
-                end = juce::jmax (end, c.bar * stepsPerBar + patterns[(size_t) c.pattern].length.load());
+                end = juce::jmax (end, c.startStep() + getClipLength (c));
             }
         return end;
     }
@@ -2226,9 +2255,13 @@ private:
 
                 const auto clip = unpackClip (v);
                 auto& pattern = patterns[(size_t) clip.pattern];
-                const int local = songStep - clip.bar * stepsPerBar;
-                if (local < 0 || local >= pattern.length.load())
+                const int rel = songStep - clip.startStep();
+                const int clipLength = clip.length > 0 ? clip.length : pattern.length.load();
+                if (rel < 0 || rel >= clipLength)
                     continue;
+                // Step del pattern: dal punto di partenza (bordo sinistro), e se la clip e' piu' lunga si ricomincia
+                const int patLen = juce::jmax (1, pattern.length.load());
+                const int local = (clip.offset + rel) % patLen;
 
                 // la stessa clip doppia (stesso pattern e battuta su due tracce) suona una volta sola
                 bool duplicate = false;
@@ -2237,7 +2270,7 @@ private:
                 if (duplicate || numActiveClips >= (int) activeClips.size())
                     continue;
 
-                activeClips[(size_t) numActiveClips++] = { clip.pattern, local };
+                activeClips[(size_t) numActiveClips++] = { clip.pattern, local, clipLength - rel };
                 playPatternStep (pattern, local, stepLength);
 
                 if (clip.pattern == edited)
@@ -2322,7 +2355,8 @@ private:
         {
             for (int i = 0; i < numActiveClips; ++i)
                 playPatternNotes (patterns[(size_t) activeClips[(size_t) i].pattern],
-                                  activeClips[(size_t) i].localStep * ticksPerStep + tickInStep);
+                                  activeClips[(size_t) i].localStep * ticksPerStep + tickInStep,
+                                  activeClips[(size_t) i].stepsLeft * ticksPerStep - tickInStep);   // le note si fermano a fine clip
         }
         else
         {
@@ -2393,7 +2427,7 @@ private:
     }
 
     /** Fa partire le note del piano roll di un pattern che iniziano a questo tick. */
-    void playPatternNotes (Pattern& pattern, int tick)
+    void playPatternNotes (Pattern& pattern, int tick, int maxLength = 1 << 24)
     {
         for (int c = 0; c < numActive; ++c)
         {
@@ -2407,10 +2441,11 @@ private:
                     continue;
 
                 const auto n = unpackNote (v);
+                const int length = juce::jmax (1, juce::jmin (n.length, maxLength));
                 if (instruments[(size_t) c] != nullptr)
-                    instNoteOn (c, n.pitch, (float) n.velocity / 127.0f, n.length);   // lo strumento riceve l'altezza vera
+                    instNoteOn (c, n.pitch, (float) n.velocity / 127.0f, length);   // lo strumento riceve l'altezza vera
                 else
-                    triggerChannel (c, (float) n.velocity / 127.0f, humanizeAmt[(size_t) c], n.pitch, n.length, true);
+                    triggerChannel (c, (float) n.velocity / 127.0f, humanizeAmt[(size_t) c], n.pitch, length, true);
             }
         }
     }
@@ -2566,7 +2601,7 @@ private:
     std::atomic<float>  masterVolume     { 1.0f };
     std::atomic<int>    currentStep      { -1 };
     std::atomic<int>    currentTick      { -1 };
-    std::array<std::atomic<uint32_t>, maxClips> clips {};
+    std::array<std::atomic<uint64_t>, maxClips> clips {};
     std::atomic<bool>   songMode         { false };
     std::atomic<int>    songStartBar     { 0 };
     std::atomic<int>    currentSongStep  { -1 };
@@ -2636,7 +2671,7 @@ private:
     int    stepIndex            = -1;
     int    songStep             = -1, songLength = 0;
     bool   inSong               = false;
-    struct ActiveClip { int pattern = 0, localStep = 0; };
+    struct ActiveClip { int pattern = 0, localStep = 0, stepsLeft = 1 << 20; };
     std::array<ActiveClip, 64> activeClips {};
     int    numActiveClips       = 0;
     int    tickInStep           = 0;

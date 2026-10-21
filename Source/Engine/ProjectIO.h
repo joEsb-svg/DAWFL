@@ -186,7 +186,14 @@ namespace ProjectIO
         // Playlist: [traccia, battuta, pattern] per ogni clip
         juce::Array<juce::var> song;
         for (auto& c : engine.getClips())
-            song.add (juce::Array<juce::var> { c.track, c.bar, c.pattern });
+        {
+            juce::Array<juce::var> entry { c.track, c.bar, c.pattern };
+            if (c.length > 0 || c.offset > 0 || c.sub > 0)   // clip accorciata/allungata/tagliata
+            {
+                entry.add (c.length); entry.add (c.offset); entry.add (c.sub);
+            }
+            song.add (entry);
+        }
         if (! song.isEmpty())
             root->setProperty ("song", song);
         if (engine.isSongMode())
@@ -399,9 +406,19 @@ namespace ProjectIO
             std::vector<SequencerEngine::Clip> clips;
             for (auto& c : *song)
                 if (auto* f = c.getArray(); f != nullptr && f->size() >= 3)
-                    clips.push_back ({ juce::jlimit (0, SequencerEngine::numTracks - 1, (int) (*f)[0]),
-                                       juce::jlimit (0, SequencerEngine::maxBars - 1, (int) (*f)[1]),
-                                       juce::jlimit (0, SequencerEngine::numPatterns - 1, (int) (*f)[2]) });
+                {
+                    SequencerEngine::Clip clip;
+                    clip.track = juce::jlimit (0, SequencerEngine::numTracks - 1, (int) (*f)[0]);
+                    clip.bar = juce::jlimit (0, SequencerEngine::maxBars - 1, (int) (*f)[1]);
+                    clip.pattern = juce::jlimit (0, SequencerEngine::numPatterns - 1, (int) (*f)[2]);
+                    if (f->size() >= 6)
+                    {
+                        clip.length = juce::jlimit (0, 8191, (int) (*f)[3]);
+                        clip.offset = juce::jlimit (0, 63, (int) (*f)[4]);
+                        clip.sub = juce::jlimit (0, 15, (int) (*f)[5]);
+                    }
+                    clips.push_back (clip);
+                }
             engine.setClips (clips);
         }
         engine.setSongMode ((bool) json.getProperty ("songMode", false));

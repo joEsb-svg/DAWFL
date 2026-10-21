@@ -101,10 +101,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds().toFloat();
-        g.setColour (Theme::panel);
-        g.fillRoundedRectangle (r, Theme::corner);
-        g.setColour (Theme::border);
-        g.drawRoundedRectangle (r.reduced (0.5f), Theme::corner, 1.0f);
+        Theme::drawGlassPanel (g, r);
 
         auto title = titleArea;
         const auto colour = channel >= 0 ? juce::Colour (engine.getChannel (channel).colour.load()) : Theme::accent;
