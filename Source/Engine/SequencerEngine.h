@@ -1188,6 +1188,7 @@ public:
         perfLoadSum.store (perfLoadSum.load (std::memory_order_relaxed) + load, std::memory_order_relaxed);
         if (load > perfLoadMax.load (std::memory_order_relaxed)) perfLoadMax.store (load, std::memory_order_relaxed);
         if (load > 0.8f) perfOverruns.fetch_add (1, std::memory_order_relaxed);
+        recentLoad.store (recentLoad.load (std::memory_order_relaxed) * 0.97f + load * 0.03f, std::memory_order_relaxed);
         if (lockMissedThisBlock)
         {
             perfLockMisses.fetch_add (1, std::memory_order_relaxed);   // blocco saltato (silenzio = un "tic")
@@ -1195,6 +1196,9 @@ public:
         }
         perfBlockSize.store (numSamples, std::memory_order_relaxed);
     }
+
+    /** Carico medio recente del calcolo audio (0..1+), per l'indicatore CPU. */
+    float getRecentLoad() const                 { return recentLoad.load (std::memory_order_relaxed); }
 
     /** Statistiche del processore audio dall'ultima lettura (per il rapporto prestazioni). */
     struct PerfStats { int blocks = 0, overruns = 0, lockMisses = 0, blockSize = 0; float avgLoad = 0.0f, maxLoad = 0.0f; };
@@ -2672,7 +2676,7 @@ private:
     std::atomic<bool> panicRequested { false };
     std::atomic<bool> switchNow { false };
     std::atomic<int> perfBlocks { 0 }, perfOverruns { 0 }, perfLockMisses { 0 }, perfBlockSize { 0 };
-    std::atomic<float> perfLoadSum { 0.0f }, perfLoadMax { 0.0f };
+    std::atomic<float> perfLoadSum { 0.0f }, perfLoadMax { 0.0f }, recentLoad { 0.0f };
     bool lockMissedThisBlock = false;
     std::atomic<int> scaleRoot { 9 }, scaleType { 0 };
 

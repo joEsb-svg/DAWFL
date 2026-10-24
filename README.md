@@ -14,7 +14,14 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.32)
+## Stato attuale (v0.33)
+
+**Novita' della 0.33 (scatti audio)**
+- Riserva audio: un thread dedicato calcola l'audio in anticipo (40 ms su Android) e la scheda audio
+  lo preleva dalla riserva, cosi' i picchi di calcolo del telefono non producono scatti
+- Regolabile dal menu CPU > "Riserva audio (contro gli scatti)": 0 / 20 / 40 / 80 / 120 ms
+- Il buffer del dispositivo torna al valore predefinito del telefono (una volta sola)
+- Il rapporto prestazioni mostra la riserva e quante volte si e' svuotata
 
 **Novita' della 0.32 (suoni)**
 - Libreria unica divisa per tipo: Batteria (Kick, Rullanti, Clap e schiocchi, Hi-hat chiusi, Hi-hat aperti,

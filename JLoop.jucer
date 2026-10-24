@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <JUCERPROJECT name="JLoop" projectType="guiapp" bundleIdentifier="com.joesb.dawfl"
-              version="0.32.0" companyName="joEsb" id="DwFl01" useAppConfig="0"
+              version="0.33.0" companyName="joEsb" id="DwFl01" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" cppLanguageStandard="20" defines="JucePlugin_Name=&quot;BassForge&quot;&#10;JUCE_STRICT_REFCOUNTEDPOINTER=1"
               jucerFormatVersion="1">
   <MAINGROUP id="Mg0001" name="JLoop">
@@ -56,6 +56,7 @@
       <FILE id="UhH001" name="UndoHistory.h" compile="0" resource="0" file="Source/UI/UndoHistory.h"/>
       <FILE id="LpH001" name="LivePanel.h" compile="0" resource="0" file="Source/UI/LivePanel.h"/>
       <FILE id="HoH001" name="HoloDisplay.h" compile="0" resource="0" file="Source/UI/HoloDisplay.h"/>
+      <FILE id="RaH001" name="RenderAhead.h" compile="0" resource="0" file="Source/Engine/RenderAhead.h"/>
       <FILE id="PbH001" name="PresetBrowser.h" compile="0" resource="0" file="Source/UI/PresetBrowser.h"/>
       <FILE id="MxH002" name="MixerPanel.h" compile="0" resource="0" file="Source/UI/MixerPanel.h"/>
       <FILE id="DfH001" name="DrumForge.h" compile="0" resource="0" file="Source/Instruments/DrumForge/DrumForge.h"/>
@@ -491,7 +492,7 @@
   </MAINGROUP>
   <EXPORTFORMATS>
     <ANDROIDSTUDIO targetFolder="Builds/Android" androidEnableContentSharing="1" androidBluetoothScanNeeded="1" androidBluetoothConnectNeeded="1" smallIcon="IcOn01" bigIcon="IcOn01"
-                   androidVersionCode="33" androidMinimumSDK="24" androidScreenOrientation="landscape"
+                   androidVersionCode="34" androidMinimumSDK="24" androidScreenOrientation="landscape"
                    androidInternetNeeded="0" androidExternalWriteNeeded="0" androidPushNotifications="0"
                    androidReadMediaAudioPermission="0" androidReadMediaImagesPermission="0"
                    androidReadMediaVideoPermission="0">

@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "../Engine/SequencerEngine.h"
+#include "../Engine/RenderAhead.h"
 #include "DawLookAndFeel.h"
 #include "Widgets.h"
 #include "ChannelRow.h"
@@ -56,6 +57,7 @@ private:
     void openProject (const juce::String& name);
     void deleteProject (const juce::String& name);
     void newProject();
+    void setAudioReserve (int ms);
     void applyDefaultDrums();
     void loadDemo (int index);
     void showGuide();
@@ -151,6 +153,7 @@ private:
     juce::String getKitLabel() const;
 
     SequencerEngine engine;
+    RenderAhead renderAhead { engine };   // audio calcolato in anticipo (assorbe i picchi del telefono)
     std::unique_ptr<Instruments::Host> instruments;      // gli strumenti dei canali (distrutti dopo il pannello)
     std::unique_ptr<SynthPanel> synthPanel;
     std::unique_ptr<JLoopSplash> splash;
@@ -162,7 +165,7 @@ private:
     juce::AudioDeviceManager deviceManager;
     struct PerfLog
     {
-        int blocks = 0, overruns = 0, lockMisses = 0, blockSize = 0, uiStalls = 0, maxVoices = 0, startXRuns = 0;
+        int blocks = 0, overruns = 0, lockMisses = 0, blockSize = 0, uiStalls = 0, maxVoices = 0, startXRuns = 0, reserveEmpty = 0;
         float loadSum = 0.0f, maxLoad = 0.0f;
         double startMs = 0.0, lastTimerMs = 0.0, worstUiGapMs = 0.0, playingSeconds = 0.0;
     } perfLog;

@@ -242,7 +242,7 @@ MainComponent::MainComponent()
 
     // --- Audio: 0 ingressi, 2 uscite (stereo)
     audioError = deviceManager.initialiseWithDefaultDevices (0, 2);
-    deviceManager.addAudioCallback (&engine);
+    deviceManager.addAudioCallback (&renderAhead);
     deviceManager.addMidiInputDeviceCallback ({}, this);   // tutte le tastiere MIDI attive
     scanMidiInputs();
     loadSettings();
@@ -296,7 +296,7 @@ MainComponent::~MainComponent()
     stopTimer();
     saveSession();
     deviceManager.removeMidiInputDeviceCallback ({}, this);
-    deviceManager.removeAudioCallback (&engine);
+    deviceManager.removeAudioCallback (&renderAhead);
     deviceManager.closeAudioDevice();
     juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
     setLookAndFeel (nullptr);
@@ -933,7 +933,7 @@ void MainComponent::showFileMenu()
                                 self.openLive();
                             else if (result >= 3000 && result < 4000)
                                 self.loadDemo (result - 3000);
-                            else if (result >= 5000 && result < 6000)
+                            else if (result >= 5000 && result < 9000)
                                 self.handleSettingsResult (result);
                             else if (result >= 2000)
                                 self.deleteProject (projects[result - 2000]);
@@ -1732,20 +1732,34 @@ void MainComponent::loadSettings()
     recordQuantize = settings->getIntValue ("recordQuantize", 12);
     cpuBadge.setLowPower (perf::lowPower());
 
+    // 0.33: l'audio ha la "riserva" (calcolato in anticipo): il buffer della scheda torna quello del telefono
+    if (! settings->getBoolValue ("audioSetupV2", false))
+    {
+        settings->removeValue ("bufferSize");
+        settings->setValue ("audioSetupV2", true);
+        settings->saveIfNeeded();
+    }
     if (const int buffer = settings->getIntValue ("bufferSize", 0); buffer > 0)
         setBufferSize (buffer);
-    else if (auto* device = deviceManager.getCurrentAudioDevice())
+
+   #if JUCE_ANDROID
+    constexpr int defaultReserve = 40;
+   #else
+    constexpr int defaultReserve = 0;
+   #endif
+    setAudioReserve (settings->getIntValue ("audioReserveMs", defaultReserve));
+}
+
+void MainComponent::setAudioReserve (int ms)
+{
+    // Si riavvia il collegamento con la scheda audio: il thread della riserva parte (o si ferma) pulito
+    deviceManager.removeAudioCallback (&renderAhead);
+    renderAhead.setReserveMs (ms);
+    deviceManager.addAudioCallback (&renderAhead);
+    if (settings != nullptr)
     {
-        // Primo avvio: buffer di circa 10 ms. Quello minimo del telefono (2-4 ms) fa lavorare il processore
-        // molto di piu' (tante chiamate piccole) e fa gracchiare l'audio; 10 ms di ritardo non si sentono.
-        const double sr = device->getCurrentSampleRate() > 0 ? device->getCurrentSampleRate() : 48000.0;
-        const int target = (int) (sr * 0.010);
-        int best = device->getCurrentBufferSizeSamples();
-        for (int size : device->getAvailableBufferSizes())
-            if (size >= target && (best < target || size < best))
-                best = size;
-        if (best > device->getCurrentBufferSizeSamples())
-            setBufferSize (best);
+        settings->setValue ("audioReserveMs", ms);
+        settings->saveIfNeeded();
     }
 }
 
@@ -1879,10 +1893,13 @@ void MainComponent::handleIncomingMidiMessage (juce::MidiInput*, const juce::Mid
 
 void MainComponent::updateCpuBadge()
 {
-    const float load = (float) deviceManager.getCpuUsage();
+    // Carico misurato dal motore (con la riserva audio il callback della scheda non fa quasi niente)
+    const float load = juce::jmax (engine.getRecentLoad(), (float) deviceManager.getCpuUsage());
     const int xruns = deviceManager.getXRunCount();
+    const int empties = renderAhead.takeUnderruns();
+    perfLog.reserveEmpty += empties;
     const auto now = juce::Time::getMillisecondCounter();
-    if (xruns > lastXRuns)
+    if (xruns > lastXRuns || empties > 0)
     {
         lastXRuns = xruns;
         lastXRunTime = now;
@@ -1924,7 +1941,8 @@ juce::String MainComponent::buildPerformanceReport() const
       << "Audio: " << (device != nullptr ? device->getTypeName() + " " + juce::String (device->getCurrentSampleRate(), 0) + " Hz, buffer "
                                             + juce::String (device->getCurrentBufferSizeSamples()) : juce::String ("nessuno"))
       << ", blocco " << perfLog.blockSize << "\n"
-      << "Grafica: " << (openGL.isAttached() ? "GPU (OpenGL)" : "processore") << ",  Risparmio: " << (perf::lowPower() ? "si" : "no") << "\n"
+      << "Grafica: " << (openGL.isAttached() ? "GPU (OpenGL)" : "processore") << ",  Risparmio: " << (perf::lowPower() ? "si" : "no")
+      << ",  riserva audio: " << renderAhead.getReserveMs() << " ms (svuotata " << perfLog.reserveEmpty << " volte)\n"
       << "Progetto: " << engine.getNumChannels() << " canali\n"
       << "Periodo: " << juce::String (seconds, 0) << " s (in riproduzione " << juce::String (perfLog.playingSeconds, 0) << " s)\n"
       << "Audio - carico medio: " << juce::String (perfLog.blocks > 0 ? 100.0f * perfLog.loadSum / (float) perfLog.blocks : 0.0f, 1)
@@ -1972,6 +1990,12 @@ void MainComponent::showPerformanceMenu()
     top.addItem (5100, "Risparmio (meno voci nei synth)", true, perf::lowPower());
     top.addItem (5101, "Ferma tutti i suoni (panico)");
     top.addItem (5102, "Rapporto prestazioni...");
+    {
+        juce::PopupMenu reserve;
+        for (int ms : { 0, 20, 40, 80, 120 })
+            reserve.addItem (8000 + ms, ms == 0 ? juce::String ("Spenta (latenza minima)") : juce::String (ms) + " ms", true, renderAhead.getReserveMs() == ms);
+        top.addSubMenu ("Riserva audio (contro gli scatti)", reserve);
+    }
    #if JUCE_ANDROID
     top.addItem (5103, "Grafica con la scheda grafica (GPU)", true, openGL.isAttached());
    #endif
@@ -2000,6 +2024,10 @@ void MainComponent::handleSettingsResult (int result)
         settings->setValue ("lowPower", perf::lowPower());
         settings->saveIfNeeded();
         cpuBadge.setLowPower (perf::lowPower());
+    }
+    else if (result >= 8000 && result <= 8200)
+    {
+        setAudioReserve (result - 8000);
     }
     else if (result == 5102)
     {
@@ -2032,7 +2060,7 @@ void MainComponent::handleSettingsResult (int result)
                 juce::BluetoothMidiDevicePairingDialogue::open();
         });
     }
-    else if (result > 5000 && result < 6000)
+    else if (result > 5000 && result < 8000)
         setBufferSize (result - 5000);
 }
 
