@@ -63,6 +63,9 @@
       <FILE id="DfC001" name="DrumForge.cpp" compile="1" resource="0" file="Source/Instruments/DrumForge/DrumForge.cpp"/>
       <FILE id="DfH002" name="DrumForgeEditor.h" compile="0" resource="0" file="Source/Instruments/DrumForge/DrumForgeEditor.h"/>
       <FILE id="DfC002" name="DrumForgeEditor.cpp" compile="1" resource="0" file="Source/Instruments/DrumForge/DrumForgeEditor.cpp"/>
+      <FILE id="FrH001" name="FrenchRoulette.h" compile="0" resource="0" file="Source/Instruments/FrenchRoulette/FrenchRoulette.h"/>
+      <FILE id="FrC001" name="FrenchRoulette.cpp" compile="1" resource="0" file="Source/Instruments/FrenchRoulette/FrenchRoulette.cpp"/>
+      <FILE id="FrH002" name="FrenchRouletteEditor.h" compile="0" resource="0" file="Source/Instruments/FrenchRoulette/FrenchRouletteEditor.h"/>
       <FILE id="FmH001" name="FMForge.h" compile="0" resource="0" file="Source/Instruments/FMForge/FMForge.h"/>
       <FILE id="FmC001" name="FMForge.cpp" compile="1" resource="0" file="Source/Instruments/FMForge/FMForge.cpp"/>
       <FILE id="FmH002" name="FMForgeEditor.h" compile="0" resource="0" file="Source/Instruments/FMForge/FMForgeEditor.h"/>
