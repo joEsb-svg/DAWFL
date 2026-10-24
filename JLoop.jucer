@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <JUCERPROJECT name="JLoop" projectType="guiapp" bundleIdentifier="com.joesb.dawfl"
-              version="0.30.0" companyName="joEsb" id="DwFl01" useAppConfig="0"
+              version="0.31.0" companyName="joEsb" id="DwFl01" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" cppLanguageStandard="20" defines="JucePlugin_Name=&quot;BassForge&quot;&#10;JUCE_STRICT_REFCOUNTEDPOINTER=1"
               jucerFormatVersion="1">
   <MAINGROUP id="Mg0001" name="JLoop">
@@ -385,7 +385,7 @@
   </MAINGROUP>
   <EXPORTFORMATS>
     <ANDROIDSTUDIO targetFolder="Builds/Android" androidEnableContentSharing="1" androidBluetoothScanNeeded="1" androidBluetoothConnectNeeded="1" smallIcon="IcOn01" bigIcon="IcOn01"
-                   androidVersionCode="31" androidMinimumSDK="24" androidScreenOrientation="landscape"
+                   androidVersionCode="32" androidMinimumSDK="24" androidScreenOrientation="landscape"
                    androidInternetNeeded="0" androidExternalWriteNeeded="0" androidPushNotifications="0"
                    androidReadMediaAudioPermission="0" androidReadMediaImagesPermission="0"
                    androidReadMediaVideoPermission="0">
@@ -400,6 +400,7 @@
         <MODULEPATH id="juce_audio_devices" path="JUCE/modules"/>
         <MODULEPATH id="juce_audio_formats" path="JUCE/modules"/>
         <MODULEPATH id="juce_gui_extra" path="JUCE/modules"/>
+        <MODULEPATH id="juce_opengl" path="JUCE/modules"/>
         <MODULEPATH id="juce_dsp" path="JUCE/modules"/>
         <MODULEPATH id="juce_audio_utils" path="JUCE/modules"/>
         <MODULEPATH id="juce_audio_processors_headless" path="JUCE/modules"/>
@@ -421,6 +422,7 @@
         <MODULEPATH id="juce_audio_devices" path="JUCE/modules"/>
         <MODULEPATH id="juce_audio_formats" path="JUCE/modules"/>
         <MODULEPATH id="juce_gui_extra" path="JUCE/modules"/>
+        <MODULEPATH id="juce_opengl" path="JUCE/modules"/>
         <MODULEPATH id="juce_dsp" path="JUCE/modules"/>
         <MODULEPATH id="juce_audio_utils" path="JUCE/modules"/>
         <MODULEPATH id="juce_audio_processors_headless" path="JUCE/modules"/>
@@ -442,6 +444,7 @@
         <MODULEPATH id="juce_audio_devices" path="JUCE/modules"/>
         <MODULEPATH id="juce_audio_formats" path="JUCE/modules"/>
         <MODULEPATH id="juce_gui_extra" path="JUCE/modules"/>
+        <MODULEPATH id="juce_opengl" path="JUCE/modules"/>
         <MODULEPATH id="juce_dsp" path="JUCE/modules"/>
         <MODULEPATH id="juce_audio_utils" path="JUCE/modules"/>
         <MODULEPATH id="juce_audio_processors_headless" path="JUCE/modules"/>
@@ -469,6 +472,7 @@
     <MODULE id="juce_graphics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_gui_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_gui_extra" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_opengl" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
   </MODULES>
   <JUCEOPTIONS JUCE_USE_MP3AUDIOFORMAT="1" JUCE_WEB_BROWSER="0" JUCE_USE_CURL="0"/>
   <LIVE_SETTINGS/>

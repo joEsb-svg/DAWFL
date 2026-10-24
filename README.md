@@ -14,7 +14,18 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.30)
+## Stato attuale (v0.31)
+
+**Novita' della 0.31 (prestazioni)**
+- Android: lo schermo lo disegna la scheda grafica (OpenGL); disattivabile dal menu della CPU
+- Limiter del master senza distorsione sui bassi (tiene giu' il volume 25 ms invece di inseguire
+  ogni onda) e niente spinta di +3 dB prima del limiter: le code che si sommano non gracchiano piu'
+- Righe del channel rack ridisegnate solo dove cambia qualcosa; schermo aggiornato 30 volte al secondo
+- BassForge sul telefono: distorsione con oversampling al massimo 2x
+- Rapporto prestazioni (menu della CPU): carico dell'audio medio e di picco, scatti, ritardi della
+  grafica; "Copia" per mandarlo
+
+## (v0.30)
 
 **Novita' della 0.30**
 - Nuovo stile in tutta l'app (vetro scuro, bordi azzurri, luci arancioni): step accesi che brillano del

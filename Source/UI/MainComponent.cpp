@@ -246,9 +246,20 @@ MainComponent::MainComponent()
     deviceManager.addMidiInputDeviceCallback ({}, this);   // tutte le tastiere MIDI attive
     scanMidiInputs();
     loadSettings();
+    resetPerformanceLog();
 
     juce::Desktop::getInstance().addGlobalMouseListener (&touchWatcher);
-    startTimerHz (40);
+    startTimerHz (30);
+
+   #if JUCE_ANDROID
+    // La grafica (sfumature, luci, testo) la calcola la GPU: sul telefono il processore resta libero per l'audio.
+    // Lo schermo si ridisegna solo quando qualcosa cambia (niente ridisegno continuo).
+    openGL.setComponentPaintingEnabled (true);
+    openGL.setContinuousRepainting (false);
+    openGL.setMultisamplingEnabled (false);
+    if (settings == nullptr || settings->getBoolValue ("gpuRendering", true))
+        openGL.attachTo (*this);
+   #endif
     setSize (900, 440);
 
     // Presentazione all'avvio (sopra a tutto, poi si toglie da sola)
@@ -278,6 +289,9 @@ MainComponent::MainComponent()
 
 MainComponent::~MainComponent()
 {
+   #if JUCE_ANDROID
+    openGL.detach();
+   #endif
     juce::Desktop::getInstance().removeGlobalMouseListener (&touchWatcher);
     stopTimer();
     saveSession();
@@ -675,6 +689,18 @@ juce::String MainComponent::getKitLabel() const
 //==============================================================================
 void MainComponent::timerCallback()
 {
+    // Rapporto prestazioni: aggiornamenti dello schermo arrivati in ritardo (la grafica non ce la fa)
+    {
+        const double nowMs = juce::Time::getMillisecondCounterHiRes();
+        if (perfLog.lastTimerMs > 0.0)
+        {
+            const double gap = nowMs - perfLog.lastTimerMs;
+            if (gap > 100.0) ++perfLog.uiStalls;
+            perfLog.worstUiGapMs = juce::jmax (perfLog.worstUiGapMs, gap);
+        }
+        perfLog.lastTimerMs = nowMs;
+    }
+
     // Canali aggiunti, tolti o spostati (anche da undo e caricamento): ricrea le righe
     if (engine.getStructureVersion() != shownStructure)
         rebuildRows();
@@ -733,14 +759,14 @@ void MainComponent::timerCallback()
 
     // Undo: cerca modifiche ~8 volte al secondo
     // (solo dopo un tocco dello schermo, e comunque ogni 3 secondi: costa poco al telefono)
-    if (++snapshotCounter >= 120 || (snapshotCounter >= 4 && userTouched.exchange (false)))
+    if (++snapshotCounter >= 90 || (snapshotCounter >= 3 && userTouched.exchange (false)))
     {
         snapshotCounter = 0;
         checkForChanges();
     }
 
     // Autosalvataggio: 2 secondi dopo una modifica, e comunque ogni 10 secondi (i synth cambiano anche fuori dall'undo)
-    if (++autosaveCounter >= 40 * 10 || (sessionDirty && juce::Time::getMillisecondCounter() - dirtySince > 2000))
+    if (++autosaveCounter >= 30 * 10 || (sessionDirty && juce::Time::getMillisecondCounter() - dirtySince > 2000))
     {
         autosaveCounter = 0;
         sessionDirty = false;
@@ -757,14 +783,14 @@ void MainComponent::timerCallback()
     }
 
     // Tastiere MIDI collegate (USB o Bluetooth): si attivano da sole
-    if (++midiScanCounter >= 80)
+    if (++midiScanCounter >= 60)
     {
         midiScanCounter = 0;
         scanMidiInputs();
     }
 
     // Processore e scatti audio, 4 volte al secondo
-    if (++cpuCounter >= 10)
+    if (++cpuCounter >= 8)
     {
         cpuCounter = 0;
         updateCpuBadge();
@@ -1839,6 +1865,17 @@ void MainComponent::updateCpuBadge()
     const bool recentGlitch = now - lastXRunTime < 3000 && lastXRunTime != 0;
     cpuBadge.setState (load, recentGlitch);
 
+    // Rapporto prestazioni: si accumula finche' non lo si azzera
+    const auto s = engine.takePerfStats();
+    perfLog.blocks += s.blocks;
+    perfLog.loadSum += s.avgLoad * (float) s.blocks;
+    perfLog.maxLoad = juce::jmax (perfLog.maxLoad, s.maxLoad);
+    perfLog.overruns += s.overruns;
+    perfLog.lockMisses += s.lockMisses;
+    perfLog.blockSize = s.blockSize;
+    perfLog.maxVoices = juce::jmax (perfLog.maxVoices, engine.countActiveSamplerVoices());
+    if (engine.isPlaying()) perfLog.playingSeconds += 0.25;
+
     // Al limite per un po' mentre suona: un consiglio, una volta sola
     highLoadTicks = (engine.isPlaying() && (load > 0.9f || recentGlitch)) ? highLoadTicks + 1 : 0;
     if (highLoadTicks > 8 && ! performanceHintShown && ! perf::lowPower())
@@ -1850,6 +1887,56 @@ void MainComponent::updateCpuBadge()
     }
 }
 
+juce::String MainComponent::buildPerformanceReport() const
+{
+    juce::String r;
+    auto* device = const_cast<juce::AudioDeviceManager&> (deviceManager).getCurrentAudioDevice();
+    const double seconds = (juce::Time::getMillisecondCounterHiRes() - perfLog.startMs) / 1000.0;
+    r << "JLoop " << ProjectInfo::versionString << "  -  rapporto prestazioni\n"
+      << "Dispositivo: " << juce::SystemStats::getDeviceManufacturer() << " " << juce::SystemStats::getDeviceDescription()
+      << "  (" << juce::SystemStats::getNumCpus() << " core)\n"
+      << "Audio: " << (device != nullptr ? device->getTypeName() + " " + juce::String (device->getCurrentSampleRate(), 0) + " Hz, buffer "
+                                            + juce::String (device->getCurrentBufferSizeSamples()) : juce::String ("nessuno"))
+      << ", blocco " << perfLog.blockSize << "\n"
+      << "Grafica: " << (openGL.isAttached() ? "GPU (OpenGL)" : "processore") << ",  Risparmio: " << (perf::lowPower() ? "si" : "no") << "\n"
+      << "Progetto: " << engine.getNumChannels() << " canali\n"
+      << "Periodo: " << juce::String (seconds, 0) << " s (in riproduzione " << juce::String (perfLog.playingSeconds, 0) << " s)\n"
+      << "Audio - carico medio: " << juce::String (perfLog.blocks > 0 ? 100.0f * perfLog.loadSum / (float) perfLog.blocks : 0.0f, 1)
+      << "%,  picco: " << juce::String (100.0f * perfLog.maxLoad, 0) << "%\n"
+      << "Blocchi oltre l'80%: " << perfLog.overruns << ",  scatti del dispositivo: " << (deviceManager.getXRunCount() - perfLog.startXRuns)
+      << ",  blocchi saltati: " << perfLog.lockMisses << "\n"
+      << "Grafica - aggiornamenti in ritardo (>100 ms): " << perfLog.uiStalls << ",  il peggiore: " << juce::String (perfLog.worstUiGapMs, 0) << " ms\n"
+      << "Voci di campioni al massimo: " << perfLog.maxVoices << "\n";
+    return r;
+}
+
+void MainComponent::showPerformanceReport()
+{
+    auto* window = new juce::AlertWindow ("Rapporto prestazioni", buildPerformanceReport(), juce::MessageBoxIconType::NoIcon, this);
+    window->setLookAndFeel (&lookAndFeel);
+    window->addButton ("Copia", 1);
+    window->addButton ("Azzera", 2);
+    window->addButton ("Chiudi", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<MainComponent> safe (this);
+    window->enterModalState (true, juce::ModalCallbackFunction::create ([safe] (int result)
+    {
+        if (safe == nullptr)
+            return;
+        if (result == 1)
+            juce::SystemClipboard::copyTextToClipboard (safe->buildPerformanceReport());
+        else if (result == 2)
+            safe->resetPerformanceLog();
+    }), true);
+}
+
+void MainComponent::resetPerformanceLog()
+{
+    engine.takePerfStats();
+    perfLog = {};
+    perfLog.startMs = juce::Time::getMillisecondCounterHiRes();
+    perfLog.startXRuns = deviceManager.getXRunCount();
+}
+
 void MainComponent::showPerformanceMenu()
 {
     juce::PopupMenu menu = createSettingsMenu();
@@ -1858,6 +1945,10 @@ void MainComponent::showPerformanceMenu()
                           + "   scatti: " + juce::String (glitchesThisSession));
     top.addItem (5100, "Risparmio (meno voci nei synth)", true, perf::lowPower());
     top.addItem (5101, "Ferma tutti i suoni (panico)");
+    top.addItem (5102, "Rapporto prestazioni...");
+   #if JUCE_ANDROID
+    top.addItem (5103, "Grafica con la scheda grafica (GPU)", true, openGL.isAttached());
+   #endif
     top.addSeparator();
     top.addSubMenu ("Impostazioni", menu);
 
@@ -1883,6 +1974,17 @@ void MainComponent::handleSettingsResult (int result)
         settings->setValue ("lowPower", perf::lowPower());
         settings->saveIfNeeded();
         cpuBadge.setLowPower (perf::lowPower());
+    }
+    else if (result == 5102)
+    {
+        showPerformanceReport();
+    }
+    else if (result == 5103)
+    {
+        if (openGL.isAttached()) openGL.detach(); else openGL.attachTo (*this);
+        settings->setValue ("gpuRendering", openGL.isAttached());
+        settings->saveIfNeeded();
+        repaint();
     }
     else if (result == 5101)
     {

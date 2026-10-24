@@ -234,7 +234,7 @@ namespace demos
         engine.setBpm (d.bpm);
         engine.setSwing (d.swing);
         engine.setScale (d.root, d.scaleType);
-        engine.setMasterVolume (0.8f);     // un po' di margine: il limiter non deve schiacciare
+        engine.setMasterVolume (1.0f);
 
         enum { pIntro = 0, pDrums, pBass, pChords, pLead, numDemoPatterns };
         static const char* patternNames[] = { "Intro batteria", "Batteria", "Basso", "Accordi", "Melodia" };

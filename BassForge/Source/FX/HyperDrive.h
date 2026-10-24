@@ -66,6 +66,9 @@ namespace bf
             prm.bias = std::min(std::max(p.bias, -1.0f), 1.0f);
             prm.stages = std::min(std::max(p.stages, 1), 4);
             prm.oversample = p.oversample >= 4 ? 4 : (p.oversample >= 2 ? 2 : 1);
+           #if JUCE_ANDROID
+            prm.oversample = std::min(prm.oversample, 2);   // sul telefono 4x costa troppo: 2x suona quasi uguale
+           #endif
             prm.mix = std::min(std::max(p.mix, 0.0f), 1.0f);
             const int wetLat = prm.oversample == 4 ? os::kLatency4x : (prm.oversample == 2 ? os::kLatency2x : 0);
             for (auto& d : padDelay) d.setDelay(kLatency - wetLat);

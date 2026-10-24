@@ -1139,7 +1139,8 @@ public:
         limiterPos = 0;
         limiterGain = 1.0f;
         limiterHold = 0;
-        limiterRelease = (float) std::exp (-1.0 / (0.12 * sr));
+        limiterRelease = (float) std::exp (-1.0 / (0.15 * sr));
+        limiterHoldLength = (int) (0.025 * sr);
         limiterAttack  = (float) std::exp (-1.0 / (0.0005 * sr));
 
         metroPhase = 0.0; metroEnv = 0.0f;
@@ -1177,7 +1178,44 @@ public:
                                            int numSamples,
                                            const juce::AudioIODeviceCallbackContext&) override
     {
+        // Misura quanto tempo serve per ogni blocco (rapporto prestazioni)
+        const auto t0 = juce::Time::getHighResolutionTicks();
         process (outputChannelData, numOutputChannels, numSamples);
+        const double used = juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - t0);
+        const double available = (double) numSamples / juce::jmax (1.0, sampleRate.load());
+        const float load = (float) (used / available);
+        perfBlocks.fetch_add (1, std::memory_order_relaxed);
+        perfLoadSum.store (perfLoadSum.load (std::memory_order_relaxed) + load, std::memory_order_relaxed);
+        if (load > perfLoadMax.load (std::memory_order_relaxed)) perfLoadMax.store (load, std::memory_order_relaxed);
+        if (load > 0.8f) perfOverruns.fetch_add (1, std::memory_order_relaxed);
+        if (lockMissedThisBlock)
+        {
+            perfLockMisses.fetch_add (1, std::memory_order_relaxed);   // blocco saltato (silenzio = un "tic")
+            lockMissedThisBlock = false;
+        }
+        perfBlockSize.store (numSamples, std::memory_order_relaxed);
+    }
+
+    /** Statistiche del processore audio dall'ultima lettura (per il rapporto prestazioni). */
+    struct PerfStats { int blocks = 0, overruns = 0, lockMisses = 0, blockSize = 0; float avgLoad = 0.0f, maxLoad = 0.0f; };
+    PerfStats takePerfStats()
+    {
+        PerfStats s;
+        s.blocks = perfBlocks.exchange (0);
+        s.avgLoad = s.blocks > 0 ? perfLoadSum.exchange (0.0f) / (float) s.blocks : 0.0f;
+        s.maxLoad = perfLoadMax.exchange (0.0f);
+        s.overruns = perfOverruns.exchange (0);
+        s.lockMisses = perfLockMisses.exchange (0);
+        s.blockSize = perfBlockSize.load();
+        return s;
+    }
+
+    /** Voci in uso negli strumenti e nei campioni (per il rapporto). */
+    int countActiveSamplerVoices() const
+    {
+        int n = 0;
+        for (int c = 0; c < getNumChannels(); ++c) n += samplers[(size_t) c].activeVoices();
+        return n;
     }
 
     /** Calcola il prossimo blocco audio (stereo: canali pari = sinistra, dispari = destra). */
@@ -1191,6 +1229,7 @@ public:
         const juce::SpinLock::ScopedTryLockType lock (structureLock);
         if (! lock.isLocked())
         {
+            lockMissedThisBlock = true;
             for (int ch = 0; ch < numOutputChannels; ++ch)
                 if (auto* out = outputChannelData[ch])
                     juce::FloatVectorOperations::clear (out, numSamples);
@@ -1629,7 +1668,7 @@ private:
         const double samplesPerStep = sr * 60.0 / bpm.load() / 4.0;
         // Swing: gli step pari si allungano e i dispari si accorciano (al massimo +-1/3: la "terzina").
         const double swingAmount = (double) swing.load() / 3.0;
-        const float  masterGain  = masterVolume.load() * 1.4f;   // il limiter tiene i picchi sotto controllo
+        const float  masterGain  = masterVolume.load();   // niente spinta: il limiter deve intervenire solo sui picchi
         const bool   metroOn     = metronome.load();
 
         // Delay a tempo: 3/16 (il classico "dotted eighth"), rimbalzo tra sinistra e destra
@@ -2178,7 +2217,7 @@ private:
         if (target < holdTarget || limiterHold <= 0)
         {
             holdTarget = target;
-            limiterHold = lookahead;
+            limiterHold = limiterHoldLength;   // il volume resta giu' 25 ms: non "insegue" ogni onda del basso (distorsione)
         }
         --limiterHold;
 
@@ -2632,6 +2671,9 @@ private:
 
     std::atomic<bool> panicRequested { false };
     std::atomic<bool> switchNow { false };
+    std::atomic<int> perfBlocks { 0 }, perfOverruns { 0 }, perfLockMisses { 0 }, perfBlockSize { 0 };
+    std::atomic<float> perfLoadSum { 0.0f }, perfLoadMax { 0.0f };
+    bool lockMissedThisBlock = false;
     std::atomic<int> scaleRoot { 9 }, scaleType { 0 };
 
     // Automazioni
@@ -2704,7 +2746,7 @@ private:
     float  delayLp[2] { 0.0f, 0.0f };
 
     std::array<std::array<float, 256>, 2> limiterDelay {};
-    int   lookahead = 72, limiterPos = 0, limiterHold = 0;
+    int   lookahead = 72, limiterPos = 0, limiterHold = 0, limiterHoldLength = 1200;
     float limiterGain = 1.0f, holdTarget = 1.0f, limiterAttack = 0.9f, limiterRelease = 0.999f;
 
     double metroPhase = 0.0, metroFreq = 1320.0;

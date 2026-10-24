@@ -159,6 +159,16 @@ private:
     void openSynthPanel (int channel);
     void showPresetMenu (int channel, juce::Component& target);
     juce::AudioDeviceManager deviceManager;
+    struct PerfLog
+    {
+        int blocks = 0, overruns = 0, lockMisses = 0, blockSize = 0, uiStalls = 0, maxVoices = 0, startXRuns = 0;
+        float loadSum = 0.0f, maxLoad = 0.0f;
+        double startMs = 0.0, lastTimerMs = 0.0, worstUiGapMs = 0.0, playingSeconds = 0.0;
+    } perfLog;
+    juce::String buildPerformanceReport() const;
+    void showPerformanceReport();
+    void resetPerformanceLog();
+    juce::OpenGLContext openGL;          // Android: lo schermo lo disegna la scheda grafica, non il processore
     juce::String audioError;
     juce::String projectName;
     juce::String lastSavedJson;

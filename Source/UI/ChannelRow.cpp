@@ -516,15 +516,17 @@ void ChannelRow::refresh (int currentStep)
         activity.store (0.0f);
     }
 
+    // Il lampeggio del nome tocca solo il pulsante del nome (non tutta la riga)
+    bool nameRepaint = false;
     if (flash > 0.01f)
     {
         flash *= 0.8f;
-        needsRepaint = true;
+        nameRepaint = true;
     }
     else if (flash > 0.0f)
     {
         flash = 0.0f;
-        needsRepaint = true;
+        nameRepaint = true;
     }
 
     // Nome, colore, solo, muto cambiati altrove (menu, undo, caricamento)
@@ -569,11 +571,10 @@ void ChannelRow::refresh (int currentStep)
          && ! volumeKnob.isMouseButtonDown())
         volumeKnob.setValue (engine.getChannel (channel).volume.load(), juce::dontSendNotification);
 
-    if (currentStep != current)
-    {
-        current = currentStep;
-        needsRepaint = true;
-    }
+    // La colonna che suona: si ridisegnano solo lo step di prima e quello nuovo
+    const int previousStep = current;
+    const bool stepMoved = currentStep != current;
+    current = currentStep;
 
     // Note cambiate (dal piano roll, undo, caricamento)
     juce::uint64 hash = (juce::uint64) engine.getCurrentPattern() + 1;
@@ -586,7 +587,16 @@ void ChannelRow::refresh (int currentStep)
     }
 
     if (needsRepaint)
+    {
         repaint();
+        return;
+    }
+    if (nameRepaint)
+        repaint (nameArea.toNearestInt().expanded (3));
+    if (stepMoved && ! engine.hasNotes (channel))
+        for (int s : { previousStep, currentStep })
+            if (s >= firstStep && s < firstStep + visibleSteps)
+                repaint (getPadBounds (s - firstStep).toNearestInt().expanded (3));
 }
 
 //==============================================================================
