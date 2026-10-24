@@ -14,7 +14,20 @@ L'ultimo APK è sempre qui:
 Sul telefono: scaricalo, aprilo e consenti l'installazione da "origini sconosciute" quando richiesto.
 Gli aggiornamenti si installano sopra la versione precedente.
 
-## Stato attuale (v0.31)
+## Stato attuale (v0.32)
+
+**Novita' della 0.32 (suoni)**
+- Libreria unica divisa per tipo: Batteria (Kick, Rullanti, Clap e schiocchi, Hi-hat chiusi, Hi-hat aperti,
+  Piatti, Tom, Percussioni) e Suoni (Bassi, Synth e stab, Pad, Pianoforti, Chitarre, Archi, Fiati,
+  Percussioni melodiche, Voci, FX): 299 suoni
+- 106 suoni nuovi in stile complextro / electro house 2008-2012 / fidget / brostep (12 kick, 10 snare,
+  10 clap, 10 hi-hat chiusi, 8 aperti, 6 piatti, 6 tom, 8 percussioni, 10 bassi, 10 synth, 10 FX, 6 voci),
+  gia' equalizzati, compressi e allo stesso volume per famiglia; anche i suoni vecchi allineati di volume
+- DrumForge: kit Complextro, Electro 2010, Fidget, Brostep
+- PolyForge: preset Electro Saw Stab, Dirty Dutch Lead, Fidget Square, Complextro Gate, Brostep Screech, Electro Pluck
+- Progetto nuovo con la batteria Electro; demo "Complextro"
+
+## (v0.31)
 
 **Novita' della 0.31 (prestazioni)**
 - Android: lo schermo lo disegna la scheda grafica (OpenGL); disattivabile dal menu della CPU

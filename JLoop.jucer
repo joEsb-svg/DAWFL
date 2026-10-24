@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <JUCERPROJECT name="JLoop" projectType="guiapp" bundleIdentifier="com.joesb.dawfl"
-              version="0.31.0" companyName="joEsb" id="DwFl01" useAppConfig="0"
+              version="0.32.0" companyName="joEsb" id="DwFl01" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" cppLanguageStandard="20" defines="JucePlugin_Name=&quot;BassForge&quot;&#10;JUCE_STRICT_REFCOUNTEDPOINTER=1"
               jucerFormatVersion="1">
   <MAINGROUP id="Mg0001" name="JLoop">
@@ -266,6 +266,112 @@
         <FILE id="Lb0190" name="lofi_hat.ogg" compile="0" resource="1" file="Resources/Library/lofi_hat.ogg"/>
         <FILE id="Lb0191" name="lofi_rim.ogg" compile="0" resource="1" file="Resources/Library/lofi_rim.ogg"/>
         <FILE id="Lb0192" name="lofi_shaker.ogg" compile="0" resource="1" file="Resources/Library/lofi_shaker.ogg"/>
+        <FILE id="Lb0193" name="x_kick_complextro.ogg" compile="0" resource="1" file="Resources/Library/x_kick_complextro.ogg"/>
+        <FILE id="Lb0194" name="x_kick_punch.ogg" compile="0" resource="1" file="Resources/Library/x_kick_punch.ogg"/>
+        <FILE id="Lb0195" name="x_kick_dutch.ogg" compile="0" resource="1" file="Resources/Library/x_kick_dutch.ogg"/>
+        <FILE id="Lb0196" name="x_kick_fidget.ogg" compile="0" resource="1" file="Resources/Library/x_kick_fidget.ogg"/>
+        <FILE id="Lb0197" name="x_kick_brostep.ogg" compile="0" resource="1" file="Resources/Library/x_kick_brostep.ogg"/>
+        <FILE id="Lb0198" name="x_kick_dist.ogg" compile="0" resource="1" file="Resources/Library/x_kick_dist.ogg"/>
+        <FILE id="Lb0199" name="x_kick_tight.ogg" compile="0" resource="1" file="Resources/Library/x_kick_tight.ogg"/>
+        <FILE id="Lb0200" name="x_kick_sub.ogg" compile="0" resource="1" file="Resources/Library/x_kick_sub.ogg"/>
+        <FILE id="Lb0201" name="x_kick_clicky.ogg" compile="0" resource="1" file="Resources/Library/x_kick_clicky.ogg"/>
+        <FILE id="Lb0202" name="x_kick_hardelectro.ogg" compile="0" resource="1" file="Resources/Library/x_kick_hardelectro.ogg"/>
+        <FILE id="Lb0203" name="x_kick_bigroom.ogg" compile="0" resource="1" file="Resources/Library/x_kick_bigroom.ogg"/>
+        <FILE id="Lb0204" name="x_kick_crunch.ogg" compile="0" resource="1" file="Resources/Library/x_kick_crunch.ogg"/>
+        <FILE id="Lb0205" name="x_snare_complextro.ogg" compile="0" resource="1" file="Resources/Library/x_snare_complextro.ogg"/>
+        <FILE id="Lb0206" name="x_snare_crack.ogg" compile="0" resource="1" file="Resources/Library/x_snare_crack.ogg"/>
+        <FILE id="Lb0207" name="x_snare_brostep.ogg" compile="0" resource="1" file="Resources/Library/x_snare_brostep.ogg"/>
+        <FILE id="Lb0208" name="x_snare_fidget.ogg" compile="0" resource="1" file="Resources/Library/x_snare_fidget.ogg"/>
+        <FILE id="Lb0209" name="x_snare_dirty.ogg" compile="0" resource="1" file="Resources/Library/x_snare_dirty.ogg"/>
+        <FILE id="Lb0210" name="x_snare_tight.ogg" compile="0" resource="1" file="Resources/Library/x_snare_tight.ogg"/>
+        <FILE id="Lb0211" name="x_snare_rim.ogg" compile="0" resource="1" file="Resources/Library/x_snare_rim.ogg"/>
+        <FILE id="Lb0212" name="x_snare_layered.ogg" compile="0" resource="1" file="Resources/Library/x_snare_layered.ogg"/>
+        <FILE id="Lb0213" name="x_snare_dist.ogg" compile="0" resource="1" file="Resources/Library/x_snare_dist.ogg"/>
+        <FILE id="Lb0214" name="x_snare_bigroom.ogg" compile="0" resource="1" file="Resources/Library/x_snare_bigroom.ogg"/>
+        <FILE id="Lb0215" name="x_clap_electro.ogg" compile="0" resource="1" file="Resources/Library/x_clap_electro.ogg"/>
+        <FILE id="Lb0216" name="x_clap_fidget.ogg" compile="0" resource="1" file="Resources/Library/x_clap_fidget.ogg"/>
+        <FILE id="Lb0217" name="x_clap_thick.ogg" compile="0" resource="1" file="Resources/Library/x_clap_thick.ogg"/>
+        <FILE id="Lb0218" name="x_clap_snappy.ogg" compile="0" resource="1" file="Resources/Library/x_clap_snappy.ogg"/>
+        <FILE id="Lb0219" name="x_clap_crunch.ogg" compile="0" resource="1" file="Resources/Library/x_clap_crunch.ogg"/>
+        <FILE id="Lb0220" name="x_clap_wide.ogg" compile="0" resource="1" file="Resources/Library/x_clap_wide.ogg"/>
+        <FILE id="Lb0221" name="x_clap_dutch.ogg" compile="0" resource="1" file="Resources/Library/x_clap_dutch.ogg"/>
+        <FILE id="Lb0222" name="x_clap_tight.ogg" compile="0" resource="1" file="Resources/Library/x_clap_tight.ogg"/>
+        <FILE id="Lb0223" name="x_snap_electro.ogg" compile="0" resource="1" file="Resources/Library/x_snap_electro.ogg"/>
+        <FILE id="Lb0224" name="x_clap_snare.ogg" compile="0" resource="1" file="Resources/Library/x_clap_snare.ogg"/>
+        <FILE id="Lb0225" name="x_hat_electro.ogg" compile="0" resource="1" file="Resources/Library/x_hat_electro.ogg"/>
+        <FILE id="Lb0226" name="x_hat_tick.ogg" compile="0" resource="1" file="Resources/Library/x_hat_tick.ogg"/>
+        <FILE id="Lb0227" name="x_hat_crunch.ogg" compile="0" resource="1" file="Resources/Library/x_hat_crunch.ogg"/>
+        <FILE id="Lb0228" name="x_hat_fidget.ogg" compile="0" resource="1" file="Resources/Library/x_hat_fidget.ogg"/>
+        <FILE id="Lb0229" name="x_hat_metal.ogg" compile="0" resource="1" file="Resources/Library/x_hat_metal.ogg"/>
+        <FILE id="Lb0230" name="x_hat_noise.ogg" compile="0" resource="1" file="Resources/Library/x_hat_noise.ogg"/>
+        <FILE id="Lb0231" name="x_hat_soft.ogg" compile="0" resource="1" file="Resources/Library/x_hat_soft.ogg"/>
+        <FILE id="Lb0232" name="x_hat_dist.ogg" compile="0" resource="1" file="Resources/Library/x_hat_dist.ogg"/>
+        <FILE id="Lb0233" name="x_hat_pedal.ogg" compile="0" resource="1" file="Resources/Library/x_hat_pedal.ogg"/>
+        <FILE id="Lb0234" name="x_hat_shaker.ogg" compile="0" resource="1" file="Resources/Library/x_hat_shaker.ogg"/>
+        <FILE id="Lb0235" name="x_ohat_electro.ogg" compile="0" resource="1" file="Resources/Library/x_ohat_electro.ogg"/>
+        <FILE id="Lb0236" name="x_ohat_long.ogg" compile="0" resource="1" file="Resources/Library/x_ohat_long.ogg"/>
+        <FILE id="Lb0237" name="x_ohat_crunch.ogg" compile="0" resource="1" file="Resources/Library/x_ohat_crunch.ogg"/>
+        <FILE id="Lb0238" name="x_ohat_fidget.ogg" compile="0" resource="1" file="Resources/Library/x_ohat_fidget.ogg"/>
+        <FILE id="Lb0239" name="x_ohat_metal.ogg" compile="0" resource="1" file="Resources/Library/x_ohat_metal.ogg"/>
+        <FILE id="Lb0240" name="x_ohat_noise.ogg" compile="0" resource="1" file="Resources/Library/x_ohat_noise.ogg"/>
+        <FILE id="Lb0241" name="x_ohat_dist.ogg" compile="0" resource="1" file="Resources/Library/x_ohat_dist.ogg"/>
+        <FILE id="Lb0242" name="x_ohat_short.ogg" compile="0" resource="1" file="Resources/Library/x_ohat_short.ogg"/>
+        <FILE id="Lb0243" name="x_crash_electro.ogg" compile="0" resource="1" file="Resources/Library/x_crash_electro.ogg"/>
+        <FILE id="Lb0244" name="x_crash_dist.ogg" compile="0" resource="1" file="Resources/Library/x_crash_dist.ogg"/>
+        <FILE id="Lb0245" name="x_ride_electro.ogg" compile="0" resource="1" file="Resources/Library/x_ride_electro.ogg"/>
+        <FILE id="Lb0246" name="x_crash_reverse.ogg" compile="0" resource="1" file="Resources/Library/x_crash_reverse.ogg"/>
+        <FILE id="Lb0247" name="x_china_electro.ogg" compile="0" resource="1" file="Resources/Library/x_china_electro.ogg"/>
+        <FILE id="Lb0248" name="x_splash_electro.ogg" compile="0" resource="1" file="Resources/Library/x_splash_electro.ogg"/>
+        <FILE id="Lb0249" name="x_tom_high.ogg" compile="0" resource="1" file="Resources/Library/x_tom_high.ogg"/>
+        <FILE id="Lb0250" name="x_tom_mid.ogg" compile="0" resource="1" file="Resources/Library/x_tom_mid.ogg"/>
+        <FILE id="Lb0251" name="x_tom_low.ogg" compile="0" resource="1" file="Resources/Library/x_tom_low.ogg"/>
+        <FILE id="Lb0252" name="x_tom_floor.ogg" compile="0" resource="1" file="Resources/Library/x_tom_floor.ogg"/>
+        <FILE id="Lb0253" name="x_tom_dist.ogg" compile="0" resource="1" file="Resources/Library/x_tom_dist.ogg"/>
+        <FILE id="Lb0254" name="x_tom_brostep.ogg" compile="0" resource="1" file="Resources/Library/x_tom_brostep.ogg"/>
+        <FILE id="Lb0255" name="x_perc_rim.ogg" compile="0" resource="1" file="Resources/Library/x_perc_rim.ogg"/>
+        <FILE id="Lb0256" name="x_perc_cowbell.ogg" compile="0" resource="1" file="Resources/Library/x_perc_cowbell.ogg"/>
+        <FILE id="Lb0257" name="x_perc_zap.ogg" compile="0" resource="1" file="Resources/Library/x_perc_zap.ogg"/>
+        <FILE id="Lb0258" name="x_perc_metal.ogg" compile="0" resource="1" file="Resources/Library/x_perc_metal.ogg"/>
+        <FILE id="Lb0259" name="x_perc_blip.ogg" compile="0" resource="1" file="Resources/Library/x_perc_blip.ogg"/>
+        <FILE id="Lb0260" name="x_perc_wood.ogg" compile="0" resource="1" file="Resources/Library/x_perc_wood.ogg"/>
+        <FILE id="Lb0261" name="x_perc_laser.ogg" compile="0" resource="1" file="Resources/Library/x_perc_laser.ogg"/>
+        <FILE id="Lb0262" name="x_perc_noisehit.ogg" compile="0" resource="1" file="Resources/Library/x_perc_noisehit.ogg"/>
+        <FILE id="Lb0263" name="x_bass_growl.ogg" compile="0" resource="1" file="Resources/Library/x_bass_growl.ogg"/>
+        <FILE id="Lb0264" name="x_bass_saw.ogg" compile="0" resource="1" file="Resources/Library/x_bass_saw.ogg"/>
+        <FILE id="Lb0265" name="x_bass_wub.ogg" compile="0" resource="1" file="Resources/Library/x_bass_wub.ogg"/>
+        <FILE id="Lb0266" name="x_bass_square.ogg" compile="0" resource="1" file="Resources/Library/x_bass_square.ogg"/>
+        <FILE id="Lb0267" name="x_bass_yoi.ogg" compile="0" resource="1" file="Resources/Library/x_bass_yoi.ogg"/>
+        <FILE id="Lb0268" name="x_bass_reese.ogg" compile="0" resource="1" file="Resources/Library/x_bass_reese.ogg"/>
+        <FILE id="Lb0269" name="x_bass_hoover.ogg" compile="0" resource="1" file="Resources/Library/x_bass_hoover.ogg"/>
+        <FILE id="Lb0270" name="x_bass_donk.ogg" compile="0" resource="1" file="Resources/Library/x_bass_donk.ogg"/>
+        <FILE id="Lb0271" name="x_bass_sub.ogg" compile="0" resource="1" file="Resources/Library/x_bass_sub.ogg"/>
+        <FILE id="Lb0272" name="x_bass_laser.ogg" compile="0" resource="1" file="Resources/Library/x_bass_laser.ogg"/>
+        <FILE id="Lb0273" name="x_stab_dutch.ogg" compile="0" resource="1" file="Resources/Library/x_stab_dutch.ogg"/>
+        <FILE id="Lb0274" name="x_stab_saw.ogg" compile="0" resource="1" file="Resources/Library/x_stab_saw.ogg"/>
+        <FILE id="Lb0275" name="x_lead_screech.ogg" compile="0" resource="1" file="Resources/Library/x_lead_screech.ogg"/>
+        <FILE id="Lb0276" name="x_lead_square.ogg" compile="0" resource="1" file="Resources/Library/x_lead_square.ogg"/>
+        <FILE id="Lb0277" name="x_stab_fidget.ogg" compile="0" resource="1" file="Resources/Library/x_stab_fidget.ogg"/>
+        <FILE id="Lb0278" name="x_pluck_electro.ogg" compile="0" resource="1" file="Resources/Library/x_pluck_electro.ogg"/>
+        <FILE id="Lb0279" name="x_stab_organ.ogg" compile="0" resource="1" file="Resources/Library/x_stab_organ.ogg"/>
+        <FILE id="Lb0280" name="x_lead_hoover.ogg" compile="0" resource="1" file="Resources/Library/x_lead_hoover.ogg"/>
+        <FILE id="Lb0281" name="x_stab_brass.ogg" compile="0" resource="1" file="Resources/Library/x_stab_brass.ogg"/>
+        <FILE id="Lb0282" name="x_arp_pluck.ogg" compile="0" resource="1" file="Resources/Library/x_arp_pluck.ogg"/>
+        <FILE id="Lb0283" name="x_fx_riser.ogg" compile="0" resource="1" file="Resources/Library/x_fx_riser.ogg"/>
+        <FILE id="Lb0284" name="x_fx_riser_tone.ogg" compile="0" resource="1" file="Resources/Library/x_fx_riser_tone.ogg"/>
+        <FILE id="Lb0285" name="x_fx_downlifter.ogg" compile="0" resource="1" file="Resources/Library/x_fx_downlifter.ogg"/>
+        <FILE id="Lb0286" name="x_fx_impact.ogg" compile="0" resource="1" file="Resources/Library/x_fx_impact.ogg"/>
+        <FILE id="Lb0287" name="x_fx_zap.ogg" compile="0" resource="1" file="Resources/Library/x_fx_zap.ogg"/>
+        <FILE id="Lb0288" name="x_fx_laser.ogg" compile="0" resource="1" file="Resources/Library/x_fx_laser.ogg"/>
+        <FILE id="Lb0289" name="x_fx_sweep.ogg" compile="0" resource="1" file="Resources/Library/x_fx_sweep.ogg"/>
+        <FILE id="Lb0290" name="x_fx_reverse_snare.ogg" compile="0" resource="1" file="Resources/Library/x_fx_reverse_snare.ogg"/>
+        <FILE id="Lb0291" name="x_fx_siren.ogg" compile="0" resource="1" file="Resources/Library/x_fx_siren.ogg"/>
+        <FILE id="Lb0292" name="x_fx_glitch.ogg" compile="0" resource="1" file="Resources/Library/x_fx_glitch.ogg"/>
+        <FILE id="Lb0293" name="x_vox_hey.ogg" compile="0" resource="1" file="Resources/Library/x_vox_hey.ogg"/>
+        <FILE id="Lb0294" name="x_vox_oh.ogg" compile="0" resource="1" file="Resources/Library/x_vox_oh.ogg"/>
+        <FILE id="Lb0295" name="x_vox_yeah.ogg" compile="0" resource="1" file="Resources/Library/x_vox_yeah.ogg"/>
+        <FILE id="Lb0296" name="x_vox_uh.ogg" compile="0" resource="1" file="Resources/Library/x_vox_uh.ogg"/>
+        <FILE id="Lb0297" name="x_vox_chop.ogg" compile="0" resource="1" file="Resources/Library/x_vox_chop.ogg"/>
+        <FILE id="Lb0298" name="x_vox_aah.ogg" compile="0" resource="1" file="Resources/Library/x_vox_aah.ogg"/>
       </GROUP>
       <FILE id="IcOn01" name="icon.png" compile="0" resource="0" file="Resources/icon.png"/>
       <FILE id="SpLsh1" name="splash_logo.png" compile="0" resource="1" file="Resources/splash_logo.png"/>
@@ -385,7 +491,7 @@
   </MAINGROUP>
   <EXPORTFORMATS>
     <ANDROIDSTUDIO targetFolder="Builds/Android" androidEnableContentSharing="1" androidBluetoothScanNeeded="1" androidBluetoothConnectNeeded="1" smallIcon="IcOn01" bigIcon="IcOn01"
-                   androidVersionCode="32" androidMinimumSDK="24" androidScreenOrientation="landscape"
+                   androidVersionCode="33" androidMinimumSDK="24" androidScreenOrientation="landscape"
                    androidInternetNeeded="0" androidExternalWriteNeeded="0" androidPushNotifications="0"
                    androidReadMediaAudioPermission="0" androidReadMediaImagesPermission="0"
                    androidReadMediaVideoPermission="0">

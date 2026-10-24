@@ -198,7 +198,7 @@ public:
             }
             else if (auto* entry = SampleStore::findLibraryEntry (ch.sampleName); entry != nullptr && SampleStore::isLibrary (ch.sampleName))
             {
-                tab = juce::String (entry->group) == "Strumenti" ? 0 : 1;
+                tab = juce::String (entry->group) == "Batteria" ? 0 : 1;
                 category = juce::jmax (0, groups[(size_t) tab].indexOf (juce::String (juce::CharPointer_UTF8 (entry->category))));
             }
             else if (ch.sample.load() != nullptr)
@@ -280,7 +280,7 @@ private:
     {
         for (auto& e : LibraryIndex::entries)
         {
-            const int g = juce::String (e.group) == "Strumenti" ? 0 : 1;
+            const int g = juce::String (e.group) == "Batteria" ? 0 : 1;
             const auto cat = juce::String (juce::CharPointer_UTF8 (e.category));
             if (! groups[(size_t) g].contains (cat))
                 groups[(size_t) g].add (cat);
@@ -328,7 +328,7 @@ private:
             for (auto& e : LibraryIndex::entries)
             {
                 const auto entryCat = juce::String (juce::CharPointer_UTF8 (e.category));
-                const int g = juce::String (e.group) == "Strumenti" ? 0 : 1;
+                const int g = juce::String (e.group) == "Batteria" ? 0 : 1;
                 if (g != tab || entryCat != cat)
                     continue;
 
@@ -513,7 +513,7 @@ private:
     std::vector<SoundChoice> choices;
     SoundChoice chosen;
 
-    SegmentedControl tabs { { "Strumenti", "Elettronica", "Sintesi", "Campioni" } };
+    SegmentedControl tabs { { "Batteria", "Suoni", "Sintesi", "Campioni" } };
     juce::Viewport categoryView, tileView;
     TileList categoryList, tileList;
     juce::TextButton closeButton { "Chiudi" }, confirmButton { "Aggiungi" };

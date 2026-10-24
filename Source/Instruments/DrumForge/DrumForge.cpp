@@ -164,6 +164,30 @@ namespace df
                 { "guiro", "Guiro", 0, 1, -3, -0.2f }, { "claves", "Claves", 0, 1, -4, 0.35f }, { "woodblock", "Woodblock", 0, 1, -4, -0.35f },
                 { "cowbell", "Campanaccio", 0, 1, -5 }, { "triangle", "Triangolo", 0, 1, -6, 0.3f },
                 { "finger_snap", "Schiocco", 0, 1, -3 }, { "hand_clap", "Mani", 0, 1, -3 }, { "d808_conga_hi", "Conga 808", 0, 1, -3 } }} },
+
+            { "Complextro", {{
+                { "x_kick_complextro", "Kick", 0.0f, 1.0f, 0.0f, 0.0f, 20000, 0, 0.0f }, { "x_kick_dist", "Kick 2", 0.0f, 1.0f, 0.0f, 0.0f, 20000, 0, 0.0f }, { "x_snare_complextro", "Snare", 0.0f, 1.0f, 0.0f, 0.0f, 20000, 0, 0.05f }, { "x_clap_electro", "Clap", 0.0f, 1.0f, -1.0f, 0.0f, 20000, 0, 0.05f },
+                { "x_perc_rim", "Rim", 0.0f, 1.0f, -3.0f, 0.2f, 20000, 0, 0.0f }, { "x_hat_electro", "Hi-hat", 0.0f, 1.0f, -2.0f, 0.1f, 20000, 1, 0.0f }, { "x_hat_crunch", "Hi-hat 2", 0.0f, 1.0f, -3.0f, 0.1f, 20000, 1, 0.0f }, { "x_ohat_electro", "Hi-hat aperto", 0.0f, 1.0f, -3.0f, 0.1f, 20000, 1, 0.0f },
+                { "x_tom_high", "Tom alto", 0.0f, 1.0f, -1.0f, -0.3f, 20000, 0, 0.0f }, { "x_tom_mid", "Tom medio", 0.0f, 1.0f, -1.0f, 0.0f, 20000, 0, 0.0f }, { "x_tom_low", "Tom basso", 0.0f, 1.0f, -1.0f, 0.3f, 20000, 0, 0.0f }, { "x_crash_electro", "Crash", 0.0f, 1.0f, -3.0f, -0.2f, 20000, 0, 0.0f },
+                { "x_ride_electro", "Ride", 0.0f, 1.0f, -4.0f, 0.2f, 20000, 0, 0.0f }, { "x_perc_zap", "Zap", 0.0f, 1.0f, -3.0f, 0.0f, 20000, 0, 0.0f }, { "x_fx_laser", "Laser", 0.0f, 1.0f, -4.0f, 0.0f, 20000, 0, 0.0f }, { "x_vox_hey", "Vox Hey", 0.0f, 1.0f, -2.0f, 0.0f, 20000, 0, 0.1f } }} },
+
+            { "Electro 2010", {{
+                { "x_kick_punch", "Kick", 0.0f, 1.0f, 0.0f, 0.0f, 20000, 0, 0.0f }, { "x_kick_hardelectro", "Kick duro", 0.0f, 1.0f, 0.0f, 0.0f, 20000, 0, 0.0f }, { "x_snare_crack", "Snare", 0.0f, 1.0f, 0.0f, 0.0f, 20000, 0, 0.05f }, { "x_clap_dutch", "Clap", 0.0f, 1.0f, -1.0f, 0.0f, 20000, 0, 0.05f },
+                { "x_snap_electro", "Schiocco", 0.0f, 1.0f, -3.0f, 0.0f, 20000, 0, 0.0f }, { "x_hat_tick", "Hi-hat", 0.0f, 1.0f, -2.0f, 0.1f, 20000, 1, 0.0f }, { "x_hat_pedal", "Hi-hat pedale", 0.0f, 1.0f, -3.0f, 0.1f, 20000, 1, 0.0f }, { "x_ohat_short", "Hi-hat aperto", 0.0f, 1.0f, -3.0f, 0.1f, 20000, 1, 0.0f },
+                { "x_tom_high", "Tom alto", 0.0f, 1.0f, -1.0f, -0.3f, 20000, 0, 0.0f }, { "x_tom_mid", "Tom medio", 0.0f, 1.0f, -1.0f, 0.0f, 20000, 0, 0.0f }, { "x_tom_floor", "Tom basso", 0.0f, 1.0f, -1.0f, 0.3f, 20000, 0, 0.0f }, { "x_crash_electro", "Crash", 0.0f, 1.0f, -3.0f, -0.2f, 20000, 0, 0.0f },
+                { "x_splash_electro", "Splash", 0.0f, 1.0f, -4.0f, 0.2f, 20000, 0, 0.0f }, { "x_perc_cowbell", "Cowbell", 0.0f, 1.0f, -4.0f, 0.0f, 20000, 0, 0.0f }, { "x_fx_zap", "Zap", 0.0f, 1.0f, -4.0f, 0.0f, 20000, 0, 0.0f }, { "x_vox_oh", "Vox Oh", 0.0f, 1.0f, -2.0f, 0.0f, 20000, 0, 0.1f } }} },
+
+            { "Fidget", {{
+                { "x_kick_fidget", "Kick", 0.0f, 1.0f, 0.0f, 0.0f, 20000, 0, 0.0f }, { "x_kick_tight", "Kick secco", 0.0f, 1.0f, 0.0f, 0.0f, 20000, 0, 0.0f }, { "x_snare_fidget", "Snare", 0.0f, 1.0f, 0.0f, 0.0f, 20000, 0, 0.03f }, { "x_clap_fidget", "Clap", 0.0f, 1.0f, -1.0f, 0.0f, 20000, 0, 0.03f },
+                { "x_perc_blip", "Blip", 0.0f, 1.0f, -3.0f, 0.2f, 20000, 0, 0.0f }, { "x_hat_fidget", "Hi-hat", 0.0f, 1.0f, -2.0f, 0.1f, 20000, 1, 0.0f }, { "x_hat_shaker", "Shaker", 0.0f, 1.0f, -3.0f, -0.1f, 20000, 0, 0.0f }, { "x_ohat_fidget", "Hi-hat aperto", 0.0f, 1.0f, -3.0f, 0.1f, 20000, 1, 0.0f },
+                { "x_bass_donk", "Donk", 0.0f, 1.0f, -1.0f, 0.0f, 20000, 0, 0.0f }, { "x_perc_wood", "Legno", 0.0f, 1.0f, -3.0f, -0.2f, 20000, 0, 0.0f }, { "x_perc_metal", "Metallo", 0.0f, 1.0f, -4.0f, 0.2f, 20000, 0, 0.0f }, { "x_splash_electro", "Splash", 0.0f, 1.0f, -4.0f, 0.0f, 20000, 0, 0.0f },
+                { "x_vox_chop", "Vox chop", 0.0f, 1.0f, -2.0f, 0.0f, 20000, 0, 0.05f }, { "x_vox_uh", "Vox Uh", 0.0f, 1.0f, -2.0f, 0.0f, 20000, 0, 0.05f }, { "x_perc_laser", "Laser", 0.0f, 1.0f, -4.0f, 0.0f, 20000, 0, 0.0f }, { "x_fx_glitch", "Glitch", 0.0f, 1.0f, -4.0f, 0.0f, 20000, 0, 0.0f } }} },
+
+            { "Brostep", {{
+                { "x_kick_brostep", "Kick", 0.0f, 1.0f, 0.0f, 0.0f, 20000, 0, 0.0f }, { "x_kick_bigroom", "Kick 2", 0.0f, 1.0f, 0.0f, 0.0f, 20000, 0, 0.0f }, { "x_snare_brostep", "Snare", 0.0f, 1.0f, 0.0f, 0.0f, 20000, 0, 0.08f }, { "x_clap_snare", "Clap + Snare", 0.0f, 1.0f, -1.0f, 0.0f, 20000, 0, 0.08f },
+                { "x_snare_rim", "Rim", 0.0f, 1.0f, -3.0f, 0.2f, 20000, 0, 0.0f }, { "x_hat_metal", "Hi-hat", 0.0f, 1.0f, -3.0f, 0.1f, 20000, 1, 0.0f }, { "x_hat_dist", "Hi-hat 2", 0.0f, 1.0f, -3.0f, 0.1f, 20000, 1, 0.0f }, { "x_ohat_metal", "Hi-hat aperto", 0.0f, 1.0f, -3.0f, 0.1f, 20000, 1, 0.0f },
+                { "x_tom_brostep", "Tom", 0.0f, 1.0f, -1.0f, -0.2f, 20000, 0, 0.0f }, { "x_tom_dist", "Tom 2", 0.0f, 1.0f, -1.0f, 0.2f, 20000, 0, 0.0f }, { "x_fx_impact", "Impatto", 0.0f, 1.0f, -2.0f, 0.0f, 20000, 0, 0.0f }, { "x_crash_dist", "Crash", 0.0f, 1.0f, -3.0f, -0.2f, 20000, 0, 0.0f },
+                { "x_china_electro", "China", 0.0f, 1.0f, -4.0f, 0.2f, 20000, 0, 0.0f }, { "x_crash_reverse", "Crash rev.", 0.0f, 1.0f, -4.0f, 0.0f, 20000, 0, 0.0f }, { "x_fx_zap", "Zap", 0.0f, 1.0f, -4.0f, 0.0f, 20000, 0, 0.0f }, { "x_fx_reverse_snare", "Snare rev.", 0.0f, 1.0f, -3.0f, 0.0f, 20000, 0, 0.0f } }} },
         };
         return kits;
     }

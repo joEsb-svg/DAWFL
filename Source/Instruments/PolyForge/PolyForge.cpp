@@ -642,6 +642,26 @@ namespace pf
                                { ampA, 0.005f }, { ampR, 0.15f }, { spread, 0.0f } } },
             { "Campanelli", { { osc1Wave, 3 }, { osc2Wave, 2 }, { osc2Semi, 24 }, { osc2Lvl, 0.35f }, { cutoff, 12000 }, { ampA, 0.001f }, { ampD, 2.5f },
                               { ampS, 0.0f }, { ampR, 1.5f }, { revMix, 0.4f }, { revSize, 0.8f }, { dlyMix, 0.2f }, { dlyTime, 3 } } },
+
+            // --- Electro / complextro / fidget / brostep (unison contenuto: leggeri sul telefono)
+            { "Electro Saw Stab", { { master, -1.0f }, { osc1Uni, 3 }, { osc1Det, 0.25f }, { osc2Wave, 1 }, { osc2Semi, 12 }, { osc2Lvl, 0.4f },
+                                    { cutoff, 900 }, { reso, 0.35f }, { fltDrive, 0.5f }, { fltEnv, 0.6f }, { fltA, 0.001f }, { fltD, 0.18f }, { fltS, 0.0f },
+                                    { ampA, 0.002f }, { ampD, 0.35f }, { ampS, 0.0f }, { ampR, 0.1f }, { spread, 0.6f }, { dlyMix, 0.15f }, { dlyTime, 2 } } },
+            { "Dirty Dutch Lead", { { master, -3.0f }, { osc1Uni, 5 }, { osc1Det, 0.5f }, { osc2Semi, 12 }, { osc2Uni, 3 }, { osc2Det, 0.4f }, { osc2Lvl, 0.5f },
+                                    { cutoff, 3500 }, { reso, 0.3f }, { fltDrive, 0.7f }, { fltEnv, 0.35f }, { fltD, 0.3f }, { fltS, 0.4f },
+                                    { ampA, 0.002f }, { ampS, 0.9f }, { ampR, 0.15f }, { spread, 0.8f }, { revMix, 0.12f } } },
+            { "Fidget Square", { { master, 1.0f }, { mode, 1 }, { glide, 0.03f }, { osc1Wave, 1 }, { osc1Pw, 0.35f }, { osc2Wave, 1 }, { osc2Semi, -12 }, { osc2Lvl, 0.5f },
+                                 { cutoff, 1500 }, { reso, 0.55f }, { fltDrive, 0.6f }, { fltEnv, 0.5f }, { fltD, 0.12f }, { fltS, 0.1f },
+                                 { ampA, 0.002f }, { ampS, 0.8f }, { ampR, 0.06f }, { spread, 0.0f } } },
+            { "Complextro Gate", { { master, -1.0f }, { osc1Uni, 3 }, { osc1Det, 0.2f }, { osc2Wave, 1 }, { osc2Lvl, 0.5f }, { cutoff, 1200 }, { reso, 0.4f },
+                                   { fltDrive, 0.5f }, { lfoCut, 0.6f }, { lfoWave, 3 }, { lfoSync, 1 }, { lfoDiv, 4 }, { lfoAmp, 0.5f },
+                                   { ampA, 0.002f }, { ampS, 0.9f }, { ampR, 0.1f }, { spread, 0.6f } } },
+            { "Brostep Screech", { { master, -3.0f }, { mode, 1 }, { glide, 0.04f }, { osc1Wave, 1 }, { osc2Semi, 7 }, { osc2Lvl, 0.6f }, { fltType, 3 },
+                                   { cutoff, 2200 }, { reso, 0.7f }, { fltDrive, 0.9f }, { lfoCut, 0.6f }, { lfoSync, 1 }, { lfoDiv, 3 },
+                                   { ampA, 0.003f }, { ampS, 0.9f }, { ampR, 0.08f }, { spread, 0.0f } } },
+            { "Electro Pluck", { { master, 0.5f }, { osc1Uni, 2 }, { osc1Det, 0.15f }, { cutoff, 500 }, { reso, 0.3f }, { fltEnv, 0.8f }, { fltA, 0.001f },
+                                 { fltD, 0.12f }, { fltS, 0.0f }, { ampA, 0.001f }, { ampD, 0.25f }, { ampS, 0.0f }, { ampR, 0.12f },
+                                 { dlyMix, 0.25f }, { dlyTime, 2 }, { revMix, 0.1f } } },
         };
         return list;
     }

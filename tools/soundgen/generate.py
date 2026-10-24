@@ -21,6 +21,7 @@ import dsp            # noqa: E402
 import instruments    # noqa: E402,F401
 import electronic     # noqa: E402,F401
 import drummachines  # noqa: E402,F401
+import electro2012    # noqa: E402,F401
 from registry import SOUNDS  # noqa: E402
 
 OUT = os.path.join(ROOT, "Resources", "Library")
@@ -38,10 +39,30 @@ def is_percussion(entry):
     return any(w in sid for w in PERCUSSION_WORDS) or sid.endswith(("_ch", "_oh"))
 
 
+FAMILY_OF = {"Kick": "kick", "Rullanti": "snare", "Clap e schiocchi": "clap", "Hi-hat chiusi": "hat", "Hi-hat aperti": "ohat",
+             "Piatti": "cym", "Tom": "tom", "Percussioni": "perc", "Bassi": "bass", "Synth e stab": "synth", "FX": "fx", "Voci": "vox"}
+
+
+def align_to_family(x, entry):
+    """Suoni della prima libreria: stesso volume "percepito" della famiglia e niente bassi inutili
+    (passa-alto) su rullanti, clap, piatti e percussioni. L'EQ di carattere resta quella originale."""
+    import electro2012 as ex
+    fam = FAMILY_OF.get(classify(entry)[1])
+    if fam is None:
+        return x
+    hpf, _, _, _, target = ex.FAMILY[fam]
+    if fam in ("snare", "clap", "hat", "ohat", "cym", "perc"):
+        x = dsp.hp(x, hpf, order=2)
+    x = x * (target / ex.loudness(x))
+    return ex.soft_limit(x, 0.89)
+
+
 def render(index):
     entry = SOUNDS[index]
     dsp.PERCUSSION["on"] = is_percussion(entry)
     x = np.asarray(entry["fn"](), dtype=float)
+    if not entry["id"].startswith("x_"):
+        x = align_to_family(x, entry)
     if not np.all(np.isfinite(x)):
         raise RuntimeError(entry["id"] + ": valori non validi")
     pcm = np.clip(np.round(x * 32767), -32768, 32767).astype(np.int16)
@@ -57,6 +78,65 @@ def cpp_string(s):
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+# ---------------------------------------------------------------- libreria unica, per tipo di strumento
+DRUM_CATS = ["Kick", "Rullanti", "Clap e schiocchi", "Hi-hat chiusi", "Hi-hat aperti", "Piatti", "Tom", "Percussioni"]
+INSTR_CATS = ["Bassi", "Synth e stab", "Pad e atmosfere", "Pianoforti e tastiere", "Chitarre", "Archi", "Fiati e ottoni",
+              "Percussioni melodiche", "Voci", "FX"]
+
+
+def classify(s):
+    """(gruppo, categoria) nella libreria unica: "Batteria" per tipo di colpo, "Strumenti" per tipo di suono."""
+    sid, cat = s["id"], s["category"]
+    if s["group"] in ("Batteria", "Strumenti") and cat in DRUM_CATS + INSTR_CATS and sid.startswith("x_"):
+        return s["group"], cat
+    has = lambda *ws: any(w in sid for w in ws)
+    if cat == "Percussioni melodiche":
+        return "Strumenti", cat
+    if sid.startswith("fx_") or has("impact", "riser", "laser", "zap", "noise") and not has("hat"):
+        return "Strumenti", "FX"
+    if has("kick", "rumble"):
+        return "Batteria", "Kick"
+    if has("snare", "brush"):
+        return "Batteria", "Rullanti"
+    if has("clap", "snap"):
+        return "Batteria", "Clap e schiocchi"
+    if has("hat_open", "_oh") or sid.endswith("_oh"):
+        return "Batteria", "Hi-hat aperti"
+    if has("hat") or sid.endswith("_ch"):
+        return "Batteria", "Hi-hat chiusi"
+    if has("crash", "ride", "cymbal", "china", "splash"):
+        return "Batteria", "Piatti"
+    if has("_tom", "timpani") and not has("bottom"):
+        return ("Strumenti", "Percussioni melodiche") if sid == "timpani" else ("Batteria", "Tom")
+    if has("perc", "conga", "bongo", "clave", "cowbell", "tambourine", "triangle", "woodblock", "guiro", "djembe",
+           "shaker", "maracas", "cabasa", "sidestick") or "rim" in sid.split("_"):
+        return "Batteria", "Percussioni"
+    if cat in ("Batteria acustica", "Drum machine", "Percussioni"):
+        return "Batteria", "Percussioni"
+    if has("808", "bass", "sub", "reese", "wobble", "growl", "neuro", "acid"):
+        return "Strumenti", "Bassi"
+    if has("pad"):
+        return "Strumenti", "Pad e atmosfere"
+    if has("vox", "choir", "voice"):
+        return "Strumenti", "Voci"
+    if cat == "Voci e cori":
+        return "Strumenti", "Voci"
+    if cat in INSTR_CATS:
+        return "Strumenti", cat
+    return "Strumenti", "Synth e stab"
+
+
+def ordered_sounds():
+    """Ordine dell'indice = ordine nel browser: categorie per tipo, e i suoni nuovi (x_) per primi."""
+    items = []
+    for s in SOUNDS:
+        g, c = classify(s)
+        items.append(dict(s, group=g, category=c))
+    order = {c: i for i, c in enumerate(DRUM_CATS + INSTR_CATS)}
+    return sorted(items, key=lambda s: (0 if s["group"] == "Batteria" else 1, order.get(s["category"], 99),
+                                        0 if s["id"].startswith("x_") else 1))
+
+
 def write_index():
     lines = [
         "#pragma once",
@@ -68,7 +148,7 @@ def write_index():
         "    {",
         "        const char* id;          // salvato nei progetti come \"lib:<id>\"",
         "        const char* name;        // nome mostrato",
-        "        const char* group;       // Strumenti / Elettronica",
+        "        const char* group;       // Batteria / Strumenti",
         "        const char* category;",
         "        const char* resource;    // nome in BinaryData",
         "        int   rootNote;          // nota MIDI a cui e' registrato",
@@ -80,7 +160,7 @@ def write_index():
         "    inline constexpr Entry entries[] =",
         "    {",
     ]
-    for s in SOUNDS:
+    for s in ordered_sounds():
         res = s["id"].replace("-", "_") + "_ogg"
         col = s["colour"] if s["colour"] is not None else 0xff8aa0b8
         lines.append("        { %s, %s, %s, %s, %s, %d, %s, %.3ff, 0x%08xu }," % (

@@ -56,6 +56,7 @@ private:
     void openProject (const juce::String& name);
     void deleteProject (const juce::String& name);
     void newProject();
+    void applyDefaultDrums();
     void loadDemo (int index);
     void showGuide();
     void showUndoHistory();

@@ -146,6 +146,23 @@ namespace demos
               false,
               { { 2, 2, 4 }, { 4, 2, 5 }, { 6, 4, 4 }, { 12, 4, 2 }, { 18, 2, 4 }, { 20, 2, 2 }, { 22, 4, 1 }, { 28, 4, 0 } },
               false, true },
+
+            { "Complextro", "128 BPM, Fa minore: electro 2010 con stab sporchi, basso growl e lead dutch",
+              128.0, 0.0f, 5, 2, { 0, 0, 6, 5 }, theory::triad, "x.x..x.x", "x.xo.x.o",
+              {
+                  { "x_kick_complextro", "Kick",        "x...x...x...x...", "x...x...x...x...x...x...x...x..x", 0.0f },
+                  { "x_snare_complextro", "Snare",      "................", "....x.......x.......x.......x.x.", -1.0f },
+                  { "x_clap_electro", "Clap",           "................", "....x.......x.......x.......x...", -4.0f },
+                  { "x_hat_electro", "Hi-hat",          "..x...x...x...x.", "x.x.x.x.x.x.x.x.x.x.x.x.x.x.xxxx", -2.0f, 0.12f },
+                  { "x_ohat_electro", "Hi-hat aperto",  "................", "..x...x...x...x...x...x...x...x.", -4.0f, -0.12f },
+                  { "x_vox_hey", "Vox Hey",             "................", "............x...........x.x.....", -3.0f },
+              },
+              { "bassforge", "Basso", "Dubstep - Growl", 0.55f },
+              { "polyforge", "Stab", "Electro Saw Stab", 0.45f },
+              { "polyforge", "Lead", "Dirty Dutch Lead", 0.35f },
+              false,
+              { { 0, 2, 7 }, { 3, 1, 6 }, { 4, 2, 7 }, { 6, 2, 9 }, { 8, 4, 7 }, { 16, 2, 7 }, { 19, 1, 6 }, { 20, 2, 4 }, { 22, 2, 6 }, { 24, 6, 7 } },
+              true, false },
         };
         return demos;
     }

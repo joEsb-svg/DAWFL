@@ -835,7 +835,10 @@ void MainComponent::restoreSession()
         backup.copyFileTo (file);
     }
     else
+    {
         engine.resetProject();
+        applyDefaultDrums();
+    }
 }
 
 void MainComponent::saveSession()
@@ -1031,11 +1034,34 @@ void MainComponent::deleteProject (const juce::String& name)
     });
 }
 
+/** Progetto nuovo: la batteria parte con i campioni "Electro" della libreria (gia' equalizzati). */
+void MainComponent::applyDefaultDrums()
+{
+    static const char* ids[] = { "x_kick_complextro", "x_snare_complextro", "x_clap_electro", "x_hat_electro", "x_ohat_electro", "x_tom_mid" };
+    static const char* names[] = { "Kick", "Snare", "Clap", "Hi-Hat", "Open Hat", "Tom" };
+    for (int c = 0; c < 6 && c < engine.getNumChannels(); ++c)
+    {
+        auto* data = sampleStore.load (SampleStore::libraryName (ids[c]));
+        if (data == nullptr || engine.isSynth (c))
+            continue;
+        auto& ch = engine.getChannel (c);
+        ch.type.store (SequencerEngine::drumOrSample);
+        ch.sampleName = SampleStore::libraryName (ids[c]);
+        ch.sample.store (data);
+        if (auto* entry = SampleStore::findLibraryEntry (ids[c]))
+            ch.colour.store (entry->colour);
+        ch.name = names[c];
+        ch.customName = false;
+        ch.touchSound();
+    }
+}
+
 void MainComponent::newProject()
 {
     engine.setPlaying (false);
     synthPanel->onClose();
     engine.resetProject();
+    applyDefaultDrums();
     instruments->resolve();      // strumenti nuovi, al preset "Init"
     projectName = untitled;
     pageSwitch.setSelected (0);
