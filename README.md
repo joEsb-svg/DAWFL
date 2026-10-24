@@ -16,6 +16,8 @@ Gli aggiornamenti si installano sopra la versione precedente.
 
 ## Stato attuale (v0.33)
 
+**0.33.1**: corretto il mixer (i nomi dei canali sparivano toccando lo schermo)
+
 **Novita' della 0.33 (scatti audio)**
 - Riserva audio: un thread dedicato calcola l'audio in anticipo (40 ms su Android) e la scheda audio
   lo preleva dalla riserva, cosi' i picchi di calcolo del telefono non producono scatti

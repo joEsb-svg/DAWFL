@@ -120,12 +120,12 @@ public:
             Theme::drawActiveGlow (g, r, 8.0f, selected ? Theme::accent : Theme::accent.withAlpha (0.5f));
 
         // Nome con il colore della traccia (barretta luminosa)
-        auto stripe = nameArea.removeFromTop (3.0f).withTrimmedLeft (4).withTrimmedRight (4);
+        auto name = nameArea;      // copia: non consumare l'area del membro a ogni disegno
+        auto stripe = name.removeFromTop (3.0f).withTrimmedLeft (4).withTrimmedRight (4);
         g.setColour (nameColour.withAlpha (0.3f));
         g.fillRoundedRectangle (stripe.expanded (1.0f, 2.0f), 2.5f);
         g.setColour (nameColour);
         g.fillRoundedRectangle (stripe, 1.5f);
-        auto name = nameArea;
         g.setColour (Theme::textDim);
         g.setFont (Theme::font (10.0f, true));
         g.drawText (track == 0 ? juce::String ("M") : juce::String (track), name.removeFromTop (12.0f), juce::Justification::centred, false);
